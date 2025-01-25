@@ -4,6 +4,49 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../../../src/StratOption.sol";
 
+contract MockRenderer is TokenURIRenderer {
+    uint256 public tokenId;
+    uint256 public strikeAmount;
+    uint256 public notionalUnderlyingAmount;
+    uint256 public notionalUSDAmount;
+    uint256 public expiry;
+    uint256 public timelock;
+
+    constructor(
+        uint256 _tokenId,
+        uint256 _strikeAmount,
+        uint256 _notionalUnderlyingAmount,
+        uint256 _notionalUSDAmount,
+        uint256 _expiry,
+        uint256 _timelock
+    ) {
+        tokenId = _tokenId;
+        strikeAmount = _strikeAmount;
+        notionalUnderlyingAmount = _notionalUnderlyingAmount;
+        notionalUSDAmount = _notionalUSDAmount;
+        expiry = _expiry;
+        timelock = _timelock;
+    }
+
+    function render(
+        uint256 _tokenId,
+        uint256 _strikeAmount,
+        uint256 _notionalUnderlyingAmount,
+        uint256 _notionalUSDAmount,
+        uint256 _expiry,
+        uint256 _timelock
+    ) external view returns (string memory) {
+        require(_tokenId == tokenId);
+        require(_strikeAmount == strikeAmount);
+        require(_notionalUnderlyingAmount == notionalUnderlyingAmount);
+        require(_notionalUSDAmount == notionalUSDAmount);
+        require(_expiry == expiry);
+        require(_timelock == timelock);
+
+        return "https://mocked-uri.com/";
+    }
+}
+
 contract StratOptionTest is Test {
     StratOption internal collection;
 
@@ -100,6 +143,45 @@ contract StratOptionTest is Test {
         // Approved minter attempts to burn more than approved
         vm.expectRevert();
         collection.burn(1);
+        vm.stopPrank();
+    }
+
+    function testOnlyOwnerCanSetRenderer() external {
+        MockRenderer mock = new MockRenderer(0, 0, 0, 0, 0, 0);
+
+        // Non-owner tries to set renderer
+        vm.startPrank(user);
+        vm.expectRevert();
+        collection.managerRenderer(address(mock));
+        vm.stopPrank();
+
+        // Owner sets the renderer
+        vm.startPrank(owner);
+        collection.managerRenderer(address(mock));
+        vm.stopPrank();
+    }
+
+    function testTokenURIReturnsEmptyIfNoRendererSet() external {
+        vm.startPrank(owner);
+        collection.manageMinter(owner, true);
+        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+
+        // No renderer => empty tokenURI
+        assertEq(collection.tokenURI(1), "");
+    }
+
+    function testTokenURIUsesRendererIfPresent() external {
+        MockRenderer mock = new MockRenderer(1, 10, 5, 3000, block.timestamp + 100000, block.timestamp + 100);
+
+        vm.startPrank(owner);
+        collection.manageMinter(owner, true);
+        collection.mint(10, 5, 3000, block.timestamp + 100000, block.timestamp + 100);
+        collection.managerRenderer(address(mock));
+        vm.stopPrank();
+
+        // Mock renderer => "mocked URI"
+        vm.startPrank(owner);
+        assertEq(collection.tokenURI(1), "https://mocked-uri.com/");
         vm.stopPrank();
     }
 }
