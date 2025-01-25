@@ -25,7 +25,9 @@ contract StratOption is ERC721, Ownable2Step {
 
     address public tokenURIRenderer;
 
-    constructor() ERC721("STRAT Option", "oSTRAP") Ownable(msg.sender) {}
+    constructor() ERC721("STRAT Option", "oSTRAP") Ownable(msg.sender) {
+        _tokenIdCounter = 1;
+    }
 
     /**
      * @dev Allows only the owner to manage who can mint tokens.
