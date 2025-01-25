@@ -54,6 +54,9 @@ contract StratOptionTest is Test {
         vm.startPrank(minter);
         vm.expectRevert();
         collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+
+        // Check balance
+        assertEq(collection.balanceOf(minter), 1);
     }
 
     function testBurnByHolder() external {
@@ -66,7 +69,9 @@ contract StratOptionTest is Test {
 
         // User burns option
         vm.startPrank(user);
+        assertEq(collection.balanceOf(user), 1);
         collection.burn(1);
+        assertEq(collection.balanceOf(user), 0);
 
         // User attempts to burn token that's already burned
         vm.expectRevert();
@@ -88,7 +93,9 @@ contract StratOptionTest is Test {
 
         // Approved actor burns option from user
         vm.startPrank(approvedActor);
+        assertEq(collection.balanceOf(user), 1);
         collection.burn(1);
+        assertEq(collection.balanceOf(user), 0);
 
         // Approved minter attempts to burn more than approved
         vm.expectRevert();
