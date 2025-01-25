@@ -1,0 +1,49 @@
+{
+  "name": "International-Meme-Fund",
+  "description": "IMF Protocol",
+  "license": "GPL-2.0-only",
+  "version": "1.0.0",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepare": "husky install && forge install",
+    "build": "FOUNDRY_PROFILE=build forge build",
+    "test": "FOUNDRY_PROFILE=test forge test",
+    "test:invariant": "FOUNDRY_MATCH_CONTRACT=InvariantTest yarn test:forge",
+    "test:integration": "FOUNDRY_MATCH_CONTRACT=IntegrationTest yarn test:forge",
+    "test:halmos": "FOUNDRY_PROFILE=test halmos",
+    "lint": "yarn lint:forge",
+    "lint:forge": "forge fmt --check",
+    "lint:fix": "yarn lint:forge:fix",
+    "lint:forge:fix": "forge fmt",
+    "clean": "forge clean"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^17.7.1",
+    "@commitlint/config-conventional": "^17.7.0",
+    "@trivago/prettier-plugin-sort-imports": "^4.2.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^14.0.1",
+    "prettier": "^3.0.2",
+    "solidity-coverage": "^0.8.4"
+  },
+  "lint-staged": {
+    "*.sol": "forge fmt",
+    "*.json": "yarn prettier",
+    "*.yml": "yarn prettier"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "prettier": {
+    "printWidth": 120,
+    "plugins": [
+      "@trivago/prettier-plugin-sort-imports"
+    ]
+  }
+}
