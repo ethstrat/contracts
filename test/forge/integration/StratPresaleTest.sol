@@ -30,7 +30,7 @@ contract StratPresaleTest is Test {
         assertEq(address(this).balance, 0);
 
         assertEq(stratOption.balanceOf(address(this)), 1);
-        assertEq(stratOption.strikeAmount(1), 1 ether);
+        assertEq(stratOption.strikeAmount(1), 2 ether);
         assertEq(stratOption.notionalUnderlyingAmount(1), 2 ether);
         assertEq(stratOption.notionalUSDAmount(1), 0);
         assertEq(stratOption.expiry(1), block.timestamp + (420 * 365 days));
@@ -50,7 +50,7 @@ contract StratPresaleTest is Test {
         assertEq(address(this).balance, 0);
 
         assertEq(stratOption.balanceOf(address(this)), 1);
-        assertEq(stratOption.strikeAmount(1), 1 ether);
+        assertEq(stratOption.strikeAmount(1), 999 ether);
         assertEq(stratOption.notionalUnderlyingAmount(1), valueToSend);
         assertEq(stratOption.notionalUSDAmount(1), 0);
         assertEq(stratOption.expiry(1), block.timestamp + (420 * 365 days));

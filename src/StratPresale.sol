@@ -20,12 +20,7 @@ contract StratPresale {
         cap -= msg.value;
 
         stratOption.mint(
-            msg.sender,
-            1e18, // 1 cdUSD
-            msg.value,
-            0,
-            block.timestamp + (420 * 365 days),
-            block.timestamp + 90 days
+            msg.sender, msg.value, msg.value, 0, block.timestamp + (420 * 365 days), block.timestamp + 90 days
         );
 
         // send ETH to presale multisig
