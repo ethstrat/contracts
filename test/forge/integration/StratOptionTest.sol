@@ -85,29 +85,29 @@ contract StratOptionTest is Test {
         // Non-minter mint should fail
         vm.startPrank(user);
         vm.expectRevert();
-        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
 
         // Minter can mint
         vm.startPrank(minter);
-        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+        assertEq(collection.balanceOf(user), 1);
 
         // Revoked Minter can no longer mint
         vm.startPrank(owner);
         collection.manageMinter(minter, false);
         vm.startPrank(minter);
         vm.expectRevert();
-        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
 
         // Check balance
-        assertEq(collection.balanceOf(minter), 1);
+        assertEq(collection.balanceOf(user), 1);
     }
 
     function testBurnByHolder() external {
         // Owner mints tokens to user
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
-        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
-        collection.safeTransferFrom(owner, user, 1);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
         vm.stopPrank();
 
         // User burns option
@@ -126,8 +126,7 @@ contract StratOptionTest is Test {
         // Owner mints tokens to user and approves minter
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
-        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
-        collection.safeTransferFrom(owner, user, 1);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
         vm.stopPrank();
 
         vm.startPrank(user);
@@ -164,7 +163,7 @@ contract StratOptionTest is Test {
     function testTokenURIReturnsEmptyIfNoRendererSet() external {
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
-        collection.mint(1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, block.timestamp + 100);
 
         // No renderer => empty tokenURI
         assertEq(collection.tokenURI(1), "");
@@ -175,7 +174,7 @@ contract StratOptionTest is Test {
 
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
-        collection.mint(10, 5, 3000, block.timestamp + 100000, block.timestamp + 100);
+        collection.mint(user, 10, 5, 3000, block.timestamp + 100000, block.timestamp + 100);
         collection.managerRenderer(address(mock));
         vm.stopPrank();
 

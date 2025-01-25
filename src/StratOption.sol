@@ -44,6 +44,7 @@ contract StratOption is ERC721, Ownable2Step {
     }
 
     function mint(
+        address to,
         uint256 _strikeAmount,
         uint256 _notionalUnderlyingAmount,
         uint256 _notionalUSDAmount,
@@ -51,7 +52,7 @@ contract StratOption is ERC721, Ownable2Step {
         uint256 _timelock
     ) external onlyMinter {
         uint256 tokenId = _tokenIdCounter++;
-        _mint(msg.sender, tokenId);
+        _mint(to, tokenId);
         strikeAmount[tokenId] = _strikeAmount;
         notionalUnderlyingAmount[tokenId] = _notionalUnderlyingAmount;
         notionalUSDAmount[tokenId] = _notionalUSDAmount;
