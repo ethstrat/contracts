@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
-import "./interfaces/TokenURIRenderer.sol";
+import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
 
 /**
  * @title A call option over strat.
@@ -13,15 +13,16 @@ import "./interfaces/TokenURIRenderer.sol";
 contract StratOption is ERC721, Ownable2Step {
     uint256 public _tokenIdCounter;
 
-    mapping(uint256 => uint256) public strikeAmount;
-    mapping(uint256 => uint256) public notionalUnderlyingAmount;
-    mapping(uint256 => uint256) public notionalUSDAmount;
-    mapping(uint256 => uint256) public expiry;
-    mapping(uint256 => uint256) public timelock;
+    mapping(uint256 tokenId => uint256) public strikeAmount;
+    mapping(uint256 tokenId => uint256) public notionalUnderlyingAmount;
+    mapping(uint256 tokenId => uint256) public notionalUSDAmount;
+    mapping(uint256 tokenId => uint256) public expiry;
+    mapping(uint256 tokenId => uint256) public timelock;
 
     mapping(address => bool) public minters;
 
     error MinterUnauthorizedAccount(address account);
+    error NotOwnerOrApproved(address account, uint256 tokenId);
 
     address public tokenURIRenderer;
 
@@ -61,10 +62,9 @@ contract StratOption is ERC721, Ownable2Step {
     }
 
     function burn(uint256 tokenId) external {
-        require(
-            ownerOf(tokenId) == msg.sender || getApproved(tokenId) == msg.sender,
-            "StratOption: Not token owner or approved"
-        );
+        if (ownerOf(tokenId) != msg.sender && getApproved(tokenId) != msg.sender) {
+            revert NotOwnerOrApproved(msg.sender, tokenId);
+        }
 
         strikeAmount[tokenId] = 0;
         notionalUnderlyingAmount[tokenId] = 0;
