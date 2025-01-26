@@ -12,7 +12,7 @@ contract StratPresaleTest is Test {
 
     function setUp() public {
         stratOption = new StratOption();
-        presale = new StratPresale(stratOption, presaleMultisig);
+        presale = new StratPresale(1000 ether, stratOption, presaleMultisig);
         stratOption.manageMinter(address(presale), true);
     }
 
@@ -27,6 +27,7 @@ contract StratPresaleTest is Test {
         presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, valueToSend);
+        assertEq(presale.totalRaised(), valueToSend);
         assertEq(address(this).balance, 0);
 
         assertEq(stratOption.balanceOf(address(this)), 1);
@@ -65,6 +66,7 @@ contract StratPresaleTest is Test {
         presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, 1000 ether);
+        assertEq(presale.totalRaised(), 1000 ether);
         assertEq(address(this).balance, 0);
 
         assertEq(stratOption.balanceOf(address(this)), 2);
@@ -82,5 +84,37 @@ contract StratPresaleTest is Test {
         vm.deal(address(this), valueToSend);
         vm.expectRevert(bytes("Cap reached"));
         presale.mint{value: valueToSend}();
+    }
+
+    function testContributionsPerAddress() public {
+        address user1 = address(0x1111);
+        address user2 = address(0x2222);
+
+        vm.deal(user1, 5 ether);
+        vm.deal(user2, 5 ether);
+
+        // First contribution from user1
+        vm.startPrank(user1);
+        presale.mint{value: 2 ether}();
+        vm.stopPrank();
+
+        assertEq(presale.contributions(user1), 2 ether);
+        assertEq(presale.totalRaised(), 2 ether);
+
+        // First contribution from user2
+        vm.startPrank(user2);
+        presale.mint{value: 3 ether}();
+        vm.stopPrank();
+
+        assertEq(presale.contributions(user2), 3 ether);
+        assertEq(presale.totalRaised(), 5 ether);
+
+        // Second contribution from user1
+        vm.startPrank(user1);
+        presale.mint{value: 2 ether}();
+        vm.stopPrank();
+
+        assertEq(presale.contributions(user1), 4 ether);
+        assertEq(presale.totalRaised(), 7 ether);
     }
 }
