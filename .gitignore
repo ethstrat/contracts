@@ -24,3 +24,5 @@ emv-*-certora*
 /types
 /cache_hardhat
 /artifacts
+
+.DS_Store
