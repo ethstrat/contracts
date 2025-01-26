@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import "./StratOption.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 
 contract StratPresale {
-    StratOption public stratOption;
+    IStratOptionMinter public stratOption;
     address public immutable presaleMultisig;
     uint256 public immutable cap;
     uint256 public totalRaised = 0;
@@ -13,9 +13,11 @@ contract StratPresale {
     // having to setup chain indexers for presale dapp
     mapping(address => uint256) public contributions;
 
-    constructor(uint256 _cap, StratOption _stratOption, address _presaleMultisig) {
+    event PresaleMint(address indexed from, uint256 value);
+
+    constructor(uint256 _cap, address _stratOption, address _presaleMultisig) {
         cap = _cap;
-        stratOption = _stratOption;
+        stratOption = IStratOptionMinter(_stratOption);
         presaleMultisig = _presaleMultisig;
     }
 
@@ -34,5 +36,7 @@ contract StratPresale {
         // send ETH to presale multisig
         (bool success,) = presaleMultisig.call{value: msg.value}("");
         require(success, "Transfer failed");
+
+        emit PresaleMint(msg.sender, msg.value);
     }
 }

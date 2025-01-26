@@ -12,7 +12,7 @@ contract StratPresaleTest is Test {
 
     function setUp() public {
         stratOption = new StratOption();
-        presale = new StratPresale(1000 ether, stratOption, presaleMultisig);
+        presale = new StratPresale(1000 ether, address(stratOption), presaleMultisig);
         stratOption.manageMinter(address(presale), true);
     }
 
