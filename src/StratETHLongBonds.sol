@@ -52,7 +52,7 @@ contract StratETHLongBonds is Ownable2Step {
         require(msg.value > 0, "No ETH sent");
 
         // TODO: scaling factors
-        uint256 notionalUSDAmount = msg.value * ethPrice() / 1e18;
+        uint256 notionalUSDAmount = msg.value * ethPrice();
         uint256 strikeAmount = notionalUSDAmount;
         uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount) / SCALE; // TODO(econ):
             // confirming scaling factors
@@ -75,6 +75,7 @@ contract StratETHLongBonds is Ownable2Step {
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
         // TODO(nap/econ): implement oracles and work out scaling factors
+
         uint256 ratio = ((cdUSD.totalSupply() + (notionalUSDAmount / 2)) * SCALE) / stratToken.totalSupply();
         uint256 debtToMc = (ratio * stratPrice()) / SCALE;
         return stratPrice() * bcv * debtToMc;
