@@ -6,6 +6,6 @@ import "./MintableBurnableToken.sol";
 /**
  * @title STRAT perpetual debt receipt token
  */
-contract cdUSDToken is MintableBurnableToken {
-    constructor() MintableBurnableToken("ETH Stratetgy Debt", "cdUSD") {}
+contract CdtToken is MintableBurnableToken {
+    constructor(address owner) MintableBurnableToken("ETH Stratetgy Debt", "cdUSD", owner) {}
 }

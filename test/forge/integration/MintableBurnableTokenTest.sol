@@ -14,7 +14,7 @@ contract MintableBurnableTokenTest is Test {
 
     function setUp() external {
         vm.prank(owner);
-        token = new MintableBurnableToken("name", "symbol");
+        token = new MintableBurnableToken("name", "symbol", owner);
     }
 
     function testOnlyOwnerCanManageMinters() external {

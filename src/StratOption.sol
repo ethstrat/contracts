@@ -26,7 +26,7 @@ contract StratOption is ERC721, Ownable2Step {
 
     address public tokenURIRenderer;
 
-    constructor() ERC721("STRAT Option", "oSTRAT") Ownable(msg.sender) {
+    constructor(address owner) ERC721("STRAT Option", "oSTRAT") Ownable(owner) {
         _tokenIdCounter = 1;
     }
 

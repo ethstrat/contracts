@@ -3,9 +3,9 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../../../src/StratETHLongBonds.sol";
-import "../../../src/cdUSDToken.sol"; // Path to your cdUSD contract
-import "../../../src/StratToken.sol"; // Path to your stratToken contract
-import "../../../src/StratOption.sol"; // Path to your stratOption contract
+import "../../../src/CdtToken.sol";
+import "../../../src/StratToken.sol";
+import "../../../src/StratOption.sol";
 
 contract MockOracle {
     uint256 private _price;
@@ -25,7 +25,7 @@ contract MockOracle {
 
 contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
-    cdUSDToken public cdUSD;
+    CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
 
@@ -40,11 +40,11 @@ contract StratETHLongBondsTest is Test {
     function setUp() public {
         // Deploy the real contracts
         vm.prank(owner);
-        cdUSD = new cdUSDToken();
+        cdtToken = new CdtToken(owner);
         vm.prank(owner);
-        stratToken = new StratToken();
+        stratToken = new StratToken(owner);
         vm.prank(owner);
-        stratOption = new StratOption();
+        stratOption = new StratOption(owner);
 
         // Deploy mock oracles
         ethUsdOracle = new MockOracle(3000e8); // ETH price: $3000
@@ -52,7 +52,7 @@ contract StratETHLongBondsTest is Test {
         vm.prank(owner);
         // Deploy the StratETHLongBonds contract
         bonds = new StratETHLongBonds(
-            address(cdUSD),
+            address(cdtToken),
             address(stratToken),
             address(stratOption),
             treasuryManager,
@@ -63,19 +63,19 @@ contract StratETHLongBondsTest is Test {
         );
 
         vm.prank(owner);
-        cdUSD.manageMinter(address(this), true); // Allow this test contract to mint cdUSD
+        cdtToken.manageMinter(address(this), true); // Allow this test contract to mint CDT
         vm.prank(owner);
         stratToken.manageMinter(address(this), true); // Allow this test contract to mint stratToken
 
         // Mint tokens to initialize the supply (So it's non-zero)
-        cdUSD.mint(address(this), 1000);
+        cdtToken.mint(address(this), 1000);
         stratToken.mint(address(this), 1000);
 
-        // Give bonding contract ability to mint cdUSD and StratOption
+        // Give bonding contract ability to mint CDT and StratOption
         vm.prank(owner);
-        cdUSD.manageMinter(address(bonds), true); // Allow the bonds contract to mint cdUSD
+        cdtToken.manageMinter(address(bonds), true);
         vm.prank(owner);
-        stratOption.manageMinter(address(bonds), true); // Allow the bonds contract to mint cdUSD
+        stratOption.manageMinter(address(bonds), true);
     }
 
     function testOnlyOwnerCanSetBCV() public {
@@ -101,7 +101,7 @@ contract StratETHLongBondsTest is Test {
 
         // Calculate expected strike price
         uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e18;
-        uint256 ratio = ((cdUSD.totalSupply() + (notionalUSDAmount / 2)) * bonds.SCALE()) / stratToken.totalSupply();
+        uint256 ratio = ((cdtToken.totalSupply() + (notionalUSDAmount / 2)) * bonds.SCALE()) / stratToken.totalSupply();
         uint256 debtToMc = (ratio * stratPrice) / bonds.SCALE();
         uint256 expectedStrikePrice = stratPrice * bonds.bcv() * debtToMc;
 
@@ -125,9 +125,9 @@ contract StratETHLongBondsTest is Test {
             treasuryBalanceAfter - treasuryBalanceBefore, ethAmount, "Treasury did not receive the correct ETH amount"
         );
 
-        // Verify the cdUSD balance of the user
+        // Verify the CDT balance of the user
         uint256 expectedCdUSDAmount = (ethAmount * ethUsdOracle.price()) / 1e8; // ETH -> USD conversion
-        assertEq(cdUSD.balanceOf(user), expectedCdUSDAmount, "User cdUSD balance incorrect");
+        assertEq(cdtToken.balanceOf(user), expectedCdUSDAmount, "User CDT balance incorrect");
 
         // Verify the minted StratOption attributes
         uint256 tokenId = 1; // Assuming this is the first minted option

@@ -57,7 +57,7 @@ contract StratOptionTest is Test {
 
     function setUp() external {
         vm.prank(owner);
-        collection = new StratOption();
+        collection = new StratOption(owner);
     }
 
     function testOnlyOwnerCanManageMinters() external {

@@ -12,7 +12,7 @@ contract MintableBurnableToken is ERC20, Ownable2Step {
 
     error MinterUnauthorizedAccount(address account);
 
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) Ownable(msg.sender) {}
+    constructor(string memory name, string memory symbol, address owner) ERC20(name, symbol) Ownable(owner) {}
 
     /**
      * @dev Allows only the owner to manage who can mint tokens.

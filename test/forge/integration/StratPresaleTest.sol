@@ -9,11 +9,14 @@ contract StratPresaleTest is Test {
     StratPresale private presale;
     StratOption private stratOption;
     address presaleMultisig = address(0x123);
+    address internal owner = address(0x123);
 
     function setUp() public {
-        stratOption = new StratOption();
+        vm.startPrank(owner);
+        stratOption = new StratOption(owner);
         presale = new StratPresale(1000 ether, address(stratOption), presaleMultisig);
         stratOption.manageMinter(address(presale), true);
+        vm.stopPrank();
     }
 
     function testMintRevertsIfNoEthSent() public {
