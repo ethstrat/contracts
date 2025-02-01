@@ -10,4 +10,7 @@ interface IOracle {
     /// @dev It corresponds to the price of 10**(base token decimals) quoted in
     /// 10**(quote token decimals)
     function price() external view returns (uint256);
+
+    function baseTokenDecimals() external view returns (uint8);
+    function quoteTokenDecimals() external view returns (uint8);
 }
