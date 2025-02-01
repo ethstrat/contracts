@@ -38,18 +38,16 @@ contract StratETHLongBondsTest is Test {
     address internal user = address(0x789);
 
     function setUp() public {
-        // Deploy the real contracts
-        vm.prank(owner);
-        cdtToken = new CdtToken(owner);
-        vm.prank(owner);
-        stratToken = new StratToken(owner);
-        vm.prank(owner);
-        stratOption = new StratOption(owner);
-
         // Deploy mock oracles
         ethUsdOracle = new MockOracle(3000e8); // ETH price: $3000
         stratEthOracle = new MockOracle(1e18); // Strat price: 1 ETH
-        vm.prank(owner);
+
+        // Deploy the real contracts
+        vm.startPrank(owner);
+        cdtToken = new CdtToken(owner);
+        stratToken = new StratToken(owner);
+        stratOption = new StratOption(owner);
+
         // Deploy the StratETHLongBonds contract
         bonds = new StratETHLongBonds(
             address(cdtToken),
@@ -62,20 +60,17 @@ contract StratETHLongBondsTest is Test {
             owner
         );
 
-        vm.prank(owner);
-        cdtToken.manageMinter(address(this), true); // Allow this test contract to mint CDT
-        vm.prank(owner);
-        stratToken.manageMinter(address(this), true); // Allow this test contract to mint stratToken
+        cdtToken.manageMinter(owner, true);
+        stratToken.manageMinter(owner, true);
 
         // Mint tokens to initialize the supply (So it's non-zero)
-        cdtToken.mint(address(this), 1000);
+        cdtToken.mint(address(this), 1000); // TODO(nap): delete
         stratToken.mint(address(this), 1000);
 
         // Give bonding contract ability to mint CDT and StratOption
-        vm.prank(owner);
         cdtToken.manageMinter(address(bonds), true);
-        vm.prank(owner);
         stratOption.manageMinter(address(bonds), true);
+        vm.stopPrank();
     }
 
     function testOnlyOwnerCanSetBCV() public {
