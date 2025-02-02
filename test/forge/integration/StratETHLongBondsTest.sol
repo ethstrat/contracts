@@ -128,13 +128,50 @@ contract StratETHLongBondsTest is Test {
         uint256 tokenId = 1; // Assuming this is the first minted option
         uint256 expectedStrikeAmount = expectedCdUSDAmount;
 
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
         assertEq(stratOption.strikeAmount(tokenId), expectedStrikeAmount, "Incorrect strike amount");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId), 999500249875062468, "Incorrect notional underlying amount"
+        );
+        assertLt(
+            stratOption.notionalUnderlyingAmount(tokenId),
+            stratEthOracle.price(),
+            "Should be less than current spot price for strat"
+        );
         assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
+    }
 
-        // Verify expiry and timelock values
-        uint256 expectedExpiry = block.timestamp + (420 * 365 days);
-        uint256 expectedTimelock = block.timestamp + 69 minutes;
-        assertEq(stratOption.expiry(tokenId), expectedExpiry, "Incorrect expiry");
-        assertEq(stratOption.timelock(tokenId), expectedTimelock, "Incorrect timelock");
+    function testBondDataInvariants() public {
+        uint256 stratOnExercise = 0;
+
+        for (uint256 i = 0; i < 10; i++) {
+            // Bond 1 ETH
+            vm.deal(user, 1 ether);
+            vm.prank(user);
+            bonds.bond{value: 1 ether}(user);
+
+            if (i == 0) {
+                continue;
+            }
+
+            assertGt(
+                stratOption.notionalUnderlyingAmount(i),
+                stratOption.notionalUnderlyingAmount(i + 1),
+                "Each subsequent bond should have less notional than the previous"
+            );
+            assertEq(
+                stratOption.strikeAmount(i),
+                stratOption.strikeAmount(i + 1),
+                "Strike should be the same, as we are bonding the same amount of ETH each time (and the oracle isn't changing)"
+            );
+            assertEq(
+                stratOption.notionalUSDAmount(i),
+                stratOption.strikeAmount(i + 1),
+                "Debt should be the same, as we are bonding the same amount of ETH each time (and the oracle isn't changing)"
+            );
+        }
     }
 }

@@ -20,7 +20,7 @@ contract StratETHLongBonds is Ownable2Step {
 
     uint256 public bcv;
 
-    uint256 public immutable SCALE = 1e6;
+    uint256 public immutable SCALE = 1e18;
     uint256 public immutable USD_ORACLE_SCALE;
 
     // TODO(nap): Events
@@ -32,7 +32,7 @@ contract StratETHLongBonds is Ownable2Step {
      * @param _treasuryManager The treasury manager
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratEthOracle The STRAT/ETH oracle
-     * @param _bcv The bond conversion value
+     * @param _bcv The bond conversion value, scaled by SCALE
      * @param owner The owner
      */
     constructor(
@@ -68,7 +68,7 @@ contract StratETHLongBonds is Ownable2Step {
         // TODO: scaling factors
         uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE;
         uint256 strikeAmount = notionalUSDAmount;
-        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount) / SCALE;
+        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount);
 
         stratOption.mint(
             bonder,
