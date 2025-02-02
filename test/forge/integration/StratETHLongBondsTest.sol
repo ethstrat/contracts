@@ -140,7 +140,7 @@ contract StratETHLongBondsTest is Test {
             "Should be less than current spot price for strat"
         );
         assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
-        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (4.2 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
     }
 

@@ -6,15 +6,16 @@ import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 
+import "forge-std/console.sol";
+
 /**
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
-contract StratETHLongBonds is Ownable2Step {
+contract StratETHShortBonds is Ownable2Step {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
-    address immutable treasuryManager;
     IOracle public immutable ethUsdOracle;
     IOracle public immutable stratEthOracle;
 
@@ -29,7 +30,6 @@ contract StratETHLongBonds is Ownable2Step {
      * @param _cdtToken The CDT token
      * @param _stratToken The STRAT token
      * @param _stratOption The STRAT option
-     * @param _treasuryManager The treasury manager
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratEthOracle The STRAT/ETH oracle
      * @param _bcv The bond conversion value, scaled by SCALE
@@ -39,7 +39,6 @@ contract StratETHLongBonds is Ownable2Step {
         address _cdtToken,
         address _stratToken,
         address _stratOption,
-        address _treasuryManager,
         address _ethUsdOracle,
         address _stratEthOracle,
         uint256 _bcv,
@@ -48,7 +47,6 @@ contract StratETHLongBonds is Ownable2Step {
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20(_stratToken);
         stratOption = IStratOptionMinter(_stratOption);
-        treasuryManager = _treasuryManager;
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratEthOracle = IOracle(_stratEthOracle);
 
@@ -62,31 +60,21 @@ contract StratETHLongBonds is Ownable2Step {
         bcv = _newBcv;
     }
 
-    function bond(address bonder) external payable {
-        require(msg.value > 0, "No ETH sent");
-
-        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE;
-        uint256 strikeAmount = notionalUSDAmount;
-        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount);
+    function bond(address bonder, uint256 amount) external {
+        require(amount > 0, "Amount must be greater than 0");
+        uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
 
         stratOption.mint(
-            bonder,
-            strikeAmount,
-            notionalUnderlyingAmount,
-            notionalUSDAmount,
-            block.timestamp + (4.2 * 365 days),
-            block.timestamp + 69 minutes
+            bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 69 minutes
         );
 
-        cdtToken.mint(bonder, notionalUSDAmount);
-
-        // Send the eth to the treasury manager contract
-        (bool success,) = treasuryManager.call{value: msg.value}("");
-        require(success, "Transfer failed");
+        cdtToken.burnFrom(msg.sender, amount);
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
-        uint256 premium = bcv * (cdtToken.totalSupply() + (notionalUSDAmount / 2)) / stratToken.totalSupply();
-        return stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE + premium;
+        uint256 stratPrice = stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE;
+        //TODO(nap): Do we neeed to price by taking into account the expected cdt burn?
+        return stratPrice * stratToken.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
+            * stratPrice / SCALE / SCALE;
     }
 }
