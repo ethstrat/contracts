@@ -145,8 +145,6 @@ contract StratETHLongBondsTest is Test {
     }
 
     function testBondDataInvariants() public {
-        uint256 stratOnExercise = 0;
-
         for (uint256 i = 0; i < 10; i++) {
             // Bond 1 ETH
             vm.deal(user, 1 ether);
@@ -173,5 +171,73 @@ contract StratETHLongBondsTest is Test {
                 "Debt should be the same, as we are bonding the same amount of ETH each time (and the oracle isn't changing)"
             );
         }
+    }
+
+    function testStrikeChangesWhenOracleChanges() public {
+        // Bond 1 ETH
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        bonds.bond{value: 1 ether}(user);
+
+        // Bond 1 more ETH, after eth price goes up to $4000
+        ethUsdOracle.setPrice(4000e8);
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        bonds.bond{value: 1 ether}(user);
+
+        // strike price should be different between the two (goes up)
+        assertLt(
+            stratOption.strikeAmount(1),
+            stratOption.strikeAmount(2),
+            "ETH price increase should increase total strike amount"
+        );
+
+        // Changes in STRAT/ETH price don't change the notional USD (but the calculated strike price should move about)
+        uint256 strikeBeforePriceChange = bonds.strikePrice(0);
+        stratEthOracle.setPrice(1.5e18);
+        uint256 strikeAfterPriceChange = bonds.strikePrice(0);
+        assertLt(
+            strikeBeforePriceChange,
+            strikeAfterPriceChange,
+            "STRAT price increase should increase the bond strike per strat"
+        );
+
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        bonds.bond{value: 1 ether}(user);
+        assertEq(
+            stratOption.notionalUSDAmount(2),
+            stratOption.notionalUSDAmount(3),
+            "STRAT price increase shouldn't effect notional USD"
+        );
+
+        strikeBeforePriceChange = bonds.strikePrice(0);
+        stratEthOracle.setPrice(0.5e18);
+        strikeAfterPriceChange = bonds.strikePrice(0);
+        assertGt(
+            strikeBeforePriceChange,
+            strikeAfterPriceChange,
+            "STRAT price decrease should decrease the bond strike per strat"
+        );
+
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        bonds.bond{value: 1 ether}(user);
+        assertEq(
+            stratOption.notionalUSDAmount(3),
+            stratOption.notionalUSDAmount(4),
+            "STRAT price decrease shouldn't effect notional USD"
+        );
+
+        // Bond 1 more ETH, after ETH/USD price goes down to $3000
+        ethUsdOracle.setPrice(3000e8);
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        bonds.bond{value: 1 ether}(user);
+        assertGt(
+            stratOption.strikeAmount(4),
+            stratOption.strikeAmount(5),
+            "ETH price decrease should decrease total strike amount"
+        );
     }
 }
