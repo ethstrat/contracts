@@ -10,6 +10,8 @@ contract StratOptionExercise {
     StratOption public immutable stratOption;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
+    error TimelockActive(address account, uint256 tokenId);
+    error OptionExpired(address account, uint256 tokenId);
 
     // TODO(nap): Events
 
@@ -25,8 +27,8 @@ contract StratOptionExercise {
     }
 
     function exercise(uint256 tokenId) external {
-        require(stratOption.timelock(tokenId) < block.timestamp, "Exercise timelocked");
-        require(stratOption.expiry(tokenId) > block.timestamp, "Option expired");
+        if (stratOption.timelock(tokenId) < block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        if (stratOption.expiry(tokenId) > block.timestamp) revert OptionExpired(msg.sender, tokenId);
 
         address optionOwner = stratOption.ownerOf(tokenId);
 
@@ -36,5 +38,6 @@ contract StratOptionExercise {
 
         cdtToken.burnFrom(msg.sender, stratOption.strikeAmount(tokenId));
         stratToken.mint(optionOwner, stratOption.notionalUnderlyingAmount(tokenId));
+        stratOption.burn(tokenId);
     }
 }
