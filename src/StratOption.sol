@@ -38,7 +38,7 @@ contract StratOption is ERC721, Ownable2Step {
     }
 
     /**
-     * @dev Allows only the owner to manage who can mint tokens.
+     * @dev Allows only the owner can update the token URI renderer.
      */
     function managerRenderer(address renderer) external onlyOwner {
         tokenURIRenderer = renderer;
