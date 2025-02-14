@@ -27,14 +27,10 @@ contract StratOptionExercise {
     }
 
     function exercise(uint256 tokenId) external {
-        if (stratOption.timelock(tokenId) < block.timestamp) revert TimelockActive(msg.sender, tokenId);
-        if (stratOption.expiry(tokenId) > block.timestamp) revert OptionExpired(msg.sender, tokenId);
+        if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        if (stratOption.expiry(tokenId) < block.timestamp) revert OptionExpired(msg.sender, tokenId);
 
         address optionOwner = stratOption.ownerOf(tokenId);
-
-        if (optionOwner != msg.sender && stratOption.getApproved(tokenId) != msg.sender) {
-            revert NotOwnerOrApproved(msg.sender, tokenId);
-        }
 
         cdtToken.burnFrom(msg.sender, stratOption.strikeAmount(tokenId));
         stratToken.mint(optionOwner, stratOption.notionalUnderlyingAmount(tokenId));
