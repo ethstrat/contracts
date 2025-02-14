@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
+import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /**
  * @title The STRAT Token
  */
-contract MintableBurnableToken is ERC20, Ownable2Step {
+contract MintableBurnableToken is ERC20Permit, Ownable2Step {
     mapping(address => bool) public minters;
 
     error MinterUnauthorizedAccount(address account);
 
-    constructor(string memory name, string memory symbol, address owner) ERC20(name, symbol) Ownable(owner) {}
+    constructor(string memory name, string memory symbol, address owner)
+        ERC20(name, symbol)
+        ERC20Permit(name)
+        Ownable(owner)
+    {}
 
     /**
      * @dev Allows only the owner to manage who can mint tokens.
