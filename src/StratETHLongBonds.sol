@@ -23,7 +23,16 @@ contract StratETHLongBonds is Ownable2Step {
     uint256 public immutable SCALE = 1e18;
     uint256 public immutable USD_ORACLE_SCALE;
 
-    // TODO(nap): Events
+    event UpdateBCV(uint256 newBcv);
+    event LongBond(
+        address indexed bonder,
+        uint256 strike,
+        uint256 notionalUnderlyingAmount,
+        uint256 notionalUSDAmount,
+        uint256 ethAmount,
+        uint256 expiry,
+        uint256 timelock
+    );
 
     /**
      * @param _cdtToken The CDT token
@@ -60,6 +69,7 @@ contract StratETHLongBonds is Ownable2Step {
 
     function setBCV(uint256 _newBcv) external onlyOwner {
         bcv = _newBcv;
+        emit UpdateBCV(_newBcv);
     }
 
     function bond(address bonder) external payable {
@@ -83,6 +93,16 @@ contract StratETHLongBonds is Ownable2Step {
         // Send the eth to the treasury manager contract
         (bool success,) = treasuryManager.call{value: msg.value}("");
         require(success, "Transfer failed");
+
+        emit LongBond(
+            bonder,
+            strikeAmount,
+            notionalUnderlyingAmount,
+            notionalUSDAmount,
+            msg.value,
+            block.timestamp + (4.2 * 365 days),
+            block.timestamp + 69 minutes
+        );
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {

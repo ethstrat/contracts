@@ -126,7 +126,7 @@ contract StratETHShortBondsTest is Test {
             stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
         );
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
-        assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
     }
 
     function testBondDataInvariants() public {

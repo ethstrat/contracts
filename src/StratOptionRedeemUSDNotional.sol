@@ -21,7 +21,7 @@ contract StratOptionRedeemUSDNotional {
     error TimelockActive(address account, uint256 tokenId);
     error OptionUnexpired(address account, uint256 tokenId);
 
-    // TODO(nap): Events
+    event OptionRedeemed(address indexed optionOwner, uint256 tokenId, uint256 notionalUSDAmount, uint256 ethAmount);
 
     /**
      * @param _cdtToken The CDT token
@@ -57,10 +57,14 @@ contract StratOptionRedeemUSDNotional {
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
         stratOption.burn(tokenId);
 
+        uint256 ethAmount = 0;
         if (treasuryInUSD > cdtToken.totalSupply()) {
-            treasury.withdraw(notionalUSDAmount * oracleScale / ethPriceUSD);
+            ethAmount = notionalUSDAmount * oracleScale / ethPriceUSD;
         } else {
-            treasury.withdraw(notionalUSDAmount * treasuryInUSD / totalDebt);
+            ethAmount = notionalUSDAmount * treasuryInUSD / totalDebt;
         }
+
+        treasury.withdraw(ethAmount);
+        emit OptionRedeemed(msg.sender, tokenId, notionalUSDAmount, ethAmount);
     }
 }

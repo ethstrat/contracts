@@ -24,7 +24,8 @@ contract StratETHShortBonds is Ownable2Step {
     uint256 public immutable SCALE = 1e18;
     uint256 public immutable USD_ORACLE_SCALE;
 
-    // TODO(nap): Events
+    event UpdateBCV(uint256 newBcv);
+    event ShortBond(address indexed bonder, uint256 cdt, uint256 strat, uint256 expiry, uint256 timelock);
 
     /**
      * @param _cdtToken The CDT token
@@ -58,6 +59,7 @@ contract StratETHShortBonds is Ownable2Step {
 
     function setBCV(uint256 _newBcv) external onlyOwner {
         bcv = _newBcv;
+        emit UpdateBCV(_newBcv);
     }
 
     function bond(address bonder, uint256 amount) external {
@@ -65,10 +67,13 @@ contract StratETHShortBonds is Ownable2Step {
         uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
 
         stratOption.mint(
-            bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 69 minutes
+            bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
         );
 
         cdtToken.burnFrom(msg.sender, amount);
+        emit ShortBond(
+            bonder, amount, notionalUnderlyingAmount, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
+        );
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {

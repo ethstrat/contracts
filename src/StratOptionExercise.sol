@@ -13,7 +13,7 @@ contract StratOptionExercise {
     error TimelockActive(address account, uint256 tokenId);
     error OptionExpired(address account, uint256 tokenId);
 
-    // TODO(nap): Events
+    event OptionExercised(address indexed optionOwner, uint256 tokenId, uint256 strike, uint256 strat);
 
     /**
      * @param _cdtToken The CDT token
@@ -32,8 +32,13 @@ contract StratOptionExercise {
 
         address optionOwner = stratOption.ownerOf(tokenId);
 
-        cdtToken.burnFrom(msg.sender, stratOption.strikeAmount(tokenId));
-        stratToken.mint(optionOwner, stratOption.notionalUnderlyingAmount(tokenId));
+        uint256 strike = stratOption.strikeAmount(tokenId);
+        uint256 strat = stratOption.notionalUnderlyingAmount(tokenId);
+
+        cdtToken.burnFrom(msg.sender, strike);
+        stratToken.mint(optionOwner, strat);
         stratOption.burn(tokenId);
+
+        emit OptionExercised(optionOwner, tokenId, strike, strat);
     }
 }
