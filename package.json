@@ -1,6 +1,6 @@
 {
-  "name": "International-Meme-Fund",
-  "description": "IMF Protocol",
+  "name": "ETH-Strategy",
+  "description": "ETH Strategy core contracts and helpers",
   "license": "GPL-2.0-only",
   "version": "1.0.0",
   "files": [
