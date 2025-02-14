@@ -45,26 +45,22 @@ contract StratOptionRedeemUSDNotional {
     }
 
     function redeemCdtForUsdNotional(uint256 tokenId) external {
-        if (stratOption.timelock(tokenId) < block.timestamp) revert TimelockActive(msg.sender, tokenId);
-        if (stratOption.expiry(tokenId) < block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
-
-        address optionOwner = stratOption.ownerOf(tokenId);
-
-        if (optionOwner != msg.sender && stratOption.getApproved(tokenId) != msg.sender) {
-            revert NotOwnerOrApproved(msg.sender, tokenId);
-        }
+        if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        if (stratOption.expiry(tokenId) > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
 
         uint256 notionalUSDAmount = stratOption.notionalUSDAmount(tokenId);
+        uint256 totalDebt = cdtToken.totalSupply();
+        uint256 ethPriceUSD = ethUsdOracle.price();
+        uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
+        uint256 treasuryInUSD = treasury.total() * ethPriceUSD / oracleScale;
+
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
         stratOption.burn(tokenId);
 
-        uint256 ethPriceUSD = ethUsdOracle.price();
-        uint256 treasuryInUSD = treasury.total() * ethPriceUSD;
-        if (treasury.total() * ethPriceUSD < cdtToken.totalSupply()) {
-            // TODO(nap): handle (or at least think about) what happens with really small (ie, 1 CDT or less) bonds
-            treasury.withdraw(notionalUSDAmount / ethPriceUSD);
+        if (treasuryInUSD > cdtToken.totalSupply()) {
+            treasury.withdraw(notionalUSDAmount * oracleScale / ethPriceUSD);
         } else {
-            treasury.withdraw(notionalUSDAmount * treasuryInUSD / cdtToken.totalSupply());
+            treasury.withdraw(notionalUSDAmount * treasuryInUSD / totalDebt);
         }
     }
 }
