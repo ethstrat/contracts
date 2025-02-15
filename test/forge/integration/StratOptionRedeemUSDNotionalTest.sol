@@ -8,20 +8,12 @@ import "../../../src/CdtToken.sol";
 import "../../../src/StratToken.sol";
 
 contract MockTreasury is Treasury {
-    uint256 public totalBalance;
-    uint256 public lastWithdrawn;
-
-    function withdraw(uint256 amount) external {
-        lastWithdrawn = amount;
-        totalBalance -= amount;
+    function withdraw(uint256 amount, address to) external {
+        payable(to).transfer(amount);
     }
 
     function total() external view returns (uint256) {
-        return totalBalance;
-    }
-
-    function setTotal(uint256 _total) external {
-        totalBalance = _total;
+        return address(this).balance;
     }
 }
 
@@ -71,7 +63,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         stratOption.manageMinter(owner, true);
 
         // Give the treasury some initial balance
-        mockTreasury.setTotal(100 ether);
+        vm.deal(address(mockTreasury), 100 ether);
 
         // Mint user some CDT, and mint an option with a notionalUSD of 500
         cdtToken.mint(user, 1000 ether);
@@ -94,7 +86,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
         assertEq(cdtToken.balanceOf(user), 500 ether, "CDT should be partially burned");
         // In this case: if treasury.total() * price >= totalDebt, so withdraw should be $500 of ETH at 2k / ETH
-        assertEq(mockTreasury.lastWithdrawn(), 0.25 ether, "should withdraw $500 of ETH (0.25 ETH)");
+        assertEq(address(user).balance, 0.25 ether, "should withdraw $500 of ETH (0.25 ETH)");
 
         vm.stopPrank();
     }
@@ -117,7 +109,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         assertEq(cdtToken.balanceOf(user), 500 ether, "CDT should be partially burned");
         // In this case: if treasury.total() * price < totalDebt, so withdraw should be half of treasury
         // (500 CDT out of a total of 1k CDT)
-        assertEq(mockTreasury.lastWithdrawn(), 50 ether, "should withdraw half of all ETH in treasury");
+        assertEq(address(user).balance, 50 ether, "should withdraw half of all ETH in treasury");
 
         vm.stopPrank();
     }

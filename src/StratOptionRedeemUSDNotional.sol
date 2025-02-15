@@ -6,7 +6,7 @@ import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 
 interface Treasury {
-    function withdraw(uint256 amount) external;
+    function withdraw(uint256 amount, address to) external;
     function total() external view returns (uint256);
 }
 
@@ -53,6 +53,7 @@ contract StratOptionRedeemUSDNotional {
         uint256 ethPriceUSD = ethUsdOracle.price();
         uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
         uint256 treasuryInUSD = treasury.total() * ethPriceUSD / oracleScale;
+        address optionOwner = stratOption.ownerOf(tokenId);
 
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
         stratOption.burn(tokenId);
@@ -64,7 +65,7 @@ contract StratOptionRedeemUSDNotional {
             ethAmount = notionalUSDAmount * treasuryInUSD / totalDebt;
         }
 
-        treasury.withdraw(ethAmount);
-        emit OptionRedeemed(msg.sender, tokenId, notionalUSDAmount, ethAmount);
+        treasury.withdraw(ethAmount, optionOwner);
+        emit OptionRedeemed(optionOwner, tokenId, notionalUSDAmount, ethAmount);
     }
 }
