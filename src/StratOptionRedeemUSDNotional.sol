@@ -4,16 +4,12 @@ pragma solidity 0.8.20;
 import {StratOption} from "./StratOption.sol";
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
-
-interface Treasury {
-    function withdraw(uint256 amount, address to) external;
-    function total() external view returns (uint256);
-}
+import {ITreasury} from "./interfaces/ITreasury.sol";
 
 contract StratOptionRedeemUSDNotional {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
-    Treasury public immutable treasury;
+    ITreasury public immutable treasury;
     IOracle public immutable ethUsdOracle;
     StratOption public immutable stratOption;
 
@@ -39,7 +35,7 @@ contract StratOptionRedeemUSDNotional {
     ) {
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20(_stratToken);
-        treasury = Treasury(_treasury);
+        treasury = ITreasury(_treasury);
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratOption = StratOption(_stratOption);
     }

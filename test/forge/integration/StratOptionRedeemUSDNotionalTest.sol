@@ -6,8 +6,9 @@ import "../../../src/StratOptionRedeemUSDNotional.sol";
 import "../../../src/StratOption.sol";
 import "../../../src/CdtToken.sol";
 import "../../../src/StratToken.sol";
+import "../../../src/interfaces/ITreasury.sol";
 
-contract MockTreasury is Treasury {
+contract MockTreasury is ITreasury {
     function withdraw(uint256 amount, address to) external {
         payable(to).transfer(amount);
     }
