@@ -2,10 +2,10 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../../../src/StratETHLongBonds.sol";
-import "../../../src/CdtToken.sol";
-import "../../../src/StratToken.sol";
-import "../../../src/StratOption.sol";
+import "../../src/StratETHLongBonds.sol";
+import "../../src/CdtToken.sol";
+import "../../src/StratToken.sol";
+import "../../src/StratOption.sol";
 
 contract MockOracle {
     uint256 private _price;

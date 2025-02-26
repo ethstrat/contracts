@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../../../src/StratOption.sol";
+import "../../src/StratOption.sol";
 
 contract MockRenderer is TokenURIRenderer {
     uint256 public tokenId;

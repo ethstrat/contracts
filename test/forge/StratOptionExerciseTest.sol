@@ -2,10 +2,10 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../../../src/StratOptionExercise.sol";
-import "../../../src/StratOption.sol";
-import "../../../src/CdtToken.sol";
-import "../../../src/StratToken.sol";
+import "../../src/StratOptionExercise.sol";
+import "../../src/StratOption.sol";
+import "../../src/CdtToken.sol";
+import "../../src/StratToken.sol";
 
 contract StratOptionExerciseTest is Test {
     CdtToken public cdtToken;
