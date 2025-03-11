@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {IMorphoBase, MarketParams} from "./IMorpho.sol";
 import {ProtocolWrappedEthToken} from "./ProtocolWrappedEthToken.sol";
+import {IERC20MintableBurnable} from "../interfaces/IERC20.sol";
 
 /// @title A proxy that wraps ETH before repaying a user's morpho borrow/lend
 /// @dev see ProtocolWrappedEthToken. Wrapping is a permissioned action, required
