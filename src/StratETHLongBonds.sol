@@ -75,20 +75,24 @@ contract StratETHLongBonds is Ownable2Step {
     function bond(address bonder) external payable {
         require(msg.value > 0, "No ETH sent");
 
-        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE;
-        uint256 strikeAmount = notionalUSDAmount;
-        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount);
+        // TODO note that the underlying USD amount is based on the ETH price at the time of bonding, affects later
+        // redemption
+        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
+        uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
+        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // TODO check
+            // scale, as STRAT is 18 decimals
 
         stratOption.mint(
-            bonder,
-            strikeAmount,
-            notionalUnderlyingAmount,
-            notionalUSDAmount,
-            block.timestamp + (4.2 * 365 days),
-            block.timestamp + 69 minutes
+            bonder, // Option owner
+            strikeAmount, // Strike amount: amount of CDT to be burned to exercise the option
+            notionalUnderlyingAmount, // Notional underlying amount: amount of STRAT that will be received if the option
+                // is exercised
+            notionalUSDAmount, // Notional USD amount: USD value of the ETH that was deposited
+            block.timestamp + (4.2 * 365 days), // Expiry: 4.2 years from now
+            block.timestamp + 69 minutes // Timelock: 69 minutes from now
         );
 
-        cdtToken.mint(bonder, notionalUSDAmount);
+        cdtToken.mint(bonder, notionalUSDAmount); // TODO check scale, since this is always 18 decimals
 
         // Send the eth to the treasury manager contract
         (bool success,) = treasuryManager.call{value: msg.value}("");

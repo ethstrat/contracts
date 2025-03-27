@@ -13,10 +13,26 @@ import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
 contract StratOption is ERC721, Ownable2Step {
     uint256 public _tokenIdCounter;
 
+    uint256 public constant SCALE = 1e18;
+
+    /// @notice The amount of CDT required to exercise the amount
+    /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public strikeAmount;
+
+    /// @notice The amount of STRAT that will be received if the option is exercised
+    /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public notionalUnderlyingAmount;
+
+    /// @notice The amount of USD value of the ETH that was deposited
+    /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public notionalUSDAmount;
+
+    /// @notice The timestamp at which the option expires
+    // TODO uint48?
     mapping(uint256 tokenId => uint256) public expiry;
+
+    /// @notice The timestamp at which the option can be exercised
+    // TODO uint48?
     mapping(uint256 tokenId => uint256) public timelock;
 
     mapping(address => bool) public minters;

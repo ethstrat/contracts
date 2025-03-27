@@ -91,12 +91,56 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.stopPrank();
     }
 
-    function testRedeemSuccessTreasuryLtDebt() public {
+    function testRedeemSuccessTreasuryLtDebt_ethPrice1() public {
         // Move time beyond timelock and expiry
         vm.warp(block.timestamp + 3601);
 
         vm.prank(owner);
-        mockOracle.setPrice(1e8);
+        mockOracle.setPrice(1e8); // 1 ETH = 1 USD
+
+        // Treasury has:
+        // - 100 ETH (100e18)
+        // - 1000 CDT debt (1000e18)
+        //
+        // At 1 ETH (1e18) = 1 USD (1e8), the treasury is valued at 100 USD (100e18)
+        // Treasury USD value (100e18) is less than the USD debt (1000e18)
+
+        // Option owner has 1000 CDT (1000e18) and a notional USD value of 500 (500e18)
+        // Option owner receives 500e18 * 100e18 / 1000e18 = 50e18 (50 ETH)
+
+        vm.startPrank(user);
+
+        cdtToken.approve(address(optionRedeem), 500 ether);
+        stratOption.approve(address(optionRedeem), 1);
+
+        optionRedeem.redeemCdtForUsdNotional(1);
+
+        assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(user), 500 ether, "CDT should be partially burned");
+        // In this case: if treasury.total() * price < totalDebt, so withdraw should be half of treasury
+        // (500 CDT out of a total of 1k CDT)
+        assertEq(address(user).balance, 50 ether, "should withdraw half of all ETH in treasury");
+
+        vm.stopPrank();
+    }
+
+    function testRedeemSuccessTreasuryLtDebt_ethPrice9() public {
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        vm.prank(owner);
+        mockOracle.setPrice(9e8); // 1 ETH = 9 USD
+
+        // Treasury has:
+        // - 100 ETH (100e18)
+        // - 1000 CDT debt (1000e18)
+        //
+        // At 1 ETH (1e18) = 9 USD (9e8), the treasury is valued at 900 USD (900e18)
+        // Treasury USD value (900e18) is less than the USD debt (1000e18)
+
+        // Option owner has 1000 CDT (1000e18) and a notional USD value of 500 (500e18)
+        // Option owner entitled to USD value of: 500e18 * 900e18 / 1000e18 = 450e18 USD (450)
+        // Option owner receives: 450e18 * 1e8 / 9e8 = 50e18 ETH (50)
 
         vm.startPrank(user);
 

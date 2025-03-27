@@ -10,6 +10,8 @@ interface Treasury {
     function total() external view returns (uint256);
 }
 
+/// @title StratOptionRedeemUSDNotional
+/// @notice This contract allows a user to redeem their STRAT option for the underlying value of the option
 contract StratOptionRedeemUSDNotional {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
@@ -17,7 +19,6 @@ contract StratOptionRedeemUSDNotional {
     IOracle public immutable ethUsdOracle;
     StratOption public immutable stratOption;
 
-    error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
     error OptionUnexpired(address account, uint256 tokenId);
 
@@ -44,6 +45,25 @@ contract StratOptionRedeemUSDNotional {
         stratOption = StratOption(_stratOption);
     }
 
+    /// @notice Redeem a STRAT option for the underlying value of the option
+    /// @dev    This function performs the following actions:
+    ///         - Validates the option can be redeemed
+    ///         - Burns the CDT tokens from the caller
+    ///         - Calculates the amount of ETH to withdraw from the treasury
+    ///         - Withdraws the ETH from the treasury and sends it to the option owner
+    ///         - Emits an OptionRedeemed event
+    ///
+    ///         This function can only be called by the option owner or another address (as long as the option owner has
+    /// granted approval)
+    ///
+    ///         The function reverts if:
+    ///         - The option timelock has not passed
+    ///         - The option has not expired
+    ///         - The caller is not the owner of the option and does not have approval by the owner
+    ///         - The caller has not provided enough CDT tokens
+    ///         - The caller has not approved spending of the required amount of CDT tokens
+    ///
+    /// @param tokenId The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
         if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (stratOption.expiry(tokenId) > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
@@ -58,10 +78,30 @@ contract StratOptionRedeemUSDNotional {
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
         stratOption.burn(tokenId);
 
+        // If the value of the treasury (ETH) in USD is more than the USD debt
         uint256 ethAmount = 0;
-        if (treasuryInUSD > cdtToken.totalSupply()) {
+        if (treasuryInUSD > totalDebt) {
+            // The notional USD amount of the deposit is converted to ETH at the time of redemption
+            // Depending on the ETH price at the time of redemption, the option owner can receive more or less than the
+            // ETH deposit amount
+            //
+            // e.g. if 2e18 ETH @ 2000e18 is deposited, the notional USD amount is 4000e18.
+            // At the time of redemption:
+            // - if the ETH price is 3000e18, the ETH returned will be 4000e18 * 1e18 / 3000e18 = 1.3333e18 ETH
+            // - if the ETH price is 1500e18, the ETH returned will be 4000e18 * 1e18 / 1500e18 = 2.6666e18 ETH
             ethAmount = notionalUSDAmount * oracleScale / ethPriceUSD;
-        } else {
+        }
+        // Otherwise, the value of the treasury (ETH) in USD is less than the USD value of what was bonded
+        else {
+            // The option owner receives the proportional amount of ETH in the treasury
+            //
+            // e.g. if 2e18 ETH @ 2000e18 is deposited, the notional USD amount is 4000e18.
+            // At the time of redemption, with 1.5e18 ETH in the treasury and 6000e18 of debt:
+            // - if the ETH price is 2000 USD (2000e8), the treasury is valued at 3000e18 (1.5e18 * 2000e8 / 1e8) the
+            // option owner will receive 4000e18 * 3000e18 / 6000e18 = 2000e18 ETH
+            // - if the ETH price is 3000e18, the treasury is valued at 4500e18 (1.5e18 * 3000e8 / 1e8) the option owner
+            // will receive 4000e18 * 4500e18 / 6000e18 = 3000e18 ETH
+            // TODO this seems wrong
             ethAmount = notionalUSDAmount * treasuryInUSD / totalDebt;
         }
 
