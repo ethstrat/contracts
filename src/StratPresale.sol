@@ -69,7 +69,8 @@ contract StratPresale {
             block.timestamp + 90 days // Timelock
         );
 
-        // TODO CDT token minting?
+        // This does NOT mint CDT tokens to the caller
+        // CDT tokens will need to be bought on the open market when exercising the presale option
 
         // Send ETH to presale multisig
         (bool success,) = presaleMultisig.call{value: msg.value}("");

@@ -60,6 +60,13 @@ contract StratOptionTest is Test {
         collection = new StratOption(owner);
     }
 
+    // manageMinter
+    // when the caller is not the owner
+    //  [X] it reverts
+    // when canMint is false
+    //  [X] it removes the minter
+    // [X] it adds the minter
+
     function testOnlyOwnerCanManageMinters() external {
         // Attempting to add a minter from non-owner should fail
         vm.startPrank(user);
@@ -76,6 +83,11 @@ contract StratOptionTest is Test {
         collection.manageMinter(minter, false);
         assertFalse(collection.minters(minter));
     }
+
+    // mint
+    // when the caller is not a minter
+    //  [X] it reverts
+    // [X] it mints the option
 
     function testOnlyMintersCanMint() external {
         // Add minter
@@ -102,6 +114,15 @@ contract StratOptionTest is Test {
         // Check balance
         assertEq(collection.balanceOf(user), 1);
     }
+
+    // burn
+    // when the caller has already burned the option
+    //  [X] it reverts
+    // when the caller is not the owner of the option
+    //  given the owner has not approved the caller
+    //   [X] it reverts
+    //  [X] it burns the option
+    // [X] it burns the option
 
     function testBurnByHolder() external {
         // Owner mints tokens to user
@@ -145,6 +166,11 @@ contract StratOptionTest is Test {
         vm.stopPrank();
     }
 
+    // managerRenderer
+    // when the caller is not the owner
+    //  [X] it reverts
+    // [X] it sets the renderer
+
     function testOnlyOwnerCanSetRenderer() external {
         MockRenderer mock = new MockRenderer(0, 0, 0, 0, 0, 0);
 
@@ -159,6 +185,11 @@ contract StratOptionTest is Test {
         collection.managerRenderer(address(mock));
         vm.stopPrank();
     }
+
+    // tokenURI
+    // when no renderer is set
+    //  [X] it returns an empty string
+    // [X] it returns the renderer's tokenURI
 
     function testTokenURIReturnsEmptyIfNoRendererSet() external {
         vm.startPrank(owner);
