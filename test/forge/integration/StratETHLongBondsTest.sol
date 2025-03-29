@@ -25,6 +25,14 @@ contract MockOracle {
     function price() external view returns (uint256) {
         return _price;
     }
+
+    function setQuoteTokenDecimals(uint8 newQuoteTokenDecimals) public {
+        quoteTokenDecimals = newQuoteTokenDecimals;
+    }
+
+    function setBaseTokenDecimals(uint8 newBaseTokenDecimals) public {
+        baseTokenDecimals = newBaseTokenDecimals;
+    }
 }
 
 contract StratETHLongBondsTest is Test {
@@ -75,6 +83,33 @@ contract StratETHLongBondsTest is Test {
         vm.stopPrank();
     }
 
+    // constructor
+    // given the STRAT-ETH oracle decimals are not 18
+    //  [X] it reverts
+
+    function test_constructor_stratEthOracleDecimalsNot18() public {
+        // Adjust the decimal scale of the STRAT-ETH oracle to 8
+        stratEthOracle.setQuoteTokenDecimals(8);
+        stratEthOracle.setPrice(1e8); // 1 STRAT = 1 ETH
+
+        vm.expectRevert("StratEthOracle must have 18 decimals");
+        new StratETHLongBonds(
+            address(cdtToken),
+            address(stratToken),
+            address(stratOption),
+            treasuryManager,
+            address(ethUsdOracle),
+            address(stratEthOracle),
+            1e18,
+            owner
+        );
+    }
+
+    // setBCV
+    // given the caller is not the owner
+    //  [X] it reverts
+    // [X] it updates the BCV
+
     function testOnlyOwnerCanSetBCV() public {
         // A non-owner attempting to change BCV should fail
         vm.prank(user);
@@ -87,13 +122,15 @@ contract StratETHLongBondsTest is Test {
         assertEq(bonds.bcv(), 5, "BCV should be updated to 5000");
     }
 
-    function testBondRevertIfNoETHSent() public {
-        vm.prank(user);
-        vm.expectRevert("No ETH sent");
-        bonds.bond(user); // Should revert because no ETH is sent
-    }
+    // strikePrice
+    // given the STRAT-ETH price is not 1
+    //  [X] the strike price is calculated correctly
+    // [X] the strike price is calculated correctly
 
-    function testStrikePrice() public {
+    function test_strikePrice_notEqual() public {
+        // Adjust the STRAT-ETH price
+        stratEthOracle.setPrice(1.1e18); // 1.1 ETH/STRAT
+
         uint256 notionalUSDAmount = 3000e18;
 
         uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e8; // 18 DP
@@ -109,7 +146,48 @@ contract StratETHLongBondsTest is Test {
         assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
     }
 
-    function testBond() public {
+    function test_strikePrice() public {
+        uint256 notionalUSDAmount = 3000e18;
+
+        uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e8; // 18 DP
+
+        // Expected strike with no CDT and 1000 STRAT (without scaling) is
+        //   STRAT_PRICE + ((3000 / 2 / (1000 * STRAT_PRICE)) * bcv * STRAT_PRICE)
+        // = STRAT_PRICE + ((1500 / (1000 * STRAT_PRICE)) * bcv * STRAT_PRICE)
+        // = STRAT_PRICE + ((1500 / 1000) * bcv)
+        // = STRAT_PRICE + 1.5 * bcv
+        // given BCV is 1, the strike price should be STRAT_PRICE + 1.5
+        uint256 expectedStrikePrice = stratPrice + 1.5e18;
+        uint256 calculatedStrikePrice = bonds.strikePrice(notionalUSDAmount);
+        assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
+    }
+
+    // bond
+    // when no ETH is sent
+    //  [X] it reverts
+    // given the ETH-USD oracle decimals are 18
+    //  [X] the strike amount is calculated correctly
+    //  [X] the notional underlying amount is calculated correctly
+    //  [X] the CDT balance of the user is the notional USD amount
+    //  [X] the expiry is 4.2 years from now
+    //  [X] the timelock is 69 minutes from now
+    //  [X] the owner of the option is the bonder
+    //  [X] the treasury receives the ETH
+    // [X] the strike amount is calculated correctly
+    // [X] the notional underlying amount is calculated correctly
+    // [X] the CDT balance of the user is the notional USD amount
+    // [X] the expiry is 4.2 years from now
+    // [X] the timelock is 69 minutes from now
+    // [X] the owner of the option is the bonder
+    // [X] the treasury receives the ETH
+
+    function test_bond_noETH() public {
+        vm.prank(user);
+        vm.expectRevert("No ETH sent");
+        bonds.bond(user);
+    }
+
+    function test_bond() public {
         uint256 ethAmount = 1 ether;
 
         vm.deal(user, ethAmount); // Give ETH to user
@@ -136,12 +214,69 @@ contract StratETHLongBondsTest is Test {
         );
         assertLt(
             stratOption.notionalUnderlyingAmount(tokenId),
-            stratEthOracle.price(),
+            1e18, // 1 STRAT = 1 ETH
             "Should be less than current spot price for strat"
         );
         assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
         assertEq(stratOption.expiry(tokenId), block.timestamp + (4.2 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+    }
+
+    function test_bond_ethUsdOracleDecimals18() public {
+        // Adjust the decimal scale of the ETH-USD oracle to 18
+        ethUsdOracle.setQuoteTokenDecimals(18);
+        ethUsdOracle.setPrice(3000e18); // 1 ETH = 1 USD
+
+        // Create a new contract
+        vm.startPrank(owner);
+        bonds = new StratETHLongBonds(
+            address(cdtToken),
+            address(stratToken),
+            address(stratOption),
+            treasuryManager,
+            address(ethUsdOracle),
+            address(stratEthOracle),
+            1e18, // BCV
+            owner
+        );
+        cdtToken.manageMinter(address(bonds), true);
+        stratOption.manageMinter(address(bonds), true);
+        vm.stopPrank();
+
+        uint256 ethAmount = 1 ether;
+
+        vm.deal(user, ethAmount); // Give ETH to user
+        vm.prank(user);
+        // Run bond function
+        bonds.bond{value: ethAmount}(user);
+
+        // Check treasury receives money
+        assertEq(treasuryManager.balance, ethAmount, "Treasury did not receive the correct ETH amount");
+
+        // Verify the CDT balance of the user
+        uint256 expectedCdUSDAmount = (ethAmount * 3000e18) / 1e18; // ETH -> USD conversion
+        assertEq(cdtToken.balanceOf(user), expectedCdUSDAmount, "User CDT balance incorrect");
+
+        // Verify the minted StratOption attributes
+        uint256 tokenId = 1; // Assuming this is the first minted option
+        uint256 expectedStrikeAmount = expectedCdUSDAmount;
+
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+        assertEq(stratOption.strikeAmount(tokenId), expectedStrikeAmount, "Incorrect strike amount");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId), 999500249875062468, "Incorrect notional underlying amount"
+        );
+        assertLt(
+            stratOption.notionalUnderlyingAmount(tokenId),
+            1e18, // 1 STRAT = 1 ETH
+            "Should be less than current spot price for strat"
+        );
+        assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (4.2 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
     }
 
     function testBondDataInvariants() public {

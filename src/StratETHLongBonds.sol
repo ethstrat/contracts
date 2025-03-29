@@ -75,12 +75,11 @@ contract StratETHLongBonds is Ownable2Step {
     function bond(address bonder) external payable {
         require(msg.value > 0, "No ETH sent");
 
-        // TODO note that the underlying USD amount is based on the ETH price at the time of bonding, affects later
         // redemption
         uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
         uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
-        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // TODO check
-            // scale, as STRAT is 18 decimals
+        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // Scale: 18
+            // decimals (since strikePrice is always 18 decimals)
 
         stratOption.mint(
             bonder, // Option owner
@@ -92,7 +91,7 @@ contract StratETHLongBonds is Ownable2Step {
             block.timestamp + 69 minutes // Timelock: 69 minutes from now
         );
 
-        cdtToken.mint(bonder, notionalUSDAmount); // TODO check scale, since this is always 18 decimals
+        cdtToken.mint(bonder, notionalUSDAmount);
 
         // Send the eth to the treasury manager contract
         (bool success,) = treasuryManager.call{value: msg.value}("");
@@ -109,8 +108,14 @@ contract StratETHLongBonds is Ownable2Step {
         );
     }
 
-    function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
+    /// @notice Provides the strike price for a given USD value of ETH
+    ///
+    /// @param  notionalUSDAmount   The USD value of ETH to calculate the strike price for
+    /// @return strikePrice         The strike price, in terms of SCALE
+    function strikePrice(uint256 notionalUSDAmount) public view returns (uint256 strikePrice) {
         uint256 premium = bcv * (cdtToken.totalSupply() + (notionalUSDAmount / 2)) / stratToken.totalSupply();
+
+        // No need to adjust the decimal scale of the STRAT-ETH oracle, since it is always 18 decimals
         return stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE + premium;
     }
 }
