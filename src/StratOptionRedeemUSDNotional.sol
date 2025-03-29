@@ -98,11 +98,11 @@ contract StratOptionRedeemUSDNotional {
             // e.g. if 2e18 ETH @ 2000e18 is deposited, the notional USD amount is 4000e18.
             // At the time of redemption, with 1.5e18 ETH in the treasury and 6000e18 of debt:
             // - if the ETH price is 2000 USD (2000e8), the treasury is valued at 3000e18 (1.5e18 * 2000e8 / 1e8) the
-            // option owner will receive 4000e18 * 3000e18 / 6000e18 = 2000e18 ETH
+            // option owner has a claim of 4000e18 * 3000e18 / 6000e18 = 2000e18 USD = 2000e18 * 1e8 / 2000e8 = 1e18 ETH
             // - if the ETH price is 3000e18, the treasury is valued at 4500e18 (1.5e18 * 3000e8 / 1e8) the option owner
-            // will receive 4000e18 * 4500e18 / 6000e18 = 3000e18 ETH
-            // TODO this seems wrong
-            ethAmount = notionalUSDAmount * treasuryInUSD / totalDebt;
+            // has a claim of 4000e18 * 4500e18 / 6000e18 = 3000e18 USD = 3000e18 * 1e8 / 3000e8 = 1e18 ETH
+            uint256 usdEntitlement = notionalUSDAmount * treasuryInUSD / totalDebt;
+            ethAmount = usdEntitlement * oracleScale / ethPriceUSD;
         }
 
         treasury.withdraw(ethAmount, optionOwner);
