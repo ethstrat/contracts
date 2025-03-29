@@ -74,6 +74,11 @@ contract StratOption is ERC721, Ownable2Step {
             revert InvalidParams("timelock");
         }
 
+        // Check timelock is in the future
+        if (_timelock <= block.timestamp) {
+            revert InvalidParams("timelock");
+        }
+
         uint256 tokenId = _tokenIdCounter++;
         _mint(to, tokenId);
         strikeAmount[tokenId] = _strikeAmount;

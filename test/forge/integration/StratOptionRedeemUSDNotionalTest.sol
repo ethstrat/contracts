@@ -7,7 +7,6 @@ import "../../../src/StratOption.sol";
 import "../../../src/CdtToken.sol";
 import "../../../src/StratToken.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
-import {IERC721Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
 contract MockTreasury is Treasury {
     function withdraw(uint256 amount, address to) external {
@@ -139,13 +138,15 @@ contract StratOptionRedeemUSDNotionalTest is Test {
     //  [X] it emits a OptionRedeemed event
     // given the oracle scale is 18
     //  [X] it correctly calculates the amount of ETH to send to the option owner
+    // given the option is from the presale
+    //  [X] it reverts
     // [X] it burns the notionalUSDAmount of CDT tokens from the caller
     // [X] it burns the option
     // [X] it sends the proportional amount of ETH from the treasury to the option owner
     // [X] it emits a OptionRedeemed event
 
     function test_invalidTokenId_reverts() public {
-        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, 2));
+        vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.InvalidTokenId.selector, user, 2));
 
         vm.prank(user);
         optionRedeem.redeemCdtForUsdNotional(2);
@@ -425,5 +426,20 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         // In this case: if treasury.total() * price < totalDebt, so withdraw should be half of treasury
         // (500 CDT out of a total of 1k CDT)
         assertEq(address(user).balance, 50 ether, "should withdraw half of all ETH in treasury");
+    }
+
+    function test_presaleOption_reverts() public {
+        // Create a presale option with no underlying USD amount
+        vm.prank(owner);
+        stratOption.mint(user, 1000 ether, 1000 ether, 0, block.timestamp + 3600, block.timestamp + 1800);
+
+        // Warp to after expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.Unsupported.selector, user, 2));
+
+        vm.prank(user);
+        optionRedeem.redeemCdtForUsdNotional(2);
     }
 }

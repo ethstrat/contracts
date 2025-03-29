@@ -56,6 +56,9 @@ contract StratOptionTest is Test {
     address internal user = address(0x789);
 
     function setUp() external {
+        // Needed so that historical timestamps can be tested
+        vm.warp(1000000);
+
         vm.prank(owner);
         collection = new StratOption(owner);
     }
@@ -87,6 +90,8 @@ contract StratOptionTest is Test {
     // mint
     // when the caller is not a minter
     //  [X] it reverts
+    // when the timelock is in the past
+    //  [X] it reverts
     // when the timelock is after the expiry
     //  [X] it reverts
     // [X] it mints the option
@@ -94,6 +99,22 @@ contract StratOptionTest is Test {
     function test_timelockAfterExpiry_reverts(uint256 timelock) external {
         // Set timelock to be on or after expiry
         timelock = bound(timelock, block.timestamp + 100000, block.timestamp + 200000);
+
+        // Add minter
+        vm.startPrank(owner);
+        collection.manageMinter(minter, true);
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSelector(StratOption.InvalidParams.selector, "timelock"));
+
+        vm.startPrank(minter);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, timelock);
+        vm.stopPrank();
+    }
+
+    function test_timelockInPast_reverts(uint256 timelock) external {
+        // Set timelock to be in the past
+        timelock = bound(timelock, block.timestamp - 100000, block.timestamp - 1);
 
         // Add minter
         vm.startPrank(owner);

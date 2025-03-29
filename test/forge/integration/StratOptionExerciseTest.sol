@@ -39,6 +39,13 @@ contract StratOptionExerciseTest is Test {
         vm.stopPrank();
     }
 
+    function test_invalidTokenId_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(StratOptionExercise.InvalidTokenId.selector, user, 2));
+
+        vm.prank(user);
+        optionExercise.exercise(2);
+    }
+
     function testExerciseSuccess() public {
         // After timelock, before expiry
         vm.warp(block.timestamp + 1801);

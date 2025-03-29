@@ -13,6 +13,7 @@ contract StratOptionExercise {
 
     error TimelockActive(address account, uint256 tokenId);
     error OptionExpired(address account, uint256 tokenId);
+    error InvalidTokenId(address account, uint256 tokenId);
 
     event OptionExercised(address indexed optionOwner, uint256 tokenId, uint256 strike, uint256 strat);
 
@@ -47,7 +48,9 @@ contract StratOptionExercise {
     ///
     /// @param tokenId The ID of the option to exercise
     function exercise(uint256 tokenId) external {
-        if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        uint256 timelock = stratOption.timelock(tokenId);
+        if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
+        if (timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (stratOption.expiry(tokenId) < block.timestamp) revert OptionExpired(msg.sender, tokenId);
 
         address optionOwner = stratOption.ownerOf(tokenId);

@@ -21,6 +21,8 @@ contract StratOptionRedeemUSDNotional {
 
     error TimelockActive(address account, uint256 tokenId);
     error OptionUnexpired(address account, uint256 tokenId);
+    error Unsupported(address account, uint256 tokenId);
+    error InvalidTokenId(address account, uint256 tokenId);
 
     event OptionRedeemed(address indexed optionOwner, uint256 tokenId, uint256 notionalUSDAmount, uint256 ethAmount);
 
@@ -57,18 +59,25 @@ contract StratOptionRedeemUSDNotional {
     /// granted approval)
     ///
     ///         The function reverts if:
+    ///         - The option token ID is invalid
     ///         - The option timelock has not passed
     ///         - The option has not expired
-    ///         - The caller is not the owner of the option and does not have approval by the owner
+    ///         - The contract has not been approved to spend the option
     ///         - The caller has not provided enough CDT tokens
     ///         - The caller has not approved spending of the required amount of CDT tokens
+    ///         - The option has a notional USD amount of 0 (presale option)
     ///
     /// @param tokenId The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
-        if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        uint256 timelock = stratOption.timelock(tokenId);
+        if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
+        if (timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (stratOption.expiry(tokenId) > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
 
         uint256 notionalUSDAmount = stratOption.notionalUSDAmount(tokenId);
+        // Presale options have a notional USD amount of 0, so cannot be redeemed
+        if (notionalUSDAmount == 0) revert Unsupported(msg.sender, tokenId);
+
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();
         uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
