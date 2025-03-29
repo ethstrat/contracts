@@ -146,7 +146,7 @@ contract StratETHLongBondsTest is Test {
         assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
     }
 
-    function test_strikePrice() public {
+    function test_strikePrice() public view {
         uint256 notionalUSDAmount = 3000e18;
 
         uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e8; // 18 DP
