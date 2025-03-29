@@ -111,11 +111,12 @@ contract StratETHLongBonds is Ownable2Step {
     /// @notice Provides the strike price for a given USD value of ETH
     ///
     /// @param  notionalUSDAmount   The USD value of ETH to calculate the strike price for
-    /// @return strikePrice         The strike price, in terms of SCALE
-    function strikePrice(uint256 notionalUSDAmount) public view returns (uint256 strikePrice) {
+    /// @return strikePrice_        The strike price, in terms of SCALE
+    function strikePrice(uint256 notionalUSDAmount) public view returns (uint256 strikePrice_) {
         uint256 premium = bcv * (cdtToken.totalSupply() + (notionalUSDAmount / 2)) / stratToken.totalSupply();
 
         // No need to adjust the decimal scale of the STRAT-ETH oracle, since it is always 18 decimals
-        return stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE + premium;
+        strikePrice_ = stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE + premium;
+        return strikePrice_;
     }
 }
