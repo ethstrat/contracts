@@ -175,7 +175,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         givenAccountHasCDT(rando, 1000 ether)
         givenAccountHasApprovedCDTSpending(rando, 500 ether)
     {
-        // rando does not have approval to spend the option, so this reverts
+        // optionRedeem does not have approval to spend the option, so this reverts
         vm.expectRevert(abi.encodeWithSelector(StratOption.NotOwnerOrApproved.selector, address(optionRedeem), 1));
 
         // Call function as randoUser
