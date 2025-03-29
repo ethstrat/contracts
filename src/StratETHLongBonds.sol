@@ -86,7 +86,7 @@ contract StratETHLongBonds is Ownable2Step {
             strikeAmount, // Strike amount: amount of CDT to be burned to exercise the option
             notionalUnderlyingAmount, // Notional underlying amount: amount of STRAT that will be received if the option
                 // is exercised
-            notionalUSDAmount, // Notional USD amount: USD value of the ETH that was deposited
+            notionalUSDAmount, // Notional USD amount: USD value of the ETH that was deposited at the time of minting
             block.timestamp + (4.2 * 365 days), // Expiry: 4.2 years from now
             block.timestamp + 69 minutes // Timelock: 69 minutes from now
         );

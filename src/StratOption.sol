@@ -23,7 +23,7 @@ contract StratOption is ERC721, Ownable2Step {
     /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public notionalUnderlyingAmount;
 
-    /// @notice The amount of USD value of the ETH that was deposited
+    /// @notice The USD value of the ETH that was deposited, at the moment the user bonds
     /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public notionalUSDAmount;
 
