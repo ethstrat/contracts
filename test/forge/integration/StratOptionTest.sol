@@ -87,7 +87,25 @@ contract StratOptionTest is Test {
     // mint
     // when the caller is not a minter
     //  [X] it reverts
+    // when the timelock is after the expiry
+    //  [X] it reverts
     // [X] it mints the option
+
+    function test_timelockAfterExpiry_reverts(uint256 timelock) external {
+        // Set timelock to be on or after expiry
+        timelock = bound(timelock, block.timestamp + 100000, block.timestamp + 200000);
+
+        // Add minter
+        vm.startPrank(owner);
+        collection.manageMinter(minter, true);
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSelector(StratOption.InvalidParams.selector, "timelock"));
+
+        vm.startPrank(minter);
+        collection.mint(user, 1, 1, 3000, block.timestamp + 100000, timelock);
+        vm.stopPrank();
+    }
 
     function testOnlyMintersCanMint() external {
         // Add minter
