@@ -60,13 +60,13 @@ contract StratPresale {
         // - Strike amount: 2e18
         // - Underlying amount: 2e18
         // - Can be exercised for 2e18 CDT (total input of 2 ETH + 2e18 CDT) for 2e18 STRAT
-        stratOption.mint(
+        stratOption.mintFor(
             msg.sender, // Owner
-            msg.value, // Strike amount
-            msg.value, // Underlying amount
-            0, // Underlying USD amount, cannot be redeemed
-            block.timestamp + (420 * 365 days), // Expiry
-            block.timestamp + 90 days // Timelock
+            msg.value, // Quantity of STRAT tokens that can be exercised
+            1e18, // Strike price: 1 CDT per STRAT
+            0, // Redemption price: cannot be redeemed, so 0
+            uint48(block.timestamp + (420 * 365 days)), // Expiry
+            uint48(block.timestamp + 90 days) // Timelock
         );
 
         // This does NOT mint CDT tokens to the caller

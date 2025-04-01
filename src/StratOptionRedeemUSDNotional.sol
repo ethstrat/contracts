@@ -69,23 +69,26 @@ contract StratOptionRedeemUSDNotional {
     ///
     /// @param tokenId The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
-        uint256 timelock = stratOption.timelock(tokenId);
-        if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
-        if (timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
-        if (stratOption.expiry(tokenId) > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
+        StratOption.Option memory option = stratOption.getOption(tokenId);
 
-        uint256 notionalUSDAmount = stratOption.notionalUSDAmount(tokenId);
-        // Presale options have a notional USD amount of 0, so cannot be redeemed
-        if (notionalUSDAmount == 0) revert Unsupported(msg.sender, tokenId);
+        // TODO add on behalf of
+
+        if (option.timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
+        if (option.timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        if (option.expiry > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
+
+        uint256 optionQuantity = stratOption.balanceOf(msg.sender, tokenId);
+        // Presale options have a redemption price of 0, so cannot be redeemed
+        if (option.redemptionPrice == 0) revert Unsupported(msg.sender, tokenId);
+        uint256 usdValue = option.redemptionPrice * optionQuantity / 1e18;
 
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();
         uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
         uint256 treasuryInUSD = treasury.total() * ethPriceUSD / oracleScale;
-        address optionOwner = stratOption.ownerOf(tokenId);
 
-        cdtToken.burnFrom(msg.sender, notionalUSDAmount);
-        stratOption.burn(tokenId);
+        cdtToken.burnFrom(msg.sender, usdValue);
+        stratOption.burnFrom(msg.sender, tokenId, optionQuantity);
 
         // If the value of the treasury (ETH) in USD is more than the USD debt
         uint256 ethAmount = 0;
@@ -98,7 +101,7 @@ contract StratOptionRedeemUSDNotional {
             // At the time of redemption:
             // - if the ETH price is 3000e18, the ETH returned will be 4000e18 * 1e18 / 3000e18 = 1.3333e18 ETH
             // - if the ETH price is 1500e18, the ETH returned will be 4000e18 * 1e18 / 1500e18 = 2.6666e18 ETH
-            ethAmount = notionalUSDAmount * oracleScale / ethPriceUSD;
+            ethAmount = usdValue * oracleScale / ethPriceUSD;
         }
         // Otherwise, the value of the treasury (ETH) in USD is less than the USD value of what was bonded
         else {
@@ -110,11 +113,11 @@ contract StratOptionRedeemUSDNotional {
             // option owner has a claim of 4000e18 * 3000e18 / 6000e18 = 2000e18 USD = 2000e18 * 1e8 / 2000e8 = 1e18 ETH
             // - if the ETH price is 3000e18, the treasury is valued at 4500e18 (1.5e18 * 3000e8 / 1e8) the option owner
             // has a claim of 4000e18 * 4500e18 / 6000e18 = 3000e18 USD = 3000e18 * 1e8 / 3000e8 = 1e18 ETH
-            uint256 usdEntitlement = notionalUSDAmount * treasuryInUSD / totalDebt;
+            uint256 usdEntitlement = usdValue * treasuryInUSD / totalDebt;
             ethAmount = usdEntitlement * oracleScale / ethPriceUSD;
         }
 
-        treasury.withdraw(ethAmount, optionOwner);
-        emit OptionRedeemed(optionOwner, tokenId, notionalUSDAmount, ethAmount);
+        treasury.withdraw(ethAmount, msg.sender);
+        emit OptionRedeemed(msg.sender, tokenId, usdValue, ethAmount);
     }
 }

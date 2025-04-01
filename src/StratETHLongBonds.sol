@@ -11,28 +11,39 @@ import {IOracle} from "./interfaces/IOracle.sol";
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
 contract StratETHLongBonds is Ownable2Step {
+    // ===== EVENTS ===== //
+
+    event UpdateBCV(uint256 newBcv);
+    event LongBond(
+        address indexed bonder,
+        uint256 indexed tokenId,
+        uint256 amount,
+        uint256 strikePrice,
+        uint256 redemptionPrice,
+        uint256 ethAmount,
+        uint48 expiry,
+        uint48 timelock
+    );
+
+    // ===== ERRORS ===== //
+
+    error InvalidParams(string reason);
+
+    // ===== CONSTANTS ===== //
+
+    uint256 public constant SCALE = 1e18;
+
+    // ===== STATE VARIABLES ===== //
+
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
     address immutable treasuryManager;
     IOracle public immutable ethUsdOracle;
     IOracle public immutable stratEthOracle;
-
-    uint256 public bcv;
-
-    uint256 public immutable SCALE = 1e18;
     uint256 public immutable USD_ORACLE_SCALE;
 
-    event UpdateBCV(uint256 newBcv);
-    event LongBond(
-        address indexed bonder,
-        uint256 strike,
-        uint256 notionalUnderlyingAmount,
-        uint256 notionalUSDAmount,
-        uint256 ethAmount,
-        uint256 expiry,
-        uint256 timelock
-    );
+    uint256 public bcv;
 
     /**
      * @param _cdtToken The CDT token
@@ -61,8 +72,8 @@ contract StratETHLongBonds is Ownable2Step {
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratEthOracle = IOracle(_stratEthOracle);
 
+        if (stratEthOracle.quoteTokenDecimals() != 18) revert InvalidParams("stratEthOracle");
         USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
-        require(stratEthOracle.quoteTokenDecimals() == 18, "StratEthOracle must have 18 decimals");
 
         bcv = _bcv;
     }
@@ -73,38 +84,32 @@ contract StratETHLongBonds is Ownable2Step {
     }
 
     function bond(address bonder) external payable {
-        require(msg.value > 0, "No ETH sent");
+        if (msg.value == 0) revert InvalidParams("msg.value");
 
-        // redemption
-        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
-        uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
-        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // Scale: 18
-            // decimals (since strikePrice is always 18 decimals)
+        uint256 ethUsdValue = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
+        uint256 currentStrikePrice = strikePrice(ethUsdValue); // Scale: 18 decimals
+        uint256 optionQuantity = ethUsdValue * SCALE / currentStrikePrice; // Scale: 18 decimals
 
-        stratOption.mint(
+        uint48 expiry = uint48(block.timestamp + (4.2 * 365 days));
+        uint48 timelock = uint48(block.timestamp + 69 minutes);
+
+        uint256 tokenId = stratOption.mintFor(
             bonder, // Option owner
-            strikeAmount, // Strike amount: amount of CDT to be burned to exercise the option
-            notionalUnderlyingAmount, // Notional underlying amount: amount of STRAT that will be received if the option
-                // is exercised
-            notionalUSDAmount, // Notional USD amount: USD value of the ETH that was deposited at the time of minting
-            block.timestamp + (4.2 * 365 days), // Expiry: 4.2 years from now
-            block.timestamp + 69 minutes // Timelock: 69 minutes from now
+            optionQuantity, // Quantity of STRAT tokens that can be exercised
+            currentStrikePrice, // Strike price: quantity of CDT per STRAT
+            currentStrikePrice, // Redemption price: USD per STRAT option
+            expiry, // Expiry: 4.2 years from now
+            timelock // Timelock: 69 minutes from now
         );
 
-        cdtToken.mint(bonder, notionalUSDAmount);
+        cdtToken.mint(bonder, ethUsdValue);
 
         // Send the eth to the treasury manager contract
         (bool success,) = treasuryManager.call{value: msg.value}("");
         require(success, "Transfer failed");
 
         emit LongBond(
-            bonder,
-            strikeAmount,
-            notionalUnderlyingAmount,
-            notionalUSDAmount,
-            msg.value,
-            block.timestamp + (4.2 * 365 days),
-            block.timestamp + 69 minutes
+            bonder, tokenId, optionQuantity, currentStrikePrice, currentStrikePrice, msg.value, expiry, timelock
         );
     }
 

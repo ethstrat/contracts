@@ -13,19 +13,31 @@ import "forge-std/console.sol";
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
 contract StratETHShortBonds is Ownable2Step {
+    // ===== EVENTS ===== //
+
+    event UpdateBCV(uint256 newBcv);
+    event ShortBond(
+        address indexed bonder, uint256 indexed tokenId, uint256 cdt, uint256 strat, uint256 expiry, uint256 timelock
+    );
+
+    // ===== ERRORS ===== //
+
+    error InvalidParams(string reason);
+
+    // ===== CONSTANTS ===== //
+
+    uint256 public constant SCALE = 1e18;
+
+    // ===== STATE VARIABLES ===== //
+
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
     IOracle public immutable ethUsdOracle;
     IOracle public immutable stratEthOracle;
-
-    uint256 public bcv;
-
-    uint256 public immutable SCALE = 1e18;
     uint256 public immutable USD_ORACLE_SCALE;
 
-    event UpdateBCV(uint256 newBcv);
-    event ShortBond(address indexed bonder, uint256 cdt, uint256 strat, uint256 expiry, uint256 timelock);
+    uint256 public bcv;
 
     /**
      * @param _cdtToken The CDT token
@@ -51,8 +63,8 @@ contract StratETHShortBonds is Ownable2Step {
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratEthOracle = IOracle(_stratEthOracle);
 
+        if (stratEthOracle.quoteTokenDecimals() != 18) revert InvalidParams("stratEthOracle");
         USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
-        require(stratEthOracle.quoteTokenDecimals() == 18, "StratEthOracle must have 18 decimals");
 
         bcv = _bcv;
     }
@@ -63,17 +75,25 @@ contract StratETHShortBonds is Ownable2Step {
     }
 
     function bond(address bonder, uint256 amount) external {
-        require(amount > 0, "Amount must be greater than 0");
-        uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
+        if (amount == 0) revert InvalidParams("amount");
 
-        stratOption.mint(
-            bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
+        uint256 optionQuantity = amount * SCALE / strikePrice(amount);
+        uint48 expiry = uint48(block.timestamp + (420 * 365 days));
+        uint48 timelock = uint48(block.timestamp + 6.9 days);
+
+        uint256 tokenId = stratOption.mintFor(
+            bonder, // Owner
+            optionQuantity, // Quantity of STRAT tokens that can be exercised
+            0, // Strike price: CDT is burnt here, so no further input is required to exercise the option
+            0, // Redemption price: not redeemable, so 0
+            expiry, // Expiry
+            timelock // Timelock
         );
 
+        // Burn the CDT tokens from the bonder
         cdtToken.burnFrom(msg.sender, amount);
-        emit ShortBond(
-            bonder, amount, notionalUnderlyingAmount, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
-        );
+
+        emit ShortBond(bonder, tokenId, amount, optionQuantity, expiry, timelock);
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {

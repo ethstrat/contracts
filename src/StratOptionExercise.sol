@@ -48,20 +48,25 @@ contract StratOptionExercise {
     ///
     /// @param tokenId The ID of the option to exercise
     function exercise(uint256 tokenId) external {
-        uint256 timelock = stratOption.timelock(tokenId);
-        if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
-        if (timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
-        if (stratOption.expiry(tokenId) < block.timestamp) revert OptionExpired(msg.sender, tokenId);
+        StratOption.Option memory option = stratOption.getOption(tokenId);
 
-        address optionOwner = stratOption.ownerOf(tokenId);
+        // TODO add on behalf of
 
-        uint256 strike = stratOption.strikeAmount(tokenId);
-        uint256 strat = stratOption.notionalUnderlyingAmount(tokenId);
+        if (option.timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
+        if (option.timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
+        if (option.expiry < block.timestamp) revert OptionExpired(msg.sender, tokenId);
 
-        cdtToken.burnFrom(msg.sender, strike);
-        stratToken.mint(optionOwner, strat);
-        stratOption.burn(tokenId);
+        uint256 optionQuantity = stratOption.balanceOf(msg.sender, tokenId);
+        uint256 cdtQuantity = option.strikePrice * optionQuantity / 1e18;
 
-        emit OptionExercised(optionOwner, tokenId, strike, strat);
+        // Some option types may not require a CDT payment
+        if (cdtQuantity > 0) {
+            cdtToken.burnFrom(msg.sender, cdtQuantity);
+        }
+
+        stratToken.mint(msg.sender, optionQuantity);
+        stratOption.burnFrom(msg.sender, tokenId, optionQuantity);
+
+        emit OptionExercised(msg.sender, tokenId, cdtQuantity, optionQuantity);
     }
 }
