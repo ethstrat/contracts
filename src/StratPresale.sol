@@ -16,6 +16,12 @@ contract StratPresale {
     /// @notice The total amount of ETH that can be raised during the presale
     uint256 public immutable cap;
 
+    /// @notice The expiry used for presale options
+    uint48 public immutable expiry;
+
+    /// @notice The timelock used for presale options
+    uint48 public immutable timelock;
+
     /// @notice The amount of ETH raised
     uint256 public totalRaised = 0;
 
@@ -23,15 +29,18 @@ contract StratPresale {
     /// @dev Technically not needed, but saves having to setup chain indexers for presale dapp
     mapping(address => uint256) public contributions;
 
-    event PresaleMint(address indexed from, uint256 value);
+    event PresaleMint(address indexed from, uint256 value, uint256 tokenId);
 
-    constructor(uint256 _cap, address _stratOption, address _presaleMultisig) {
+    constructor(uint256 _cap, address _stratOption, address _presaleMultisig, uint48 _baseTimestamp) {
         cap = _cap;
         stratOption = IStratOptionMinter(_stratOption);
         presaleMultisig = _presaleMultisig;
+
+        expiry = _baseTimestamp + (420 * 365 days);
+        timelock = _baseTimestamp + 90 days;
     }
 
-    /// @notice Mint a STRAT option
+    /// @notice Mint a presale STRAT option. Presale options are fungible.
     /// @dev    This function performs the following actions:
     ///         - Validates the inputs
     ///         - Updates the total amount of ETH raised
@@ -60,13 +69,13 @@ contract StratPresale {
         // - Strike amount: 2e18
         // - Underlying amount: 2e18
         // - Can be exercised for 2e18 CDT (total input of 2 ETH + 2e18 CDT) for 2e18 STRAT
-        stratOption.mintFor(
+        uint256 tokenId = stratOption.mintFor(
             msg.sender, // Owner
             msg.value, // Quantity of STRAT tokens that can be exercised
             1e18, // Strike price: 1 CDT per STRAT
             0, // Redemption price: cannot be redeemed, so 0
-            uint48(block.timestamp + (420 * 365 days)), // Expiry
-            uint48(block.timestamp + 90 days) // Timelock
+            expiry, // Expiry
+            timelock // Timelock
         );
 
         // This does NOT mint CDT tokens to the caller
@@ -76,6 +85,10 @@ contract StratPresale {
         (bool success,) = presaleMultisig.call{value: msg.value}("");
         require(success, "Transfer failed");
 
-        emit PresaleMint(msg.sender, msg.value);
+        emit PresaleMint(msg.sender, msg.value, tokenId);
+    }
+
+    function getTokenId() public view returns (uint256) {
+        return stratOption.getTokenId(1e18, 0, expiry, timelock);
     }
 }

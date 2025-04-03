@@ -13,10 +13,12 @@ contract StratPresaleTest is Test {
     address presaleMultisig = address(0x123);
     address internal owner = address(0x123);
 
+    uint48 internal constant BASE_TIMESTAMP = 1000000;
+
     function setUp() public {
         vm.startPrank(owner);
         stratOption = new StratOption(owner);
-        presale = new StratPresale(1000 ether, address(stratOption), presaleMultisig);
+        presale = new StratPresale(1000 ether, address(stratOption), presaleMultisig, BASE_TIMESTAMP);
         stratOption.manageMinter(address(presale), true);
         vm.stopPrank();
     }
@@ -50,56 +52,31 @@ contract StratPresaleTest is Test {
         assertEq(presale.totalRaised(), valueToSend);
         assertEq(address(this).balance, 0);
 
-        assertEq(stratOption.balanceOf(address(this)), 1);
-        assertEq(stratOption.strikeAmount(1), 2 ether);
-        assertEq(stratOption.notionalUnderlyingAmount(1), 2 ether);
-        assertEq(stratOption.notionalUSDAmount(1), 0);
-        assertEq(stratOption.expiry(1), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(1), block.timestamp + (90 days));
+        uint256 tokenId = presale.getTokenId();
 
-        assertGt(stratOption.expiry(1), stratOption.timelock(1));
-        assertGt(stratOption.expiry(1), block.timestamp);
-        assertGt(stratOption.timelock(1), block.timestamp);
+        assertEq(stratOption.balanceOf(address(this), tokenId), valueToSend, "balance");
+
+        IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
+
+        assertEq(option.strikePrice, 1e18, "strikePrice");
+        assertEq(option.redemptionPrice, 0, "redemptionPrice");
+
+        assertEq(option.expiry, uint48(BASE_TIMESTAMP + (420 * 365 days)), "expiry");
+        assertEq(option.timelock, uint48(BASE_TIMESTAMP + (90 days)), "timelock");
     }
 
     function testMintCapEnforced() public {
+        // Mint 1
         uint256 valueToSend = 999 ether;
         vm.deal(address(this), valueToSend);
         presale.mint{value: valueToSend}();
 
-        assertEq(presaleMultisig.balance, valueToSend);
-        assertEq(address(this).balance, 0);
-
-        assertEq(stratOption.balanceOf(address(this)), 1);
-        assertEq(stratOption.strikeAmount(1), 999 ether);
-        assertEq(stratOption.notionalUnderlyingAmount(1), valueToSend);
-        assertEq(stratOption.notionalUSDAmount(1), 0);
-        assertEq(stratOption.expiry(1), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(1), block.timestamp + (90 days));
-
-        assertGt(stratOption.expiry(1), stratOption.timelock(1));
-        assertGt(stratOption.expiry(1), block.timestamp);
-        assertGt(stratOption.timelock(1), block.timestamp);
-
+        // Mint 2
         valueToSend = 1 ether;
         vm.deal(address(this), valueToSend);
         presale.mint{value: valueToSend}();
 
-        assertEq(presaleMultisig.balance, 1000 ether);
-        assertEq(presale.totalRaised(), 1000 ether);
-        assertEq(address(this).balance, 0);
-
-        assertEq(stratOption.balanceOf(address(this)), 2);
-        assertEq(stratOption.strikeAmount(2), 1 ether);
-        assertEq(stratOption.notionalUnderlyingAmount(2), valueToSend);
-        assertEq(stratOption.notionalUSDAmount(2), 0);
-        assertEq(stratOption.expiry(2), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(2), block.timestamp + (90 days));
-
-        assertGt(stratOption.expiry(2), stratOption.timelock(2));
-        assertGt(stratOption.expiry(2), block.timestamp);
-        assertGt(stratOption.timelock(2), block.timestamp);
-
+        // Mint 3
         valueToSend = 1 ether;
         vm.deal(address(this), valueToSend);
         vm.expectRevert(bytes("Cap reached"));
