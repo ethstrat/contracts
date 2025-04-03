@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {MorphoIOracle} from "../interfaces/MorphoIOracle.sol";
 import {IERC20} from "../interfaces/IERC20.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
+import {ITreasury} from "../interfaces/ITreasury.sol";
 
 /// @title General purpose oracle used for pricing STRAT for the morpho borrow/lend
 /// @dev Implements the morpho IOracle interface, gives the NAV value of strat
@@ -27,6 +28,8 @@ contract TreasuryNavOracle is MorphoIOracle {
     ) {
         treasury = ITreasury(_treasury);
         cdtToken = IERC20(_cdtToken);
+        stratToken = IERC20(_stratToken);
+        ethUsdOracle = IOracle(_ethUsdOracle);
         discountFactor = _discountFactor;
         oracleScalingFactor = (10 ** ethUsdOracle.quoteTokenDecimals());
     }
@@ -34,7 +37,7 @@ contract TreasuryNavOracle is MorphoIOracle {
     function price() external view override returns (uint256) {
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 treasuryETHInUSD = treasury.total() * ethUsdOracle.price() / oracleScalingFactor;
-        uint256 nav = treasuryETHInUSD - cdtToken.totalSupply();
+        uint256 nav = treasuryETHInUSD - totalDebt;
         return nav * discountFactor / stratToken.totalSupply() * 1e18;
     }
 }
