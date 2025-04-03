@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
+import "forge-std/console.sol";
+
 import {IERC20, IERC20MintableBurnable} from "../interfaces/IERC20.sol";
 
-import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
@@ -12,13 +13,13 @@ import {MarketParamsLib} from "morpho-blue/src/libraries/MarketParamsLib.sol";
 import {SharesMathLib} from "morpho-blue/src/libraries/SharesMathLib.sol";
 import {IMorphoFlashLoanCallback} from "morpho-blue/src/interfaces/IMorphoCallbacks.sol";
 
-/// @title MorphoStratProxy
+/// @title StratMorphoMarket
 /// @notice A proxy for the strat/ETH borrow market. It governs deposit, withdrawal and liquidation
 ///         actions while controlling liquidation incentives and enabling liquidation via token burn.
 /// @dev Only the owner can initialize market parameters and perform owner-specific asset transfers.
-contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback {
+contract StratMorphoMarket is ERC20, Ownable2Step, IMorphoFlashLoanCallback {
     /// @notice The Morpho money market contract used for managing collateral and loans.
-    IMorpho public morphoMoneyMarket;
+    IMorpho public morpho;
 
     /// @notice Parameters defining the market, such as collateral token, loan token, oracle, etc.
     MarketParams public marketParams;
@@ -35,13 +36,6 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
     /// @dev Error thrown when the amount of assets is zero.
     error ZeroAssets();
 
-    /// @dev Error thrown when an address provided is the zero address.
-    error ZeroAddress();
-
-    /// @dev Error thrown when an invalid loan-to-liquidation threshold value is provided.
-    /// @param lltv The invalid loan-to-liquidation threshold value.
-    error InvalidLltv(uint256 lltv);
-
     /// @dev Error thrown when the caller of the flash loan callback is not authorized.
     /// @param caller The address of the unauthorized caller.
     error UnauthorizedMorphoFlashLoanCaller(address caller);
@@ -56,37 +50,29 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
         uint256 borrowerShares;
     }
 
-    /// @dev Constructor for the `MorphoStratProxy` contract.
-    /// Initializes the contract and sets up any required state or dependencies.
-    /// Additional details about the parameters and initialization logic
-    /// should be provided here if applicable.
-    constructor(
-        string memory name,
-        string memory symbol,
-        address _morphoMoneyMarket,
-        address _stratToken,
-        address _owner,
-        address _treasury
-    ) ERC20(name, symbol) ERC20Permit(name) Ownable(_owner) {
-        morphoMoneyMarket = IMorpho(_morphoMoneyMarket);
+    /**
+     * @param _morpho The address of the Morpho blue contract.
+     * @param _stratToken The address of the STRAT token.
+     * @param _treasury Address of the STRAT treasury from which assets are pulled and deposited into the borrow/lend
+     * @param _owner The contract owner
+     */
+    constructor(address _morpho, address _stratToken, address _treasury, address _owner)
+        ERC20("Morpho Wrapped Strat", "mwSTRAT")
+        Ownable(_owner)
+    {
+        morpho = IMorpho(_morpho);
         stratToken = IERC20MintableBurnable(_stratToken);
         treasury = _treasury;
     }
 
     /// @notice Initializes the market parameters. Should only be called once by the owner.
-    /// @dev Reverts if any critical parameter (loanToken or irm) is address zero, or if the provided LLTV is not
-    /// enabled.
     /// @param loanToken The token borrowed in the market.
     /// @param oracle The price oracle address.
     /// @param irm The interest rate model address.
     /// @param lltv The loan-to-value ratio (LLTV) to validate.
     function initializeMarketParams(address loanToken, address oracle, address irm, uint256 lltv) external onlyOwner {
-        if (loanToken == address(0)) revert ZeroAddress();
-        if (irm == address(0)) revert ZeroAddress();
-        if (!morphoMoneyMarket.isLltvEnabled(lltv)) revert InvalidLltv(lltv);
-
-        marketParams.collateralToken = address(this);
         marketParams.loanToken = loanToken;
+        marketParams.collateralToken = address(this);
         marketParams.oracle = oracle;
         marketParams.irm = irm;
         marketParams.lltv = lltv;
@@ -103,13 +89,10 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
     /// @param onBehalf The address that will own the resulting increased collateral position.
     /// @param data Arbitrary data passed to the `onMorphoSupplyCollateral` callback.
     function supplyCollateral(uint256 assets, address onBehalf, bytes memory data) external {
-        if (onBehalf == address(0)) revert ZeroAddress();
-
         stratToken.transferFrom(msg.sender, address(this), assets);
-        approve(address(morphoMoneyMarket), assets);
+        _approve(address(this), address(morpho), assets);
         _mint(address(this), assets);
-
-        morphoMoneyMarket.supplyCollateral(marketParams, assets, onBehalf, data);
+        morpho.supplyCollateral(marketParams, assets, onBehalf, data);
     }
 
     /// @notice Withdraws a specified amount of collateral and sends it to the receiver.
@@ -119,7 +102,7 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
     /// @param assets The amount of collateral to withdraw.
     /// @param receiver The address receiving the withdrawn collateral.
     function withdrawCollateral(uint256 assets, address receiver) external {
-        morphoMoneyMarket.withdrawCollateral(marketParams, assets, msg.sender, address(this));
+        morpho.withdrawCollateral(marketParams, assets, msg.sender, address(this));
         _burn(address(this), assets);
         stratToken.transfer(receiver, assets);
     }
@@ -130,15 +113,15 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
     ///      The flash loan callback (`onMorphoFlashLoan`) is used to complete the process.
     /// @param borrower The address owning the position to be liquidated.
     function liquidate(address borrower) external {
-        Position memory position = morphoMoneyMarket.position(marketId, borrower);
-        Market memory market = morphoMoneyMarket.market(marketId);
+        Position memory position = morpho.position(marketId, borrower);
+        Market memory market = morpho.market(marketId);
 
         uint256 borrowerAssets =
             SharesMathLib.toAssetsUp(position.borrowShares, market.totalBorrowAssets, market.totalBorrowShares);
 
         // perform rest of the liquidate flash loan, in the flashLoan callback
         // (liquidate, then pay back flash by withdrawing loanToken from the market, then pay liquidator)
-        morphoMoneyMarket.flashLoan(
+        morpho.flashLoan(
             marketParams.loanToken,
             borrowerAssets,
             abi.encode(LiquidateData(msg.sender, borrower, position.borrowShares))
@@ -147,18 +130,17 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
 
     /// @inheritdoc IMorphoFlashLoanCallback
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
-        if (msg.sender != address(morphoMoneyMarket)) revert UnauthorizedMorphoFlashLoanCaller(msg.sender);
+        if (msg.sender != address(morpho)) revert UnauthorizedMorphoFlashLoanCaller(msg.sender);
 
         LiquidateData memory ldata = abi.decode(data, (LiquidateData));
 
         // liquidate the borrower
-        IERC20(marketParams.loanToken).approve(address(morphoMoneyMarket), assets);
-        (uint256 seizedAssets,) =
-            morphoMoneyMarket.liquidate(marketParams, ldata.borrower, 0, ldata.borrowerShares, new bytes(0));
+        IERC20(marketParams.loanToken).approve(address(morpho), assets);
+        (uint256 seizedAssets,) = morpho.liquidate(marketParams, ldata.borrower, 0, ldata.borrowerShares, new bytes(0));
 
         // pay back the flash loan
-        IERC20(marketParams.loanToken).approve(address(morphoMoneyMarket), assets);
-        morphoMoneyMarket.withdraw(marketParams, assets, 0, address(this), address(this));
+        IERC20(marketParams.loanToken).approve(address(morpho), assets);
+        morpho.withdraw(marketParams, assets, 0, address(this), address(this));
 
         // pay liquidation incentive, and burn siezed assets
         uint256 incentive = seizedAssets / 100;
@@ -173,19 +155,19 @@ contract MorphoStratProxy is ERC20Permit, Ownable2Step, IMorphoFlashLoanCallback
     /// @param amount The amount of assets to withdraw.
     /// @param shares The corresponding number of shares to burn.
     function withdraw(uint256 amount, uint256 shares) external onlyOwner {
-        if (amount == 0) revert ZeroAssets();
+        if (amount == 0 && shares == 0) revert ZeroAssets();
 
-        morphoMoneyMarket.withdraw(marketParams, amount, shares, address(this), treasury);
+        morpho.withdraw(marketParams, amount, shares, address(this), treasury);
     }
 
     /// @notice Owner-only function to supply assets from the treasury to the Morpho market.
     /// @dev Reverts if the supplied amount is zero.
     /// @param amount The amount of assets to supply.
-    /// @param shares The corresponding shares for the supply.
-    function supply(uint256 amount, uint256 shares) external onlyOwner {
+    function supply(uint256 amount) external onlyOwner {
         if (amount == 0) revert ZeroAssets();
 
         IERC20(marketParams.loanToken).transferFrom(address(treasury), address(this), amount);
-        morphoMoneyMarket.supply(marketParams, amount, shares, address(this), new bytes(0));
+        IERC20(marketParams.loanToken).approve(address(morpho), amount);
+        morpho.supply(marketParams, amount, 0, address(this), new bytes(0));
     }
 }
