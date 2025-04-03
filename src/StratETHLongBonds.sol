@@ -83,7 +83,7 @@ contract StratETHLongBonds is Ownable2Step {
         emit UpdateBCV(_newBcv);
     }
 
-    function bond(address bonder) external payable {
+    function bond(address bonder) external payable returns (uint256 tokenId) {
         if (msg.value == 0) revert InvalidParams("msg.value");
 
         uint256 ethUsdValue = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
@@ -93,7 +93,10 @@ contract StratETHLongBonds is Ownable2Step {
         uint48 expiry = uint48(block.timestamp + (4.2 * 365 days));
         uint48 timelock = uint48(block.timestamp + 69 minutes);
 
-        uint256 tokenId = stratOption.mintFor(
+        // Mints a long bond that can be exercised for the current USD value of the deposited ETH, or redeemed for the
+        // same value
+        // For this reason, the redemption price is the same as the strike price
+        tokenId = stratOption.mintFor(
             bonder, // Option owner
             optionQuantity, // Quantity of STRAT tokens that can be exercised
             currentStrikePrice, // Strike price: quantity of CDT per STRAT
@@ -111,6 +114,7 @@ contract StratETHLongBonds is Ownable2Step {
         emit LongBond(
             bonder, tokenId, optionQuantity, currentStrikePrice, currentStrikePrice, msg.value, expiry, timelock
         );
+        return tokenId;
     }
 
     /// @notice Provides the strike price for a given USD value of ETH

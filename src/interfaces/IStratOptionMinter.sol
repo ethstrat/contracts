@@ -54,10 +54,8 @@ interface IStratOptionMinter {
     /// @param  expiry_             Expiry of the option
     /// @param  timelock_           Timelock of the option
     /// @return tokenId             Token ID of the option
-    function getTokenId(
-        uint256 strikePrice_,
-        uint256 redemptionPrice_,
-        uint48 expiry_,
-        uint48 timelock_
-    ) external pure returns (uint256 tokenId);
+    function getTokenId(uint256 strikePrice_, uint256 redemptionPrice_, uint48 expiry_, uint48 timelock_)
+        external
+        pure
+        returns (uint256 tokenId);
 }
