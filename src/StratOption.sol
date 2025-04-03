@@ -12,31 +12,6 @@ import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
  */
 
 contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
-    // ===== ERRORS ===== //
-
-    error MinterUnauthorizedAccount(address account);
-    error NotOwnerOrApproved(address account, uint256 tokenId);
-    error InvalidParams(string reason);
-
-    // ===== DATA STRUCTURES ===== //
-
-    /// @notice The parameters of the option
-    /// @dev    The quantity of an option token is the quantity of STRAT tokens that it can be exercised for.
-    ///
-    /// @param  strikePrice     Input token per STRAT, in terms of `SCALE`. Multiply by the option quantity to get the
-    /// quantity of the input token that is required to exercise the option. The exact input token is determined by the
-    /// option type. Can be 0.
-    /// @param  redemptionPrice Redemption price in USD per STRAT, in terms of `SCALE`. Multiply by the option quantity
-    /// to get the USD value that will be used for redemption. Can be 0.
-    /// @param  expiry          The timestamp at which the option expires.
-    /// @param  timelock        The timestamp at which the option can be exercised.
-    struct Option {
-        uint256 strikePrice;
-        uint256 redemptionPrice;
-        uint48 expiry;
-        uint48 timelock;
-    }
-
     // ===== CONSTANTS ===== //
 
     uint256 public constant SCALE = 1e18;
@@ -112,7 +87,7 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
             revert InvalidParams("timelock");
         }
 
-        tokenId = _generateTokenId(strikePrice_, redemptionPrice_, expiry_, timelock_);
+        tokenId = getTokenId(strikePrice_, redemptionPrice_, expiry_, timelock_);
         _mint(to_, tokenId, amount_, "");
 
         // If the option is not already in the mapping, add it
@@ -152,17 +127,19 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
         _burn(from_, tokenId_, amount_);
     }
 
-    function _generateTokenId(uint256 strikePrice, uint256 redemptionPrice, uint256 expiry, uint256 timelock)
-        internal
-        returns (uint256)
-    {
-        return uint256(keccak256(abi.encodePacked(strikePrice, redemptionPrice, expiry, timelock)));
-    }
-
     // ===== VIEW FUNCTIONS ===== //
 
     function getOption(uint256 tokenId) external view returns (Option memory) {
         return _options[tokenId];
+    }
+
+    function getTokenId(
+        uint256 strikePrice_,
+        uint256 redemptionPrice_,
+        uint48 expiry_,
+        uint48 timelock_
+    ) public pure override returns (uint256 tokenId) {
+        tokenId = uint256(keccak256(abi.encodePacked(strikePrice_, redemptionPrice_, expiry_, timelock_)));
     }
 
     // ===== TOKEN URI FUNCTIONS ===== //
