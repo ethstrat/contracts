@@ -76,6 +76,8 @@ contract StratETHShortBondsTest is Test {
     // strikePrice
     // given the ETH-USD oracle has 18 decimals
     //  [X] the strike price is calculated correctly
+    // given the STRAT supply is 0
+    //  [X] the strike price is 0
     // [X] the strike price is calculated correctly
 
     function testStrikePrice_ethUsdOracleDecimals18() public {
@@ -123,6 +125,16 @@ contract StratETHShortBondsTest is Test {
         uint256 expectedStrikePrice = stratPrice * stratPrice / 1998500e18 * 1000e18 / 1e18;
         uint256 calculatedStrikePrice = bonds.strikePrice(amount);
         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
+    }
+
+    function test_strikePrice_noTokenSupply() public {
+        // Adjust the STRAT supply to 0
+        stratToken.burn(1000e18);
+
+        assertEq(stratToken.totalSupply(), 0, "STRAT supply should be 0");
+
+        uint256 calculatedStrikePrice = bonds.strikePrice(1e18);
+        assertEq(calculatedStrikePrice, 0, "Strike price calculation is incorrect");
     }
 
     // bond

@@ -8,6 +8,7 @@ import "../../../src/StratToken.sol";
 import "../../../src/StratOption.sol";
 import {IStratOptionMinter} from "../../../src/interfaces/IStratOptionMinter.sol";
 import {MockOracle} from "../../mocks/MockOracle.sol";
+import {stdError} from "forge-std/StdError.sol";
 
 contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
@@ -99,6 +100,8 @@ contract StratETHLongBondsTest is Test {
     // strikePrice
     // given the STRAT-ETH price is not 1
     //  [X] the strike price is calculated correctly
+    // given the STRAT supply is 0
+    //  [X] it reverts
     // [X] the strike price is calculated correctly
 
     function test_strikePrice_notEqual() public {
@@ -134,6 +137,17 @@ contract StratETHLongBondsTest is Test {
         uint256 expectedStrikePrice = stratPrice + 1.5e18;
         uint256 calculatedStrikePrice = bonds.strikePrice(notionalUSDAmount);
         assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
+    }
+
+    function test_strikePrice_noTokenSupply_reverts() public {
+        // Adjust the STRAT supply to 0
+        stratToken.burn(1000e18);
+
+        assertEq(stratToken.totalSupply(), 0, "STRAT supply should be 0");
+
+        // Expect the strike price to revert
+        vm.expectRevert(stdError.divisionError);
+        bonds.strikePrice(1e18);
     }
 
     // bond
