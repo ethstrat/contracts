@@ -168,10 +168,21 @@ contract StratETHLongBondsTest is Test {
         uint256 ethUsdValue = ethAmount * ethUsdOracle.price() / 1e8; // ETH -> USD conversion
         uint256 expectedStrikePrice = bonds.strikePrice(ethUsdValue);
 
+        uint256 expectedTokenId = stratOption.getTokenId(
+            expectedStrikePrice,
+            1e18,
+            uint48(block.timestamp + (4.2 * 365 days)),
+            uint48(block.timestamp + 69 minutes),
+            true
+        );
+
         vm.deal(user, ethAmount); // Give ETH to user
         vm.prank(user);
         // Run bond function
         uint256 tokenId = bonds.bond{value: ethAmount}(user);
+
+        // Check the token ID is correct
+        assertEq(tokenId, expectedTokenId, "Incorrect token ID");
 
         // Check treasury receives money
         assertEq(treasuryManager.balance, ethAmount, "Treasury did not receive the correct ETH amount");
@@ -199,6 +210,9 @@ contract StratETHLongBondsTest is Test {
 
         // Timelock
         assertEq(option.timelock, block.timestamp + 69 minutes, "Incorrect timelock");
+
+        // requiresInputBurn
+        assertEq(option.requiresInputBurn, true, "requiresInputBurn");
     }
 
     function test_bond_ethUsdOracleDecimals18() public {

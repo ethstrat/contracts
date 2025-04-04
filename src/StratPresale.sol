@@ -75,7 +75,8 @@ contract StratPresale {
             1e18, // Strike price: 1 CDT per STRAT
             0, // Redemption price: cannot be redeemed, so 0
             expiry, // Expiry
-            timelock // Timelock
+            timelock, // Timelock
+            true // Requires burning CDT from the caller during exercise
         );
 
         // This does NOT mint CDT tokens to the caller
@@ -89,6 +90,6 @@ contract StratPresale {
     }
 
     function getTokenId() public view returns (uint256) {
-        return stratOption.getTokenId(1e18, 0, expiry, timelock);
+        return stratOption.getTokenId(1e18, 0, expiry, timelock, true);
     }
 }

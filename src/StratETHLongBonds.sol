@@ -102,7 +102,8 @@ contract StratETHLongBonds is Ownable2Step {
             currentStrikePrice, // Strike price: quantity of CDT per STRAT
             1e18, // Redemption price: USD per STRAT option
             expiry, // Expiry: 4.2 years from now
-            timelock // Timelock: 69 minutes from now
+            timelock, // Timelock: 69 minutes from now
+            true // Requires burning CDT from the caller during exercise
         );
 
         cdtToken.mint(bonder, ethUsdValue);

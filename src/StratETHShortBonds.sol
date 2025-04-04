@@ -77,23 +77,24 @@ contract StratETHShortBonds is Ownable2Step {
     function bond(address bonder, uint256 amount) external returns (uint256 tokenId) {
         if (amount == 0) revert InvalidParams("amount");
 
-        uint256 optionQuantity = amount * SCALE / strikePrice(amount);
+        uint256 stratQuantity = amount * SCALE / strikePrice(amount);
         uint48 expiry = uint48(block.timestamp + (420 * 365 days));
         uint48 timelock = uint48(block.timestamp + 6.9 days);
 
         tokenId = stratOption.mintFor(
             bonder, // Owner
-            optionQuantity, // Quantity of STRAT tokens that can be exercised
-            0, // Strike price: CDT is burnt here, so no further input is required to exercise the option
+            amount, // Quantity of option tokens to mint
+            strikePrice(amount), // Strike price
             0, // Redemption price: not redeemable, so 0
             expiry, // Expiry
-            timelock // Timelock
+            timelock, // Timelock
+            false // Does not require burning CDT from the caller during exercise
         );
 
         // Burn the CDT tokens from the bonder
         cdtToken.burnFrom(msg.sender, amount);
 
-        emit ShortBond(bonder, tokenId, amount, optionQuantity, expiry, timelock);
+        emit ShortBond(bonder, tokenId, amount, stratQuantity, expiry, timelock);
 
         return tokenId;
     }

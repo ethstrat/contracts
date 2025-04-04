@@ -46,7 +46,7 @@ contract StratPresaleTest is Test {
 
         // Expected quantity of options
         uint256 expectedTokenId =
-            stratOption.getTokenId(1e18, 0, BASE_TIMESTAMP + (420 * 365 days), BASE_TIMESTAMP + (90 days));
+            stratOption.getTokenId(1e18, 0, BASE_TIMESTAMP + (420 * 365 days), BASE_TIMESTAMP + (90 days), true);
 
         vm.expectEmit();
         emit PresaleMint(user, valueToSend, expectedTokenId);
@@ -60,6 +60,8 @@ contract StratPresaleTest is Test {
 
         uint256 tokenId = presale.getTokenId();
 
+        assertEq(tokenId, expectedTokenId, "Incorrect token ID");
+
         assertEq(stratOption.balanceOf(user, tokenId), valueToSend, "balance");
 
         IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
@@ -72,6 +74,7 @@ contract StratPresaleTest is Test {
 
         assertEq(option.expiry, uint48(BASE_TIMESTAMP + (420 * 365 days)), "expiry");
         assertEq(option.timelock, uint48(BASE_TIMESTAMP + (90 days)), "timelock");
+        assertEq(option.requiresInputBurn, true, "requiresInputBurn");
     }
 
     function testMintCapEnforced() public {

@@ -1,40 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import "../../../src/StratETHShortBonds.sol";
 import "../../../src/CdtToken.sol";
 import "../../../src/StratToken.sol";
 import "../../../src/StratOption.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
-
-contract MockOracle {
-    uint256 private _price;
-    uint8 public baseTokenDecimals;
-    uint8 public quoteTokenDecimals;
-
-    constructor(uint256 initialPrice, uint8 _baseTokenDecimals, uint8 _quoteTokenDecimals) {
-        _price = initialPrice;
-        baseTokenDecimals = _baseTokenDecimals;
-        quoteTokenDecimals = _quoteTokenDecimals;
-    }
-
-    function setPrice(uint256 newPrice) public {
-        _price = newPrice;
-    }
-
-    function price() external view returns (uint256) {
-        return _price;
-    }
-
-    function setQuoteTokenDecimals(uint8 newQuoteTokenDecimals) public {
-        quoteTokenDecimals = newQuoteTokenDecimals;
-    }
-
-    function setBaseTokenDecimals(uint8 newBaseTokenDecimals) public {
-        baseTokenDecimals = newBaseTokenDecimals;
-    }
-}
+import {MockOracle} from "../../mocks/MockOracle.sol";
 
 contract StratETHShortBondsTest is Test {
     StratETHShortBonds public bonds;
@@ -177,8 +150,8 @@ contract StratETHShortBondsTest is Test {
 
     function test_bond_noAmount_reverts() public {
         vm.prank(user);
-        vm.expectRevert("Amount must be greater than 0");
-        bonds.bond(user, 0); // Should revert because no CDT is sent
+        vm.expectRevert(abi.encodeWithSelector(StratETHShortBonds.InvalidParams.selector, "amount"));
+        bonds.bond(user, 0); // Should revert because no CDT amount is specified
     }
 
     function test_bond_cdtSpendingNotApproved_reverts() public {
@@ -232,66 +205,122 @@ contract StratETHShortBondsTest is Test {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
 
+        // Get the strike price
+        uint48 expectedExpiry = uint48(block.timestamp + (420 * 365 days));
+        uint48 expectedTimelock = uint48(block.timestamp + 6.9 days);
+        uint256 expectedStrikePrice = bonds.strikePrice(cdtAmount);
+        uint256 expectedTokenId =
+            stratOption.getTokenId(expectedStrikePrice, 0, expectedExpiry, expectedTimelock, false);
+
         cdtToken.approve(address(bonds), cdtAmount);
-        bonds.bond(user, cdtAmount);
+        uint256 tokenId = bonds.bond(user, cdtAmount);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 
-        // Verify the minted StratOption attributes
-        uint256 tokenId = 1; // Assuming this is the first minted option
+        // Check the token ID is correct
+        assertEq(tokenId, expectedTokenId, "Incorrect token ID");
 
-        // NFT Option properties
-        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
-        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
-        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
-        assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
-        );
-        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
-        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
-        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+        // Balance = cdtAmount
+        assertEq(stratOption.balanceOf(user, tokenId), cdtAmount, "Incorrect balance");
+
+        IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
+
+        // Strike price
+        assertEq(option.strikePrice, expectedStrikePrice, "Incorrect strike price");
+
+        // Redemption price
+        // Not redeemable, so 0
+        assertEq(option.redemptionPrice, 0, "Incorrect redemption price");
+
+        // Check STRAT output when exercised
+        assertEq(cdtAmount * 1e18 / option.strikePrice, 222166666666666666, "Incorrect STRAT output");
+
+        // Expiry
+        assertEq(option.expiry, expectedExpiry, "Incorrect expiry");
+
+        // Timelock
+        assertEq(option.timelock, expectedTimelock, "Incorrect timelock");
+
+        // requiresInputBurn
+        assertEq(option.requiresInputBurn, false, "requiresInputBurn");
     }
 
     function test_bond() public {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
 
+        // Get the strike price
+        uint48 expectedExpiry = uint48(block.timestamp + (420 * 365 days));
+        uint48 expectedTimelock = uint48(block.timestamp + 6.9 days);
+        uint256 expectedStrikePrice = bonds.strikePrice(cdtAmount);
+        uint256 expectedTokenId =
+            stratOption.getTokenId(expectedStrikePrice, 0, expectedExpiry, expectedTimelock, false);
+
         cdtToken.approve(address(bonds), cdtAmount);
-        bonds.bond(user, cdtAmount);
+        uint256 tokenId = bonds.bond(user, cdtAmount);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 
-        // Verify the minted StratOption attributes
-        uint256 tokenId = 1; // Assuming this is the first minted option
+        // Check the token ID is correct
+        assertEq(tokenId, expectedTokenId, "Incorrect token ID");
 
-        // NFT Option properties
-        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
-        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
-        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
-        assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
-        );
-        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
-        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
-        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+        // Balance = cdtAmount
+        assertEq(stratOption.balanceOf(user, tokenId), cdtAmount, "Incorrect balance");
+
+        IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
+
+        // Strike price
+        assertEq(option.strikePrice, expectedStrikePrice, "Incorrect strike price");
+
+        // Redemption price
+        // Not redeemable, so 0
+        assertEq(option.redemptionPrice, 0, "Incorrect redemption price");
+
+        // Check STRAT output when exercised
+        assertEq(cdtAmount * 1e18 / option.strikePrice, 222166666666666666, "Incorrect STRAT output");
+
+        // Expiry
+        assertEq(option.expiry, expectedExpiry, "Incorrect expiry");
+
+        // Timelock
+        assertEq(option.timelock, expectedTimelock, "Incorrect timelock");
+
+        // requiresInputBurn
+        assertEq(option.requiresInputBurn, false, "requiresInputBurn");
     }
 
     function testBondDataInvariants() public {
         cdtToken.approve(address(bonds), 100000 ether);
 
+        uint256 previousTokenId;
         for (uint256 i = 0; i < 10; i++) {
             // Bond 1000 cdt
-            bonds.bond(user, 1000 ether);
+            uint256 tokenId = bonds.bond(user, 1000 ether);
 
             if (i == 0) {
+                previousTokenId = tokenId;
                 continue;
             }
 
+            IStratOptionMinter.Option memory currentOption = stratOption.getOption(tokenId);
+            IStratOptionMinter.Option memory previousOption = stratOption.getOption(previousTokenId);
+
+            // Strike price increases
+            assertGt(currentOption.strikePrice, previousOption.strikePrice, "Strike price should increase");
+
+            // Balance should be the same as the USD input is the same
+            uint256 currentBalance = stratOption.balanceOf(user, tokenId);
+            uint256 previousBalance = stratOption.balanceOf(user, previousTokenId);
+            assertEq(currentBalance, previousBalance, "Balance should be the same as the USD input is the same");
+
+            // STRAT output should decrease as the strike price increases
             assertGt(
-                stratOption.notionalUnderlyingAmount(i),
-                stratOption.notionalUnderlyingAmount(i + 1),
-                "Each subsequent bond should have less notional than the previous"
+                previousBalance * 1e18 / previousOption.strikePrice,
+                currentBalance * 1e18 / currentOption.strikePrice,
+                "STRAT output should decrease as the strike price increases"
             );
+
+            previousTokenId = tokenId;
         }
     }
 }

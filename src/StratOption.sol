@@ -75,7 +75,8 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
         uint256 strikePrice_,
         uint256 redemptionPrice_,
         uint48 expiry_,
-        uint48 timelock_
+        uint48 timelock_,
+        bool requiresInputBurn_
     ) external onlyMinter returns (uint256 tokenId) {
         // Check timelock is before expiry
         if (timelock_ >= expiry_) {
@@ -87,7 +88,7 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
             revert InvalidParams("timelock");
         }
 
-        tokenId = getTokenId(strikePrice_, redemptionPrice_, expiry_, timelock_);
+        tokenId = getTokenId(strikePrice_, redemptionPrice_, expiry_, timelock_, requiresInputBurn_);
         _mint(to_, tokenId, amount_, "");
 
         // If the option is not already in the mapping, add it
@@ -96,7 +97,8 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
                 strikePrice: strikePrice_,
                 redemptionPrice: redemptionPrice_,
                 expiry: expiry_,
-                timelock: timelock_
+                timelock: timelock_,
+                requiresInputBurn: requiresInputBurn_
             });
         }
 
@@ -133,13 +135,15 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
         return _options[tokenId];
     }
 
-    function getTokenId(uint256 strikePrice_, uint256 redemptionPrice_, uint48 expiry_, uint48 timelock_)
-        public
-        pure
-        override
-        returns (uint256 tokenId)
-    {
-        tokenId = uint256(keccak256(abi.encodePacked(strikePrice_, redemptionPrice_, expiry_, timelock_)));
+    function getTokenId(
+        uint256 strikePrice_,
+        uint256 redemptionPrice_,
+        uint48 expiry_,
+        uint48 timelock_,
+        bool requiresInputBurn_
+    ) public pure override returns (uint256 tokenId) {
+        tokenId =
+            uint256(keccak256(abi.encodePacked(strikePrice_, redemptionPrice_, expiry_, timelock_, requiresInputBurn_)));
     }
 
     function previewExercise(uint256 tokenId_, uint256 amount_) external view returns (uint256 tokensOut) {

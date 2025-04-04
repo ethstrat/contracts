@@ -111,7 +111,7 @@ contract StratOptionTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IStratOptionMinter.InvalidParams.selector, "timelock"));
 
         vm.startPrank(minter);
-        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), timelock);
+        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), timelock, true);
         vm.stopPrank();
     }
 
@@ -127,7 +127,7 @@ contract StratOptionTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IStratOptionMinter.InvalidParams.selector, "timelock"));
 
         vm.startPrank(minter);
-        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), timelock);
+        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), timelock, true);
         vm.stopPrank();
     }
 
@@ -139,12 +139,12 @@ contract StratOptionTest is Test {
         // Non-minter mint should fail
         vm.startPrank(user);
         vm.expectRevert();
-        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
 
         // Minter can mint
         vm.startPrank(minter);
         uint256 tokenId =
-            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
         assertEq(collection.balanceOf(user, tokenId), 1);
 
         // Revoked Minter can no longer mint
@@ -152,7 +152,7 @@ contract StratOptionTest is Test {
         collection.manageMinter(minter, false);
         vm.startPrank(minter);
         vm.expectRevert();
-        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+        collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
 
         // Check balance
         assertEq(collection.balanceOf(user, tokenId), 1);
@@ -172,7 +172,7 @@ contract StratOptionTest is Test {
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
         uint256 tokenId =
-            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
         vm.stopPrank();
 
         // User burns option
@@ -192,7 +192,7 @@ contract StratOptionTest is Test {
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
         uint256 tokenId =
-            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
         vm.stopPrank();
 
         // Burn options from user without approval
@@ -250,7 +250,7 @@ contract StratOptionTest is Test {
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
         uint256 tokenId =
-            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+            collection.mintFor(user, 1, 1, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
 
         // No renderer => empty tokenURI
         assertEq(collection.uri(tokenId), "");
@@ -263,7 +263,7 @@ contract StratOptionTest is Test {
         vm.startPrank(owner);
         collection.manageMinter(owner, true);
         uint256 tokenId =
-            collection.mintFor(user, 10, 5, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+            collection.mintFor(user, 10, 5, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
         collection.managerRenderer(address(mock));
         vm.stopPrank();
 
