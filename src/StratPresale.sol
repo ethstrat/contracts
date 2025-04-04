@@ -29,9 +29,11 @@ contract StratPresale {
 
         contributions[msg.sender] += msg.value;
 
-        stratOption.mint(
-            msg.sender, msg.value, msg.value, 0, block.timestamp + (420 * 365 days), block.timestamp + 90 days
-        );
+        // Upscale to Strat Amount 10000
+        uint256 stratScale = 10000;
+        uint256 stratNotionalAmount = msg.value * stratScale;
+        // Address to sender, 0 strike, 0
+        stratOption.mint(msg.sender, 0, msg.value, 0, block.timestamp + (420 * 365 days), block.timestamp + 90 days);
 
         // send ETH to presale multisig
         (bool success,) = presaleMultisig.call{value: msg.value}("");
