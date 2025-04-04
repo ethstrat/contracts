@@ -1,50 +1,45 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import "../../../src/StratOption.sol";
+import {ITokenURIRenderer} from "../../../src/interfaces/ITokenURIRenderer.sol";
 import {IStratOptionMinter} from "../../../src/interfaces/IStratOptionMinter.sol";
 import {IERC1155Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
-contract MockRenderer is TokenURIRenderer {
-    uint256 public tokenId;
-    uint256 public strikeAmount;
-    uint256 public notionalUnderlyingAmount;
-    uint256 public notionalUSDAmount;
-    uint256 public expiry;
-    uint256 public timelock;
+contract MockRenderer is ITokenURIRenderer {
+    uint256 public strikePrice;
+    uint256 public redemptionPrice;
+    uint48 public expiry;
+    uint48 public timelock;
+    bool public requiresInputBurn;
 
     constructor(
-        uint256 _tokenId,
-        uint256 _strikeAmount,
-        uint256 _notionalUnderlyingAmount,
-        uint256 _notionalUSDAmount,
-        uint256 _expiry,
-        uint256 _timelock
+        uint256 _strikePrice,
+        uint256 _redemptionPrice,
+        uint48 _expiry,
+        uint48 _timelock,
+        bool _requiresInputBurn
     ) {
-        tokenId = _tokenId;
-        strikeAmount = _strikeAmount;
-        notionalUnderlyingAmount = _notionalUnderlyingAmount;
-        notionalUSDAmount = _notionalUSDAmount;
+        strikePrice = _strikePrice;
+        redemptionPrice = _redemptionPrice;
         expiry = _expiry;
         timelock = _timelock;
+        requiresInputBurn = _requiresInputBurn;
     }
 
     function render(
-        uint256 _tokenId,
-        uint256 _strikeAmount,
-        uint256 _notionalUnderlyingAmount,
-        uint256 _notionalUSDAmount,
-        uint256 _expiry,
-        uint256 _timelock
+        uint256 _strikePrice,
+        uint256 _redemptionPrice,
+        uint48 _expiry,
+        uint48 _timelock,
+        bool _requiresInputBurn
     ) external view returns (string memory) {
-        // TODO restore checks
-        // require(_tokenId == tokenId);
-        // require(_strikeAmount == strikeAmount);
-        // require(_notionalUnderlyingAmount == notionalUnderlyingAmount);
-        // require(_notionalUSDAmount == notionalUSDAmount);
-        // require(_expiry == expiry);
-        // require(_timelock == timelock);
+        require(_strikePrice == strikePrice, "strikePrice mismatch");
+        require(_redemptionPrice == redemptionPrice, "redemptionPrice mismatch");
+        require(_expiry == expiry, "expiry mismatch");
+        require(_timelock == timelock, "timelock mismatch");
+        require(_requiresInputBurn == requiresInputBurn, "requiresInputBurn mismatch");
 
         return "https://mocked-uri.com/";
     }
@@ -227,7 +222,7 @@ contract StratOptionTest is Test {
     // [X] it sets the renderer
 
     function testOnlyOwnerCanSetRenderer() external {
-        MockRenderer mock = new MockRenderer(0, 0, 0, 0, 0, 0);
+        MockRenderer mock = new MockRenderer(0, 0, 0, 0, false);
 
         // Non-owner tries to set renderer
         vm.startPrank(user);
@@ -258,7 +253,7 @@ contract StratOptionTest is Test {
 
     function testTokenURIUsesRendererIfPresent() external {
         MockRenderer mock =
-            new MockRenderer(1, 10, 5, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100));
+            new MockRenderer(5, 3000, uint48(block.timestamp + 100000), uint48(block.timestamp + 100), true);
 
         vm.startPrank(owner);
         collection.manageMinter(owner, true);

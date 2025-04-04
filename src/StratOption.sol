@@ -3,7 +3,7 @@ pragma solidity 0.8.20;
 
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ERC1155} from "openzeppelin-contracts/contracts/token/ERC1155/ERC1155.sol";
-import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
+import {ITokenURIRenderer} from "./interfaces/ITokenURIRenderer.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 /**
  * @title A call option over strat.
@@ -160,9 +160,9 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
             return "";
         }
 
-        // TODO update TokenURIRenderer interface
-
         Option memory option = _options[tokenId];
-        return TokenURIRenderer(tokenURIRenderer).render(tokenId, 0, 0, 0, option.expiry, option.timelock);
+        return ITokenURIRenderer(tokenURIRenderer).render(
+            option.strikePrice, option.redemptionPrice, option.expiry, option.timelock, option.requiresInputBurn
+        );
     }
 }
