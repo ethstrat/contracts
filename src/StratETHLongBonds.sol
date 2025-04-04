@@ -88,19 +88,19 @@ contract StratETHLongBonds is Ownable2Step {
 
         uint256 ethUsdValue = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
         uint256 currentStrikePrice = strikePrice(ethUsdValue); // Scale: 18 decimals
-        uint256 optionQuantity = ethUsdValue * SCALE / currentStrikePrice; // Scale: 18 decimals
 
         uint48 expiry = uint48(block.timestamp + (4.2 * 365 days));
         uint48 timelock = uint48(block.timestamp + 69 minutes);
 
-        // Mints a long bond that can be exercised for the current USD value of the deposited ETH, or redeemed for the
-        // same value
-        // For this reason, the redemption price is the same as the strike price
+        // Mints a long bond that can be exercised for the current USD value of the deposited ETH (ethUsdValue)
+        // or redeemed for the same value
+        // The exercise output is determined by ethUsdValue / currentStrikePrice
+        // The quantity is option tokens is the USD value of the deposited ETH
         tokenId = stratOption.mintFor(
             bonder, // Option owner
-            optionQuantity, // Quantity of STRAT tokens that can be exercised
+            ethUsdValue, // Quantity of STRAT tokens that can be exercised
             currentStrikePrice, // Strike price: quantity of CDT per STRAT
-            currentStrikePrice, // Redemption price: USD per STRAT option
+            1e18, // Redemption price: USD per STRAT option
             expiry, // Expiry: 4.2 years from now
             timelock // Timelock: 69 minutes from now
         );
@@ -111,9 +111,7 @@ contract StratETHLongBonds is Ownable2Step {
         (bool success,) = treasuryManager.call{value: msg.value}("");
         require(success, "Transfer failed");
 
-        emit LongBond(
-            bonder, tokenId, optionQuantity, currentStrikePrice, currentStrikePrice, msg.value, expiry, timelock
-        );
+        emit LongBond(bonder, tokenId, ethUsdValue, currentStrikePrice, currentStrikePrice, msg.value, expiry, timelock);
         return tokenId;
     }
 

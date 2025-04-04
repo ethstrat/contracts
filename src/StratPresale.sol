@@ -66,12 +66,12 @@ contract StratPresale {
         // - `msg.value` STRAT tokens being minted to the caller
         //
         // e.g. if 2 ETH (2e18) is provided:
-        // - Strike amount: 2e18
-        // - Underlying amount: 2e18
+        // - Quantity of option tokens: 2e18
+        // - Strike price: 1e18
         // - Can be exercised for 2e18 CDT (total input of 2 ETH + 2e18 CDT) for 2e18 STRAT
         uint256 tokenId = stratOption.mintFor(
             msg.sender, // Owner
-            msg.value, // Quantity of STRAT tokens that can be exercised
+            msg.value, // Quantity of option tokens to mint
             1e18, // Strike price: 1 CDT per STRAT
             0, // Redemption price: cannot be redeemed, so 0
             expiry, // Expiry

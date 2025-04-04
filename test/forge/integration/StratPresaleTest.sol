@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import "../../../src/StratPresale.sol";
 import "../../../src/StratOption.sol";
 
 contract StratPresaleTest is Test {
-    event PresaleMint(address indexed from, uint256 value);
+    event PresaleMint(address indexed from, uint256 value, uint256 tokenId);
 
     StratPresale private presale;
     StratOption private stratOption;
     address presaleMultisig = address(0x123);
     address internal owner = address(0x123);
+    address internal user = address(0x456);
 
     uint48 internal constant BASE_TIMESTAMP = 1000000;
 
@@ -41,25 +42,33 @@ contract StratPresaleTest is Test {
 
     function testMintSuccessfully() public {
         uint256 valueToSend = 2 ether;
-        vm.deal(address(this), valueToSend);
+        vm.deal(user, valueToSend);
+
+        // Expected quantity of options
+        uint256 expectedTokenId =
+            stratOption.getTokenId(1e18, 0, BASE_TIMESTAMP + (420 * 365 days), BASE_TIMESTAMP + (90 days));
 
         vm.expectEmit();
-        emit PresaleMint(address(this), valueToSend);
+        emit PresaleMint(user, valueToSend, expectedTokenId);
 
+        vm.prank(user);
         presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, valueToSend);
         assertEq(presale.totalRaised(), valueToSend);
-        assertEq(address(this).balance, 0);
+        assertEq(user.balance, 0);
 
         uint256 tokenId = presale.getTokenId();
 
-        assertEq(stratOption.balanceOf(address(this), tokenId), valueToSend, "balance");
+        assertEq(stratOption.balanceOf(user, tokenId), valueToSend, "balance");
 
         IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
 
         assertEq(option.strikePrice, 1e18, "strikePrice");
         assertEq(option.redemptionPrice, 0, "redemptionPrice");
+
+        // STRAT output
+        assertEq(valueToSend * 1e18 / option.strikePrice, valueToSend, "STRAT output");
 
         assertEq(option.expiry, uint48(BASE_TIMESTAMP + (420 * 365 days)), "expiry");
         assertEq(option.timelock, uint48(BASE_TIMESTAMP + (90 days)), "timelock");
@@ -68,18 +77,21 @@ contract StratPresaleTest is Test {
     function testMintCapEnforced() public {
         // Mint 1
         uint256 valueToSend = 999 ether;
-        vm.deal(address(this), valueToSend);
+        vm.deal(user, valueToSend);
+        vm.prank(user);
         presale.mint{value: valueToSend}();
 
         // Mint 2
         valueToSend = 1 ether;
-        vm.deal(address(this), valueToSend);
+        vm.deal(user, valueToSend);
+        vm.prank(user);
         presale.mint{value: valueToSend}();
 
         // Mint 3
         valueToSend = 1 ether;
-        vm.deal(address(this), valueToSend);
+        vm.deal(user, valueToSend);
         vm.expectRevert(bytes("Cap reached"));
+        vm.prank(user);
         presale.mint{value: valueToSend}();
     }
 

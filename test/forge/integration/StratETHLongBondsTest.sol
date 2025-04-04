@@ -1,40 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import "../../../src/StratETHLongBonds.sol";
 import "../../../src/CdtToken.sol";
 import "../../../src/StratToken.sol";
 import "../../../src/StratOption.sol";
 import {IStratOptionMinter} from "../../../src/interfaces/IStratOptionMinter.sol";
-
-contract MockOracle {
-    uint256 private _price;
-    uint8 public baseTokenDecimals;
-    uint8 public quoteTokenDecimals;
-
-    constructor(uint256 initialPrice, uint8 _baseTokenDecimals, uint8 _quoteTokenDecimals) {
-        _price = initialPrice;
-        baseTokenDecimals = _baseTokenDecimals;
-        quoteTokenDecimals = _quoteTokenDecimals;
-    }
-
-    function setPrice(uint256 newPrice) public {
-        _price = newPrice;
-    }
-
-    function price() external view returns (uint256) {
-        return _price;
-    }
-
-    function setQuoteTokenDecimals(uint8 newQuoteTokenDecimals) public {
-        quoteTokenDecimals = newQuoteTokenDecimals;
-    }
-
-    function setBaseTokenDecimals(uint8 newBaseTokenDecimals) public {
-        baseTokenDecimals = newBaseTokenDecimals;
-    }
-}
+import {MockOracle} from "../../mocks/MockOracle.sol";
 
 contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
@@ -206,8 +179,8 @@ contract StratETHLongBondsTest is Test {
         // Verify the CDT balance of the user
         assertEq(cdtToken.balanceOf(user), ethUsdValue, "User CDT balance incorrect");
 
-        // Balance = STRAT output when exercised
-        assertEq(stratOption.balanceOf(user, tokenId), 999500249875062468, "Incorrect balance");
+        // Balance = ethUsdValue
+        assertEq(stratOption.balanceOf(user, tokenId), ethUsdValue, "Incorrect balance");
 
         IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
 
@@ -215,7 +188,11 @@ contract StratETHLongBondsTest is Test {
         assertEq(option.strikePrice, expectedStrikePrice, "Incorrect strike price");
 
         // Redemption price
-        assertEq(option.redemptionPrice, expectedStrikePrice, "Incorrect redemption price");
+        // 1 option = 1 USD
+        assertEq(option.redemptionPrice, 1e18, "Incorrect redemption price");
+
+        // Check STRAT output when exercised
+        assertEq(ethUsdValue * 1e18 / option.strikePrice, 999500249875062468, "Incorrect STRAT output");
 
         // Expiry
         assertEq(option.expiry, block.timestamp + (4.2 * 365 days), "Incorrect expiry");
@@ -262,23 +239,20 @@ contract StratETHLongBondsTest is Test {
         // Verify the CDT balance of the user
         assertEq(cdtToken.balanceOf(user), ethUsdValue, "User CDT balance incorrect");
 
-        // Balance = STRAT output when exercised
-        uint256 balance = stratOption.balanceOf(user, tokenId);
-        assertEq(balance, 999500249875062468, "Incorrect balance");
+        // Balance = ethUsdValue
+        assertEq(stratOption.balanceOf(user, tokenId), ethUsdValue, "Incorrect balance");
 
         IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
 
         // Strike price
         assertEq(option.strikePrice, expectedStrikePrice, "Incorrect strike price");
 
-        // Balance * strike price = USD value
-        assertEq(balance * option.strikePrice / 1e18, ethUsdValue, "Incorrect strike amount");
-
         // Redemption price
-        assertEq(option.redemptionPrice, expectedStrikePrice, "Incorrect redemption price");
+        // 1 option = 1 USD
+        assertEq(option.redemptionPrice, 1e18, "Incorrect redemption price");
 
-        // Balance * redemption price = USD value
-        assertEq(balance * option.redemptionPrice / 1e18, ethUsdValue, "Incorrect redemption amount");
+        // Check STRAT output when exercised
+        assertEq(ethUsdValue * 1e18 / option.strikePrice, 999500249875062468, "Incorrect STRAT output");
 
         // Expiry
         assertEq(option.expiry, block.timestamp + (4.2 * 365 days), "Incorrect expiry");
@@ -307,24 +281,22 @@ contract StratETHLongBondsTest is Test {
             // Strike price increases
             assertGt(currentOption.strikePrice, previousOption.strikePrice, "Strike price should increase");
 
-            // STRAT output should decrease as the strike price increases
+            // Balance should be the same as the USD input is the same
             uint256 currentBalance = stratOption.balanceOf(user, tokenId);
             uint256 previousBalance = stratOption.balanceOf(user, previousTokenId);
-            assertLt(
-                currentBalance, previousBalance, "Each subsequent bond should have less STRAT output than the previous"
-            );
+            assertEq(currentBalance, previousBalance, "Balance should be the same as the USD input is the same");
 
-            // Strike amount is the same
-            assertEq(
-                currentOption.strikePrice * currentBalance / 1e18,
-                previousOption.strikePrice * previousBalance / 1e18,
-                "Strike amount should be the same"
+            // STRAT output should decrease as the strike price increases
+            assertGt(
+                previousBalance * 1e18 / previousOption.strikePrice,
+                currentBalance * 1e18 / currentOption.strikePrice,
+                "STRAT output should decrease as the strike price increases"
             );
 
             // Redemption amount is the same
             assertEq(
-                currentOption.redemptionPrice * currentBalance / 1e18,
-                previousOption.redemptionPrice * previousBalance / 1e18,
+                currentBalance * 1e18 / currentOption.redemptionPrice,
+                previousBalance * 1e18 / previousOption.redemptionPrice,
                 "Redemption amount should be the same"
             );
 
@@ -348,7 +320,7 @@ contract StratETHLongBondsTest is Test {
         IStratOptionMinter.Option memory optionTwo = stratOption.getOption(tokenIdTwo);
 
         // strike price should increase with the increase in ETH price
-        assertLt(optionOne.strikePrice, optionTwo.strikePrice, "ETH price increase should increase strike price");
+        assertLt(optionOne.strikePrice, optionTwo.strikePrice, "1-2: ETH price increase should increase strike price");
 
         // Changes in STRAT/ETH price don't change the notional USD (but the calculated strike price should move about)
         uint256 strikeBeforePriceChange = bonds.strikePrice(0);
@@ -368,11 +340,14 @@ contract StratETHLongBondsTest is Test {
         uint256 balanceTwo = stratOption.balanceOf(user, tokenIdTwo);
         uint256 balanceThree = stratOption.balanceOf(user, tokenIdThree);
 
+        // USD value should be the same
+        assertEq(balanceTwo, balanceThree, "2-3: USD value should be the same");
+
         // Redemption amount should be the same
         assertEq(
-            optionTwo.redemptionPrice * balanceTwo / 1e18,
-            optionThree.redemptionPrice * balanceThree / 1e18,
-            "STRAT price increase shouldn't effect redemption amount"
+            balanceTwo * 1e18 / optionTwo.redemptionPrice,
+            balanceThree * 1e18 / optionThree.redemptionPrice,
+            "2-3: Redemption amount should be the same"
         );
 
         strikeBeforePriceChange = bonds.strikePrice(0);
@@ -390,11 +365,14 @@ contract StratETHLongBondsTest is Test {
         IStratOptionMinter.Option memory optionFour = stratOption.getOption(tokenIdFour);
         uint256 balanceFour = stratOption.balanceOf(user, tokenIdFour);
 
+        // USD value should be the same
+        assertEq(balanceThree, balanceFour, "3-4: USD value should be the same");
+
         // Redemption amount should be the same
         assertEq(
-            optionThree.redemptionPrice * balanceThree / 1e18,
-            optionFour.redemptionPrice * balanceFour / 1e18,
-            "STRAT price decrease shouldn't effect redemption amount"
+            balanceThree * 1e18 / optionThree.redemptionPrice,
+            balanceFour * 1e18 / optionFour.redemptionPrice,
+            "3-4: STRAT price decrease shouldn't effect redemption amount"
         );
 
         // Bond 1 more ETH, after ETH/USD price goes down to $3000
@@ -405,6 +383,11 @@ contract StratETHLongBondsTest is Test {
         IStratOptionMinter.Option memory optionFive = stratOption.getOption(tokenIdFive);
         uint256 balanceFive = stratOption.balanceOf(user, tokenIdFive);
 
-        assertGt(balanceFour, balanceFive, "ETH price decrease should decrease total STRAT output");
+        // STRAT output should decrease as the strike price increases
+        assertGt(
+            balanceFour * 1e18 / optionFour.strikePrice,
+            balanceFive * 1e18 / optionFive.strikePrice,
+            "4-5: STRAT output should decrease as the strike price increases"
+        );
     }
 }

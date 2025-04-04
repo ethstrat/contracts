@@ -142,6 +142,13 @@ contract StratOption is ERC1155, Ownable2Step, IStratOptionMinter {
         tokenId = uint256(keccak256(abi.encodePacked(strikePrice_, redemptionPrice_, expiry_, timelock_)));
     }
 
+    function previewExercise(uint256 tokenId_, uint256 amount_) external view returns (uint256 tokensOut) {
+        // STRAT output = option quantity / strike price
+        tokensOut = amount_ * SCALE / _options[tokenId_].strikePrice;
+
+        return tokensOut;
+    }
+
     // ===== TOKEN URI FUNCTIONS ===== //
 
     function uri(uint256 tokenId) public view override returns (string memory) {
