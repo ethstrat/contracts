@@ -68,7 +68,7 @@ contract StratOptionRedeemUSDNotional {
     ///         - The option has a notional USD amount of 0 (presale option)
     ///
     /// @param tokenId The ID of the option to redeem
-    function redeemCdtForUsdNotional(uint256 tokenId) external {
+    function redeem(uint256 tokenId) external {
         StratOption.Option memory option = stratOption.getOption(tokenId);
 
         // TODO add on behalf of

@@ -176,7 +176,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         _;
     }
 
-    // redeemCdtForUsdNotional
+    // redeem
     // when the token id is invalid
     //  [X] it reverts
     // given the timelock has not passed
@@ -220,21 +220,21 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.InvalidTokenId.selector, user, 2));
 
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(2);
+        optionRedeem.redeem(2);
     }
 
     function test_timelockActive_reverts() public givenLongBondMinted(1e18) {
         // Before timelock
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.TimelockActive.selector, user, tokenId));
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
         vm.stopPrank();
     }
 
     function test_optionUnexpired_reverts() public givenLongBondMinted(1e18) givenTimelockPassed {
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.OptionUnexpired.selector, user, tokenId));
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
         vm.stopPrank();
     }
 
@@ -251,7 +251,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     //     // Call function as randoUser
     //     vm.prank(rando);
-    //     optionRedeem.redeemCdtForUsdNotional(1);
+    //     optionRedeem.redeem(1);
     // }
 
     // function test_notOptionOwner_cdtSpendingNotApproved_reverts()
@@ -265,7 +265,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     //     // Call function as randoUser
     //     vm.prank(rando);
-    //     optionRedeem.redeemCdtForUsdNotional(1);
+    //     optionRedeem.redeem(1);
     // }
 
     // function test_notOptionOwner_cdtInsufficientBalance_reverts()
@@ -282,7 +282,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     //     // Call function as randoUser
     //     vm.prank(rando);
-    //     optionRedeem.redeemCdtForUsdNotional(1);
+    //     optionRedeem.redeem(1);
     // }
 
     // function test_notOptionOwner()
@@ -298,7 +298,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     //     // Call function as randoUser
     //     vm.prank(rando);
-    //     optionRedeem.redeemCdtForUsdNotional(1);
+    //     optionRedeem.redeem(1);
 
     //     // Option should be burned
     //     assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
@@ -323,7 +323,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
     }
 
     function test_cdtInsufficientBalance_reverts()
@@ -344,7 +344,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
     }
 
     function test_optionNotApproved_reverts()
@@ -360,7 +360,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
     }
 
     function test_treasuryGtDebt()
@@ -389,7 +389,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -428,7 +428,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -467,7 +467,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         uint256 expectedEthAmount = expectedRedemptionValue * 103e18 / 6000e18;
 
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -507,7 +507,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         uint256 expectedEthAmount = usdEntitlement * 1e8 / 9e8;
 
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -548,7 +548,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         uint256 expectedEthAmount = usdEntitlement * 1e18 / 9e18;
 
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -562,7 +562,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.Unsupported.selector, user, tokenId));
 
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
     }
 
     function test_shortBond_reverts() public givenShortBondMinted(1e18) givenExpiryPassed {
@@ -570,6 +570,6 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.Unsupported.selector, user, tokenId));
 
         vm.prank(user);
-        optionRedeem.redeemCdtForUsdNotional(tokenId);
+        optionRedeem.redeem(tokenId);
     }
 }
