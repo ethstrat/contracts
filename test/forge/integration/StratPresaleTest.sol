@@ -52,13 +52,11 @@ contract StratPresaleTest is Test {
         emit PresaleMint(user, valueToSend, expectedTokenId);
 
         vm.prank(user);
-        presale.mint{value: valueToSend}();
+        uint256 tokenId = presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, valueToSend);
         assertEq(presale.totalRaised(), valueToSend);
         assertEq(user.balance, 0);
-
-        uint256 tokenId = presale.getTokenId();
 
         assertEq(tokenId, expectedTokenId, "Incorrect token ID");
 

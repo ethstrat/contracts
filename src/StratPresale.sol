@@ -52,7 +52,7 @@ contract StratPresale {
     ///         The function reverts if:
     ///         - The value of the function call is 0
     ///         - The updated total amount of ETH raised exceeds the cap
-    function mint() external payable {
+    function mint() external payable returns (uint256 tokenId) {
         require(msg.value > 0, "No ETH sent");
 
         totalRaised += msg.value;
@@ -69,7 +69,7 @@ contract StratPresale {
         // - Quantity of option tokens: 2e18
         // - Strike price: 1e18
         // - Can be exercised for 2e18 CDT (total input of 2 ETH + 2e18 CDT) for 2e18 STRAT
-        uint256 tokenId = stratOption.mintFor(
+        tokenId = stratOption.mintFor(
             msg.sender, // Owner
             msg.value, // Quantity of option tokens to mint
             1e18, // Strike price: 1 CDT per STRAT
@@ -87,6 +87,8 @@ contract StratPresale {
         require(success, "Transfer failed");
 
         emit PresaleMint(msg.sender, msg.value, tokenId);
+
+        return tokenId;
     }
 
     function getTokenId() public view returns (uint256) {
