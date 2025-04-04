@@ -80,7 +80,7 @@ contract StratOptionRedeemUSDNotional {
         uint256 optionQuantity = stratOption.balanceOf(msg.sender, tokenId);
         // Presale options have a redemption price of 0, so cannot be redeemed
         if (option.redemptionPrice == 0) revert Unsupported(msg.sender, tokenId);
-        uint256 usdValue = option.redemptionPrice * optionQuantity / 1e18;
+        uint256 usdValue = optionQuantity * 1e18 / option.redemptionPrice;
 
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();

@@ -213,7 +213,7 @@ contract StratOptionExerciseTest is Test {
         givenAccountHasCDT(user, 1e18)
         givenAccountHasApprovedCDTSpending(user, 1e18)
     {
-        // optionRedeem does not have approval to spend the option, so this reverts
+        // optionExercise does not have approval to spend the option, so this reverts
         vm.expectRevert(
             abi.encodeWithSelector(IERC1155Errors.ERC1155MissingApprovalForAll.selector, address(optionExercise), user)
         );
