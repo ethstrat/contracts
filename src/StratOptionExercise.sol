@@ -15,7 +15,9 @@ contract StratOptionExercise {
     error OptionExpired(address account, uint256 tokenId);
     error InvalidTokenId(address account, uint256 tokenId);
 
-    event OptionExercised(address indexed optionOwner, uint256 tokenId, uint256 strike, uint256 strat);
+    event OptionExercised(address indexed optionOwner, uint256 tokenId, uint256 optionQuantity, uint256 stratQuantity);
+
+    uint256 internal constant SCALE = 1e18;
 
     /// @notice Constructor
     ///
@@ -31,8 +33,8 @@ contract StratOptionExercise {
     /// @notice Exercise a STRAT option
     /// @dev    This function performs the following actions:
     ///         - Validates the option can be exercised
-    ///         - Burns the CDT tokens from the caller (quantity is the strike amount)
-    ///         - Mints the STRAT tokens to the option owner (quantity is the notional underlying amount)
+    ///         - Burns the CDT tokens from the caller
+    ///         - Mints the STRAT tokens to the option owner
     ///         - Burns the STRAT option from the option owner
     ///         - Emits an OptionExercised event
     ///
@@ -57,16 +59,16 @@ contract StratOptionExercise {
         if (option.expiry < block.timestamp) revert OptionExpired(msg.sender, tokenId);
 
         uint256 optionQuantity = stratOption.balanceOf(msg.sender, tokenId);
-        uint256 cdtQuantity = option.strikePrice * optionQuantity / 1e18;
+        uint256 stratQuantity = optionQuantity * SCALE / option.strikePrice;
 
         // Some option types may not require a CDT payment
-        if (cdtQuantity > 0) {
-            cdtToken.burnFrom(msg.sender, cdtQuantity);
+        if (option.requiresInputBurn) {
+            cdtToken.burnFrom(msg.sender, optionQuantity);
         }
 
-        stratToken.mint(msg.sender, optionQuantity);
+        stratToken.mint(msg.sender, stratQuantity);
         stratOption.burnFrom(msg.sender, tokenId, optionQuantity);
 
-        emit OptionExercised(msg.sender, tokenId, cdtQuantity, optionQuantity);
+        emit OptionExercised(msg.sender, tokenId, optionQuantity, stratQuantity);
     }
 }
