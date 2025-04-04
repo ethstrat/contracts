@@ -169,6 +169,8 @@ contract StratOptionExerciseTest is Test {
     //  [X] it emits an OptionExercised event
     // given the caller has not approved spending of CD tokens
     //  [X] it reverts
+    // given the amount is greater than the option owner's balance
+    //  [X] it reverts
     // given the option is from the presale
     //  [X] it burns the CDT tokens from the option owner
     //  [X] it mints the STRAT tokens to the option owner
@@ -184,25 +186,30 @@ contract StratOptionExerciseTest is Test {
     //  [X] it mints the STRAT tokens to the option owner
     //  [X] it burns the option
     //  [X] it emits an OptionExercised event
+    // given the amount is less than the option owner's balance
+    //  [X] it burns the specified amount of CDT tokens from the option owner
+    //  [X] it mints the required amount of STRAT tokens to the option owner
+    //  [X] it burns the specified amount of options
+    //  [X] it emits an OptionExercised event
 
     function test_invalidTokenId_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(StratOptionExercise.InvalidTokenId.selector, user, 2));
 
         vm.prank(user);
-        optionExercise.exercise(2);
+        optionExercise.exercise(2, 3000e18);
     }
 
     function test_timelockNotPassed_reverts() public givenPresaleOptionMinted(1e18) givenTimelockNotPassed {
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(StratOptionExercise.TimelockActive.selector, user, tokenId));
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 3000e18);
         vm.stopPrank();
     }
 
     function test_optionExpired_reverts() public givenPresaleOptionMinted(1e18) givenExpiryPassed {
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(StratOptionExercise.OptionExpired.selector, user, tokenId));
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 3000e18);
         vm.stopPrank();
     }
 
@@ -220,7 +227,7 @@ contract StratOptionExerciseTest is Test {
 
         // Call function as user
         vm.prank(user);
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 1e18);
     }
 
     // TODO strat exerciseFor
@@ -275,7 +282,25 @@ contract StratOptionExerciseTest is Test {
 
         // Call function as user
         vm.prank(user);
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 3000e18);
+    }
+
+    function test_insufficientOptionBalance_reverts()
+        public
+        givenPresaleOptionMinted(2e18)
+        givenTimelockPassed
+        givenAccountHasCDT(user, 4e18)
+        givenAccountHasApprovedCDTSpending(user, 4e18)
+        givenOptionSpendingApproved
+    {
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC1155Errors.ERC1155InsufficientBalance.selector, user, 2e18, 4e18, tokenId)
+        );
+
+        // Call function as user
+        vm.prank(user);
+        optionExercise.exercise(tokenId, 4e18);
     }
 
     function test_presaleOption()
@@ -292,7 +317,7 @@ contract StratOptionExerciseTest is Test {
 
         // Call function as user
         vm.prank(user);
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 2e18);
 
         // Check balances
         assertEq(stratToken.balanceOf(user), 2e18, "User should get STRAT");
@@ -317,12 +342,39 @@ contract StratOptionExerciseTest is Test {
 
         // Call function as user
         vm.prank(user);
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 6000e18);
 
         // Check balances
         assertEq(stratToken.balanceOf(user), expectedStratQuantity, "User should get STRAT");
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
         assertEq(cdtToken.balanceOf(user), 0, "cdtToken should be burned");
+    }
+
+    function test_longBond_fuzz(uint256 amount_)
+        public
+        givenLongBondMinted(2e18)
+        givenTimelockPassed
+        givenAccountHasApprovedCDTSpending(user, 6000e18)
+        givenOptionSpendingApproved
+    {
+        uint256 amount = bound(amount_, 1e18, 6000e18);
+
+        // User has 2 * 3000e18 options (USD value), 6000e18 CDT (from the long bond minting)
+        IStratOptionMinter.Option memory option = stratOption.getOption(tokenId);
+        uint256 expectedStratQuantity = amount * 1e18 / option.strikePrice;
+
+        // Expect event
+        vm.expectEmit();
+        emit OptionExercised(user, tokenId, amount, expectedStratQuantity);
+
+        // Call function as user
+        vm.prank(user);
+        optionExercise.exercise(tokenId, amount);
+
+        // Check balances
+        assertEq(stratToken.balanceOf(user), expectedStratQuantity, "User should get STRAT");
+        assertEq(stratOption.balanceOf(user, tokenId), 6000e18 - amount, "Option should be burned");
+        assertEq(cdtToken.balanceOf(user), 6000e18 - amount, "cdtToken should be burned");
     }
 
     function test_shortBond()
@@ -342,7 +394,7 @@ contract StratOptionExerciseTest is Test {
 
         // Call function as user
         vm.prank(user);
-        optionExercise.exercise(tokenId);
+        optionExercise.exercise(tokenId, 6000e18);
 
         // Check balances
         assertEq(stratToken.balanceOf(user), expectedStratQuantity, "User should get STRAT");

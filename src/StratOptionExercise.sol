@@ -49,7 +49,8 @@ contract StratOptionExercise {
     ///         - The caller has not approved spending of the required amount of CDT tokens
     ///
     /// @param tokenId The ID of the option to exercise
-    function exercise(uint256 tokenId) external {
+    /// @param amount_ The amount of option tokens to burn
+    function exercise(uint256 tokenId, uint256 amount_) external {
         StratOption.Option memory option = stratOption.getOption(tokenId);
 
         // TODO add on behalf of
@@ -58,17 +59,16 @@ contract StratOptionExercise {
         if (option.timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (option.expiry < block.timestamp) revert OptionExpired(msg.sender, tokenId);
 
-        uint256 optionQuantity = stratOption.balanceOf(msg.sender, tokenId);
-        uint256 stratQuantity = optionQuantity * SCALE / option.strikePrice;
+        uint256 stratQuantity = amount_ * SCALE / option.strikePrice;
 
         // Some option types may not require a CDT payment
         if (option.requiresInputBurn) {
-            cdtToken.burnFrom(msg.sender, optionQuantity);
+            cdtToken.burnFrom(msg.sender, amount_);
         }
 
         stratToken.mint(msg.sender, stratQuantity);
-        stratOption.burnFrom(msg.sender, tokenId, optionQuantity);
+        stratOption.burnFrom(msg.sender, tokenId, amount_);
 
-        emit OptionExercised(msg.sender, tokenId, optionQuantity, stratQuantity);
+        emit OptionExercised(msg.sender, tokenId, amount_, stratQuantity);
     }
 }
