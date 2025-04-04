@@ -187,6 +187,8 @@ contract StratOptionRedeemUSDNotionalTest is Test {
     //  [X] it reverts
     // when the caller does not have notionalUSDAmount of CDT tokens
     //  [X] it reverts
+    // given the user does not have the required amount of options
+    //  [X] it reverts
     // given the option owner has not approved the contract to spend the option
     //  [X] it reverts
     // given the treasury value is greater than the CDT token supply
@@ -220,21 +222,21 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.InvalidTokenId.selector, user, 2));
 
         vm.prank(user);
-        optionRedeem.redeem(2);
+        optionRedeem.redeem(2, 1e18);
     }
 
     function test_timelockActive_reverts() public givenLongBondMinted(1e18) {
         // Before timelock
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.TimelockActive.selector, user, tokenId));
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
         vm.stopPrank();
     }
 
     function test_optionUnexpired_reverts() public givenLongBondMinted(1e18) givenTimelockPassed {
         vm.startPrank(user);
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.OptionUnexpired.selector, user, tokenId));
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
         vm.stopPrank();
     }
 
@@ -323,7 +325,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
     }
 
     function test_cdtInsufficientBalance_reverts()
@@ -344,7 +346,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
     }
 
     function test_optionNotApproved_reverts()
@@ -360,7 +362,25 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
+    }
+
+    function test_insufficientOptionBalance_reverts()
+        public
+        givenLongBondMinted(1e18)
+        givenExpiryPassed
+        givenAccountHasCDT(user, 4000e18)
+        givenAccountHasApprovedCDTSpending(user, 4000e18)
+        givenOptionSpendingApproved
+    {
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC1155Errors.ERC1155InsufficientBalance.selector, user, 2000e18, 4000e18, tokenId)
+        );
+
+        // Call function as the option owner
+        vm.prank(user);
+        optionRedeem.redeem(tokenId, 4000e18);
     }
 
     function test_treasuryGtDebt()
@@ -389,12 +409,49 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
         // CDT should be burned
         assertEq(cdtToken.balanceOf(user), 6000e18 - expectedRedemptionValue, "CDT should be partially burned");
+        assertEq(address(user).balance, expectedEthAmount, "should withdraw 1e18 ETH");
+    }
+
+    function test_treasuryGtDebt_fuzz(uint256 amount_)
+        public
+        givenLongBondMinted(1e18)
+        givenAccountHasApprovedCDTSpending(user, 2000e18)
+        givenOptionSpendingApproved
+    {
+        uint256 amount = bound(amount_, 1e18, 2000e18);
+
+        // Mint another long bond
+        uint256 tokenId2 = _mintLongBond(2e18);
+
+        // Warp past expiry
+        _warpPastExpiry(tokenId2);
+
+        // Treasury has 100e18 + 1e18 + 2e18 ETH
+        // Value @ $2000/ETH is 206_000e18 USD
+        // Total debt is 6000e18 CDT
+        // Option owner has 6000e18 CDT
+        // tokenId has redemption value of 2000e18 * 1e18 / 2000e18 = 1e18
+        uint256 expectedRedemptionValue = amount;
+        uint256 expectedEthAmount = expectedRedemptionValue * 1e18 / 2000e18;
+
+        // Expect event
+        vm.expectEmit();
+        emit OptionRedeemed(user, tokenId, expectedRedemptionValue, expectedEthAmount);
+
+        // Call function as the option owner
+        vm.prank(user);
+        optionRedeem.redeem(tokenId, amount);
+
+        // Option should be burned
+        assertEq(stratOption.balanceOf(user, tokenId), 2000e18 - amount, "Option should be burned");
+        // CDT should be burned
+        assertEq(cdtToken.balanceOf(user), 6000e18 - amount, "CDT should be partially burned");
         assertEq(address(user).balance, expectedEthAmount, "should withdraw 1e18 ETH");
     }
 
@@ -428,7 +485,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
         // Call function as the option owner
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -467,7 +524,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         uint256 expectedEthAmount = expectedRedemptionValue * 103e18 / 6000e18;
 
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -507,12 +564,54 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         uint256 expectedEthAmount = usdEntitlement * 1e8 / 9e8;
 
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
         // CDT should be burned
         assertEq(cdtToken.balanceOf(user), 6000e18 - expectedRedemptionValue, "CDT should be burned");
+        assertEq(address(user).balance, expectedEthAmount, "incorrect ETH amount received");
+    }
+
+    function test_treasuryLtDebt_ethPrice9_fuzz(uint256 amount_)
+        public
+        givenLongBondMinted(1e18)
+        givenAccountHasApprovedCDTSpending(user, 2000e18)
+        givenOptionSpendingApproved
+    {
+        uint256 amount = bound(amount_, 1e18, 2000e18);
+
+        // Mint another long bond
+        uint256 tokenId2 = _mintLongBond(2e18);
+
+        // Warp past expiry
+        _warpPastExpiry(tokenId2);
+
+        // Set the oracle price to $9
+        ethUsdOracle.setPrice(9e8); // 1 ETH = 9 USD
+
+        // Treasury has:
+        // - 100e18 + 1e18 + 2e18 ETH (103e18)
+        // - 6000 CDT debt (6000e18)
+        //
+        // At 1 ETH (1e18) = 9 USD (9e8), the treasury is valued at 927e18 USD (927e18)
+        // Treasury USD value (927e18) is less than the USD debt (6000e18)
+
+        // For tokenId:
+        // Option owner has 2000 CDT (2000e18) and a notional USD value of 2000e18 (2000e18)
+        // Option owner entitled to USD value of: 2000e18 * 927e18 / 6000e18 = 309e18 USD (309)
+        // Option owner receives: 309e18 * 1e8 / 9e8 = 34.333333333e18 ETH (34.333333333)
+        uint256 expectedRedemptionValue = amount;
+        uint256 usdEntitlement = expectedRedemptionValue * 927e18 / 6000e18;
+        uint256 expectedEthAmount = usdEntitlement * 1e8 / 9e8;
+
+        vm.prank(user);
+        optionRedeem.redeem(tokenId, amount);
+
+        // Option should be burned
+        assertEq(stratOption.balanceOf(user, tokenId), 2000e18 - amount, "Option should be burned");
+        // CDT should be burned
+        assertEq(cdtToken.balanceOf(user), 6000e18 - amount, "CDT should be burned");
         assertEq(address(user).balance, expectedEthAmount, "incorrect ETH amount received");
     }
 
@@ -548,7 +647,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         uint256 expectedEthAmount = usdEntitlement * 1e18 / 9e18;
 
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 2000e18);
 
         // Option should be burned
         assertEq(stratOption.balanceOf(user, tokenId), 0, "Option should be burned");
@@ -562,7 +661,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.Unsupported.selector, user, tokenId));
 
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 1e18);
     }
 
     function test_shortBond_reverts() public givenShortBondMinted(1e18) givenExpiryPassed {
@@ -570,6 +669,6 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.Unsupported.selector, user, tokenId));
 
         vm.prank(user);
-        optionRedeem.redeem(tokenId);
+        optionRedeem.redeem(tokenId, 1e18);
     }
 }

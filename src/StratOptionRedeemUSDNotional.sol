@@ -68,7 +68,8 @@ contract StratOptionRedeemUSDNotional {
     ///         - The option has a notional USD amount of 0 (presale option)
     ///
     /// @param tokenId The ID of the option to redeem
-    function redeem(uint256 tokenId) external {
+    /// @param amount_ The amount of option tokens to burn
+    function redeem(uint256 tokenId, uint256 amount_) external {
         StratOption.Option memory option = stratOption.getOption(tokenId);
 
         // TODO add on behalf of
@@ -77,10 +78,9 @@ contract StratOptionRedeemUSDNotional {
         if (option.timelock > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (option.expiry > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
 
-        uint256 optionQuantity = stratOption.balanceOf(msg.sender, tokenId);
         // Presale options have a redemption price of 0, so cannot be redeemed
         if (option.redemptionPrice == 0) revert Unsupported(msg.sender, tokenId);
-        uint256 usdValue = optionQuantity * 1e18 / option.redemptionPrice;
+        uint256 usdValue = amount_ * 1e18 / option.redemptionPrice;
 
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();
@@ -88,7 +88,7 @@ contract StratOptionRedeemUSDNotional {
         uint256 treasuryInUSD = treasury.total() * ethPriceUSD / oracleScale;
 
         cdtToken.burnFrom(msg.sender, usdValue);
-        stratOption.burnFrom(msg.sender, tokenId, optionQuantity);
+        stratOption.burnFrom(msg.sender, tokenId, amount_);
 
         // If the value of the treasury (ETH) in USD is more than the USD debt
         uint256 ethAmount = 0;
