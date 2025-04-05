@@ -153,7 +153,7 @@ contract StratETHLongBondsTest is Test {
 
         assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
         assertEq(stratOption.expiry(tokenId), block.timestamp + (4.2 * 365 days), "Incorrect expiry");
-        assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
 
         // Confirm bond is accreative w.r.t the treasury
         assertLt(

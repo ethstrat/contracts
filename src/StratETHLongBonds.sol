@@ -92,7 +92,7 @@ contract StratETHLongBonds is Ownable2Step {
             notionalUnderlyingAmount,
             notionalUSDAmount,
             block.timestamp + (4.2 * 365 days),
-            block.timestamp + 69 minutes
+            block.timestamp + 6.9 days
         );
 
         cdtToken.mint(bonder, notionalUSDAmount);
@@ -108,7 +108,7 @@ contract StratETHLongBonds is Ownable2Step {
             notionalUSDAmount,
             msg.value,
             block.timestamp + (4.2 * 365 days),
-            block.timestamp + 69 minutes
+            block.timestamp + 6.9 days
         );
     }
 
