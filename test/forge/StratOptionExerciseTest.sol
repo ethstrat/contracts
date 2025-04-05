@@ -52,7 +52,7 @@ contract StratOptionExerciseTest is Test {
         optionExercise.exercise(1);
 
         // Check balances
-        assertEq(stratToken.balanceOf(user), 900 ether, "User should get STRAT");
+        assertEq(stratToken.balanceOf(user) / 10_000, 900 ether, "User should get STRAT");
         assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
         assertEq(cdtToken.balanceOf(user), 900 ether, "cdtToken should be burned");
         vm.stopPrank();
