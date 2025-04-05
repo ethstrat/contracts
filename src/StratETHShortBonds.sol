@@ -14,10 +14,11 @@ import "forge-std/console.sol";
  */
 contract StratETHShortBonds is Ownable2Step {
     IERC20MintableBurnable public immutable cdtToken;
-    IERC20 public immutable stratToken;
+    IERC20MintableBurnable public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
     IOracle public immutable ethUsdOracle;
     IOracle public immutable stratEthOracle;
+    address public immutable bondConverter;
 
     uint256 public bcv;
 
@@ -42,14 +43,16 @@ contract StratETHShortBonds is Ownable2Step {
         address _stratOption,
         address _ethUsdOracle,
         address _stratEthOracle,
+        address _bondConverter,
         uint256 _bcv,
         address owner
     ) Ownable(owner) {
         cdtToken = IERC20MintableBurnable(_cdtToken);
-        stratToken = IERC20(_stratToken);
+        stratToken = IERC20MintableBurnable(_stratToken);
         stratOption = IStratOptionMinter(_stratOption);
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratEthOracle = IOracle(_stratEthOracle);
+        bondConverter = _bondConverter;
 
         USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
         require(stratEthOracle.quoteTokenDecimals() == 18, "StratEthOracle must have 18 decimals");
@@ -71,6 +74,8 @@ contract StratETHShortBonds is Ownable2Step {
         );
 
         cdtToken.burnFrom(msg.sender, amount);
+        stratToken.mint(bondConverter, notionalUnderlyingAmount);
+
         emit ShortBond(
             bonder, amount, notionalUnderlyingAmount, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
         );

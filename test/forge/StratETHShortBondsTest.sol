@@ -39,6 +39,7 @@ contract StratETHShortBondsTest is Test {
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
+    address internal bondConverter = address(0x989);
 
     function setUp() public {
         // Deploy mock oracles
@@ -58,11 +59,13 @@ contract StratETHShortBondsTest is Test {
             address(stratOption),
             address(ethUsdOracle),
             address(stratEthOracle),
+            bondConverter,
             1e18, // BCV
             owner
         );
 
         stratToken.manageMinter(owner, true);
+        stratToken.manageMinter(address(bonds), true);
         cdtToken.manageMinter(owner, true);
 
         // Mint tokens to initialize the supply (So it's non-zero)
@@ -125,6 +128,8 @@ contract StratETHShortBondsTest is Test {
         assertEq(
             stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
         );
+        assertEq(stratOption.notionalUnderlyingAmount(tokenId), stratToken.balanceOf(bondConverter));
+
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
     }
