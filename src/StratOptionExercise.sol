@@ -13,8 +13,6 @@ import {StratOption} from "./StratOption.sol";
  *      STRAT tokens (with unit bias) to the option owner, and burns the STRAT option token.
  */
 contract StratOptionExercise {
-    uint256 public constant UNIT_BIAS = 10_000;
-
     // Immutable references to the CDT and STRAT tokens, and the STRAT option contract.
     IERC20MintableBurnable public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
@@ -59,7 +57,7 @@ contract StratOptionExercise {
 
         // Retrieve strike and underlying amounts.
         uint256 strike = stratOption.strikeAmount(tokenId);
-        uint256 strat = stratOption.notionalUnderlyingAmount(tokenId) * UNIT_BIAS;
+        uint256 strat = stratOption.notionalUnderlyingAmount(tokenId);
 
         // Burn the corresponding amount from the sender and mint the underlying token for the option owner.
         cdtToken.burnFrom(msg.sender, strike);

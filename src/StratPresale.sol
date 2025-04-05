@@ -12,17 +12,18 @@ import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 contract StratPresale {
     /// @dev the option minter
     IStratOptionMinter public stratOption;
+
     /// @dev The gnosis multisig dev that receives the funds collected during the presale.
     address public immutable presaleMultisig;
 
-    /// @dev Error NoEthSent is triggered when a call expecting ETH does not receive any.
+    // Errors
     error NoEthSent();
-
-    /// @dev Error EthTransferFailed is thrown if a transfer of ETH fails.
     error EthTransferFailed();
 
     /// @notice Event triggered on each presale mint
     event PresaleMint(address indexed from, uint256 value);
+
+    uint256 public constant UNIT_BIAS = 10_000;
 
     constructor(address _stratOption, address _presaleMultisig) {
         stratOption = IStratOptionMinter(_stratOption);
@@ -38,7 +39,9 @@ contract StratPresale {
     function mint() external payable {
         if (msg.value == 0) revert NoEthSent();
 
-        stratOption.mint(msg.sender, 0, msg.value, 0, block.timestamp + (420 * 365 days), block.timestamp + 120 days);
+        stratOption.mint(
+            msg.sender, 0, msg.value * UNIT_BIAS, 0, block.timestamp + (420 * 365 days), block.timestamp + 120 days
+        );
 
         // send ETH to presale multisig
         (bool success,) = presaleMultisig.call{value: msg.value}("");

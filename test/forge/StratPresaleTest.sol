@@ -32,7 +32,7 @@ contract StratPresaleTest is Test {
         assertEq(presaleMultisig.balance, valueToSend);
         assertEq(address(this).balance, 0);
 
-        checkPresaleNFTInvariants(1, 2 ether);
+        checkPresaleNFTInvariants(1, 20_000 ether);
         assertEq(stratOption.balanceOf(address(this)), 1);
         assertEq(presaleMultisig.balance, 2 ether);
     }
@@ -47,7 +47,7 @@ contract StratPresaleTest is Test {
         // First contribution from user1
         vm.prank(user1);
         presale.mint{value: 2 ether}();
-        checkPresaleNFTInvariants(1, 2 ether);
+        checkPresaleNFTInvariants(1, 20_000 ether);
         assertEq(stratOption.balanceOf(user1), 1);
         assertEq(presaleMultisig.balance, 2 ether);
 
@@ -55,7 +55,7 @@ contract StratPresaleTest is Test {
         vm.warp(block.timestamp + 1 hours);
         vm.prank(user2);
         presale.mint{value: 3 ether}();
-        checkPresaleNFTInvariants(2, 3 ether);
+        checkPresaleNFTInvariants(2, 30_000 ether);
         assertEq(stratOption.balanceOf(user2), 1);
         assertEq(presaleMultisig.balance, 5 ether);
 
@@ -63,7 +63,7 @@ contract StratPresaleTest is Test {
         vm.warp(block.timestamp + 1 hours);
         vm.prank(user1);
         presale.mint{value: 2 ether}();
-        checkPresaleNFTInvariants(3, 2 ether);
+        checkPresaleNFTInvariants(3, 20_000 ether);
         assertEq(stratOption.balanceOf(user1), 2);
         assertEq(presaleMultisig.balance, 7 ether);
     }
