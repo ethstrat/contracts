@@ -68,7 +68,7 @@ contract StratPresaleTest is Test {
         assertEq(presaleMultisig.balance, 7 ether);
     }
 
-    function checkPresaleNFTInvariants(uint256 tokenId, uint256 expectedNotionalUnderlyingAmount) internal {
+    function checkPresaleNFTInvariants(uint256 tokenId, uint256 expectedNotionalUnderlyingAmount) internal view {
         assertEq(stratOption.strikeAmount(tokenId), 0);
         assertEq(stratOption.notionalUnderlyingAmount(tokenId), expectedNotionalUnderlyingAmount);
         assertEq(stratOption.notionalUSDAmount(tokenId), 0);
