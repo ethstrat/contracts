@@ -5,6 +5,9 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
+import {ITreasury} from "./interfaces/ITreasury.sol";
+
+import "forge-std/console.sol";
 
 /**
  * @title The STRAT ETH Long Bonds Strategy
@@ -14,9 +17,9 @@ contract StratETHLongBonds is Ownable2Step {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
-    address immutable treasuryManager;
+    ITreasury public immutable treasury;
+    address immutable treasuryVault;
     IOracle public immutable ethUsdOracle;
-    IOracle public immutable stratEthOracle;
 
     uint256 public bcv;
 
@@ -34,13 +37,17 @@ contract StratETHLongBonds is Ownable2Step {
         uint256 timelock
     );
 
+    error NoEthSent();
+    error ZeroAddress();
+    error EthTransferFailed();
+
     /**
      * @param _cdtToken The CDT token
      * @param _stratToken The STRAT token
      * @param _stratOption The STRAT option
-     * @param _treasuryManager The treasury manager
+     * @param _treasury operations on treasury
+     * @param _treasuryVault vault where bonded ETH is sent
      * @param _ethUsdOracle The ETH/USD oracle
-     * @param _stratEthOracle The STRAT/ETH oracle
      * @param _bcv The bond conversion value, scaled by SCALE
      * @param owner The owner
      */
@@ -48,21 +55,20 @@ contract StratETHLongBonds is Ownable2Step {
         address _cdtToken,
         address _stratToken,
         address _stratOption,
-        address _treasuryManager,
+        address _treasury,
+        address _treasuryVault,
         address _ethUsdOracle,
-        address _stratEthOracle,
         uint256 _bcv,
         address owner
     ) Ownable(owner) {
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20(_stratToken);
         stratOption = IStratOptionMinter(_stratOption);
-        treasuryManager = _treasuryManager;
+        treasury = ITreasury(_treasury);
+        treasuryVault = _treasuryVault;
         ethUsdOracle = IOracle(_ethUsdOracle);
-        stratEthOracle = IOracle(_stratEthOracle);
 
         USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
-        require(stratEthOracle.quoteTokenDecimals() == 18, "StratEthOracle must have 18 decimals");
 
         bcv = _bcv;
     }
@@ -73,7 +79,8 @@ contract StratETHLongBonds is Ownable2Step {
     }
 
     function bond(address bonder) external payable {
-        require(msg.value > 0, "No ETH sent");
+        if (msg.value == 0) revert NoEthSent();
+        if (bonder == address(0)) revert ZeroAddress();
 
         uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE;
         uint256 strikeAmount = notionalUSDAmount;
@@ -91,8 +98,8 @@ contract StratETHLongBonds is Ownable2Step {
         cdtToken.mint(bonder, notionalUSDAmount);
 
         // Send the eth to the treasury manager contract
-        (bool success,) = treasuryManager.call{value: msg.value}("");
-        require(success, "Transfer failed");
+        (bool success,) = treasuryVault.call{value: msg.value}("");
+        if (!success) revert EthTransferFailed();
 
         emit LongBond(
             bonder,
@@ -106,7 +113,11 @@ contract StratETHLongBonds is Ownable2Step {
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
-        uint256 premium = bcv * (cdtToken.totalSupply() + (notionalUSDAmount / 2)) / stratToken.totalSupply();
-        return stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE + premium;
+        uint256 gav = treasury.total() * ethUsdOracle.price() / USD_ORACLE_SCALE;
+
+        uint256 stratTotalSupply = stratToken.totalSupply();
+        uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSDAmount / 2));
+
+        return ((gav * SCALE) + (bcv * adjustedCdtSupply)) / stratTotalSupply;
     }
 }

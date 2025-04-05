@@ -6,6 +6,7 @@ import "../../src/StratETHLongBonds.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
+import "../../src/interfaces/ITreasury.sol";
 
 contract MockOracle {
     uint256 private _price;
@@ -27,24 +28,35 @@ contract MockOracle {
     }
 }
 
+contract MockTreasury is ITreasury {
+    function withdraw(uint256 amount, address to) external {
+        revert("MockTreasury: StratETHLongBonds should never withdraw from treasury");
+    }
+
+    function total() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    receive() external payable {}
+}
+
 contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
 
-    // Mock oracles are defined directly here
+    // Mocks
     MockOracle public ethUsdOracle;
-    MockOracle public stratEthOracle;
+    MockTreasury public treasury;
 
     address internal owner = address(0x123);
-    address internal treasuryManager = address(0x456);
     address internal user = address(0x789);
 
     function setUp() public {
-        // Deploy mock oracles
+        // mocks
         ethUsdOracle = new MockOracle(3000e8, 18, 8); // ETH price: $3000
-        stratEthOracle = new MockOracle(1e18, 18, 18); // Strat price: 1 ETH
+        treasury = new MockTreasury();
 
         // Deploy the real contracts
         vm.startPrank(owner);
@@ -57,9 +69,9 @@ contract StratETHLongBondsTest is Test {
             address(cdtToken),
             address(stratToken),
             address(stratOption),
-            treasuryManager,
+            address(treasury),
+            address(treasury),
             address(ethUsdOracle),
-            address(stratEthOracle),
             1e18, // BCV
             owner
         );
@@ -67,7 +79,8 @@ contract StratETHLongBondsTest is Test {
         stratToken.manageMinter(owner, true);
 
         // Mint tokens to initialize the supply (So it's non-zero)
-        stratToken.mint(address(this), 1000e18);
+        stratToken.mint(address(this), 10_000 ether);
+        vm.deal(address(treasury), 1 ether);
 
         // Give bonding contract ability to mint CDT and StratOption
         cdtToken.manageMinter(address(bonds), true);
@@ -78,7 +91,7 @@ contract StratETHLongBondsTest is Test {
     function testOnlyOwnerCanSetBCV() public {
         // A non-owner attempting to change BCV should fail
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(user)));
         bonds.setBCV(5); // Should revert because user is not the owner
 
         // A owner attempting to change BCV should suceed
@@ -89,39 +102,39 @@ contract StratETHLongBondsTest is Test {
 
     function testBondRevertIfNoETHSent() public {
         vm.prank(user);
-        vm.expectRevert("No ETH sent");
+        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.NoEthSent.selector));
         bonds.bond(user); // Should revert because no ETH is sent
+    }
+
+    function testBondRevertIfBonderAddressIsZero() public {
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.ZeroAddress.selector));
+        bonds.bond{value: 1 ether}(address(0));
     }
 
     function testStrikePrice() public {
         uint256 notionalUSDAmount = 3000e18;
 
-        uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e8; // 18 DP
-
-        // Expected strike with no CDT and 1000 STRAT (without scaling) is
-        //   STRAT_PRICE + ((3000 / 2 / (1000 * STRAT_PRICE)) * bcv * STRAT_PRICE)
-        // = STRAT_PRICE + ((1500 / (1000 * STRAT_PRICE)) * bcv * STRAT_PRICE)
-        // = STRAT_PRICE + ((1500 / 1000) * bcv)
-        // = STRAT_PRICE + 1.5 * bcv
-        // given BCV is 1, the strike price should be STRAT_PRICE + 1.5
-        uint256 expectedStrikePrice = stratPrice + 1.5e18;
+        // Expected strike with no CDT, 1 ETH in treasury and 10k STRAT (without scaling) is
+        //   (3000 + (3000 / 2)) / 10_000
+        // = 0.45
+        uint256 expectedStrikePrice = 0.45 ether;
         uint256 calculatedStrikePrice = bonds.strikePrice(notionalUSDAmount);
         assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
     }
 
     function testBond() public {
-        uint256 ethAmount = 1 ether;
-
-        vm.deal(user, ethAmount); // Give ETH to user
+        vm.deal(user, 1 ether); // Give ETH to user
         vm.prank(user);
         // Run bond function
-        bonds.bond{value: ethAmount}(user);
+        bonds.bond{value: 1 ether}(user);
 
         // Check treasury receives money
-        assertEq(treasuryManager.balance, ethAmount, "Treasury did not receive the correct ETH amount");
+        assertEq(treasury.total(), 2 ether, "Treasury did not receive the correct ETH amount");
 
         // Verify the CDT balance of the user
-        uint256 expectedCdUSDAmount = (ethAmount * ethUsdOracle.price()) / 1e8; // ETH -> USD conversion
+        uint256 expectedCdUSDAmount = (1 ether * ethUsdOracle.price()) / 1e8; // ETH -> USD conversion
         assertEq(cdtToken.balanceOf(user), expectedCdUSDAmount, "User CDT balance incorrect");
 
         // Verify the minted StratOption attributes
@@ -131,17 +144,23 @@ contract StratETHLongBondsTest is Test {
         // NFT Option properties
         assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
         assertEq(stratOption.strikeAmount(tokenId), expectedStrikeAmount, "Incorrect strike amount");
-        assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 999500249875062468, "Incorrect notional underlying amount"
-        );
-        assertLt(
+        assertApproxEqAbs(
             stratOption.notionalUnderlyingAmount(tokenId),
-            stratEthOracle.price(),
-            "Should be less than current spot price for strat"
+            6666.6666666 ether,
+            1e12, // acceptable delta in wei (0.000001 ether)
+            "Incorrect notional underlying amount"
         );
+
         assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
         assertEq(stratOption.expiry(tokenId), block.timestamp + (4.2 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
+
+        // Confirm bond is accreative w.r.t the treasury
+        assertLt(
+            stratOption.notionalUnderlyingAmount(tokenId),
+            10_000 ether,
+            "given the unit bias of 1 ETH is 10k STRAT, bond should always be less than 10k STRAT for a 1 ETH notional"
+        );
     }
 
     function testBondDataInvariants() public {
@@ -192,51 +211,14 @@ contract StratETHLongBondsTest is Test {
             "ETH price increase should increase total strike amount"
         );
 
-        // Changes in STRAT/ETH price don't change the notional USD (but the calculated strike price should move about)
-        uint256 strikeBeforePriceChange = bonds.strikePrice(0);
-        stratEthOracle.setPrice(1.5e18);
-        uint256 strikeAfterPriceChange = bonds.strikePrice(0);
-        assertLt(
-            strikeBeforePriceChange,
-            strikeAfterPriceChange,
-            "STRAT price increase should increase the bond strike per strat"
-        );
-
-        vm.deal(user, 1 ether);
-        vm.prank(user);
-        bonds.bond{value: 1 ether}(user);
-        assertEq(
-            stratOption.notionalUSDAmount(2),
-            stratOption.notionalUSDAmount(3),
-            "STRAT price increase shouldn't effect notional USD"
-        );
-
-        strikeBeforePriceChange = bonds.strikePrice(0);
-        stratEthOracle.setPrice(0.5e18);
-        strikeAfterPriceChange = bonds.strikePrice(0);
-        assertGt(
-            strikeBeforePriceChange,
-            strikeAfterPriceChange,
-            "STRAT price decrease should decrease the bond strike per strat"
-        );
-
-        vm.deal(user, 1 ether);
-        vm.prank(user);
-        bonds.bond{value: 1 ether}(user);
-        assertEq(
-            stratOption.notionalUSDAmount(3),
-            stratOption.notionalUSDAmount(4),
-            "STRAT price decrease shouldn't effect notional USD"
-        );
-
         // Bond 1 more ETH, after ETH/USD price goes down to $3000
         ethUsdOracle.setPrice(3000e8);
         vm.deal(user, 1 ether);
         vm.prank(user);
         bonds.bond{value: 1 ether}(user);
         assertGt(
-            stratOption.strikeAmount(4),
-            stratOption.strikeAmount(5),
+            stratOption.strikeAmount(2),
+            stratOption.strikeAmount(3),
             "ETH price decrease should decrease total strike amount"
         );
     }
