@@ -13,6 +13,8 @@ contract StratOptionExerciseTest is Test {
     StratOption public stratOption;
     StratOptionExercise public optionExercise;
 
+    uint256 internal constant UNIT_BIAS = 10_000;
+
     address internal owner = address(0x123);
     address internal user = address(0x789);
 
@@ -31,7 +33,6 @@ contract StratOptionExerciseTest is Test {
 
         // Mint some CDT and STRAT
         cdtToken.mint(user, 1000 ether);
-        stratToken.mint(owner, 1000 ether);
 
         // Mint an option to user
         stratOption.mint(user, 100 ether, 900 ether, 0, block.timestamp + 3600, block.timestamp + 1800);
@@ -52,9 +53,63 @@ contract StratOptionExerciseTest is Test {
         optionExercise.exercise(1);
 
         // Check balances
-        assertEq(stratToken.balanceOf(user) / 10_000, 900 ether, "User should get STRAT");
+        assertEq(stratToken.balanceOf(user) / UNIT_BIAS, 900 ether, "User should get STRAT");
         assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
         assertEq(cdtToken.balanceOf(user), 900 ether, "cdtToken should be burned");
+        vm.stopPrank();
+    }
+
+    function testExerciseWithSufficientPremintedStrat() public {
+        // mint more STRAT into the optionExercise contract than needed
+        vm.prank(owner);
+        stratToken.mint(address(optionExercise), 1000 ether * UNIT_BIAS);
+
+        // After timelock, before expiry
+        vm.warp(block.timestamp + 1801);
+        vm.startPrank(user);
+
+        // Approve option transfer and CDT burn
+        cdtToken.approve(address(optionExercise), 100 ether);
+        stratOption.approve(address(optionExercise), 1);
+
+        // Exercise
+        optionExercise.exercise(1);
+
+        // Check balances
+        assertEq(stratToken.balanceOf(user) / UNIT_BIAS, 900 ether, "User should get STRAT");
+        assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(user), 900 ether, "cdtToken should be burned");
+        assertEq(
+            stratToken.balanceOf(address(optionExercise)),
+            100 ether * UNIT_BIAS,
+            "OptionExercise should have 100 STRAT left"
+        );
+        assertEq(stratToken.totalSupply(), 1000 ether * UNIT_BIAS, "Total supply should be 10,000,000 STRAT");
+        vm.stopPrank();
+    }
+
+    function testExerciseWithPartialPremintedStrat() public {
+        // mint more STRAT into the optionExercise contract than needed
+        vm.prank(owner);
+        stratToken.mint(address(optionExercise), 100 ether * UNIT_BIAS);
+
+        // After timelock, before expiry
+        vm.warp(block.timestamp + 1801);
+        vm.startPrank(user);
+
+        // Approve option transfer and CDT burn
+        cdtToken.approve(address(optionExercise), 100 ether);
+        stratOption.approve(address(optionExercise), 1);
+
+        // Exercise
+        optionExercise.exercise(1);
+
+        // Check balances
+        assertEq(stratToken.balanceOf(user) / UNIT_BIAS, 900 ether, "User should get STRAT");
+        assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(user), 900 ether, "cdtToken should be burned");
+        assertEq(stratToken.balanceOf(address(optionExercise)), 0);
+        assertEq(stratToken.totalSupply(), 900 ether * UNIT_BIAS, "Total supply should be 9,000,000 STRAT");
         vm.stopPrank();
     }
 
