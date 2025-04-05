@@ -14,13 +14,13 @@ contract StratPresaleTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         stratOption = new StratOption(owner);
-        presale = new StratPresale(1000 ether, address(stratOption), presaleMultisig);
+        presale = new StratPresale(address(stratOption), presaleMultisig);
         stratOption.manageMinter(address(presale), true);
         vm.stopPrank();
     }
 
     function testMintRevertsIfNoEthSent() public {
-        vm.expectRevert(bytes("No ETH sent"));
+        vm.expectRevert(abi.encodeWithSelector(StratPresale.NoEthSent.selector));
         presale.mint();
     }
 
@@ -30,66 +30,14 @@ contract StratPresaleTest is Test {
         presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, valueToSend);
-        assertEq(presale.totalRaised(), valueToSend);
         assertEq(address(this).balance, 0);
 
+        checkPresaleNFTInvariants(1, 2 ether);
         assertEq(stratOption.balanceOf(address(this)), 1);
-        assertEq(stratOption.strikeAmount(1), 2 ether);
-        assertEq(stratOption.notionalUnderlyingAmount(1), 2 ether);
-        assertEq(stratOption.notionalUSDAmount(1), 0);
-        assertEq(stratOption.expiry(1), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(1), block.timestamp + (90 days));
-
-        assertGt(stratOption.expiry(1), stratOption.timelock(1));
-        assertGt(stratOption.expiry(1), block.timestamp);
-        assertGt(stratOption.timelock(1), block.timestamp);
+        assertEq(presaleMultisig.balance, 2 ether);
     }
 
-    function testMintCapEnforced() public {
-        uint256 valueToSend = 999 ether;
-        vm.deal(address(this), valueToSend);
-        presale.mint{value: valueToSend}();
-
-        assertEq(presaleMultisig.balance, valueToSend);
-        assertEq(address(this).balance, 0);
-
-        assertEq(stratOption.balanceOf(address(this)), 1);
-        assertEq(stratOption.strikeAmount(1), 999 ether);
-        assertEq(stratOption.notionalUnderlyingAmount(1), valueToSend);
-        assertEq(stratOption.notionalUSDAmount(1), 0);
-        assertEq(stratOption.expiry(1), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(1), block.timestamp + (90 days));
-
-        assertGt(stratOption.expiry(1), stratOption.timelock(1));
-        assertGt(stratOption.expiry(1), block.timestamp);
-        assertGt(stratOption.timelock(1), block.timestamp);
-
-        valueToSend = 1 ether;
-        vm.deal(address(this), valueToSend);
-        presale.mint{value: valueToSend}();
-
-        assertEq(presaleMultisig.balance, 1000 ether);
-        assertEq(presale.totalRaised(), 1000 ether);
-        assertEq(address(this).balance, 0);
-
-        assertEq(stratOption.balanceOf(address(this)), 2);
-        assertEq(stratOption.strikeAmount(2), 1 ether);
-        assertEq(stratOption.notionalUnderlyingAmount(2), valueToSend);
-        assertEq(stratOption.notionalUSDAmount(2), 0);
-        assertEq(stratOption.expiry(2), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(2), block.timestamp + (90 days));
-
-        assertGt(stratOption.expiry(2), stratOption.timelock(2));
-        assertGt(stratOption.expiry(2), block.timestamp);
-        assertGt(stratOption.timelock(2), block.timestamp);
-
-        valueToSend = 1 ether;
-        vm.deal(address(this), valueToSend);
-        vm.expectRevert(bytes("Cap reached"));
-        presale.mint{value: valueToSend}();
-    }
-
-    function testContributionsPerAddress() public {
+    function testMultiplePresalers() public {
         address user1 = address(0x1111);
         address user2 = address(0x2222);
 
@@ -97,27 +45,38 @@ contract StratPresaleTest is Test {
         vm.deal(user2, 5 ether);
 
         // First contribution from user1
-        vm.startPrank(user1);
+        vm.prank(user1);
         presale.mint{value: 2 ether}();
-        vm.stopPrank();
+        checkPresaleNFTInvariants(1, 2 ether);
+        assertEq(stratOption.balanceOf(user1), 1);
+        assertEq(presaleMultisig.balance, 2 ether);
 
-        assertEq(presale.contributions(user1), 2 ether);
-        assertEq(presale.totalRaised(), 2 ether);
-
-        // First contribution from user2
-        vm.startPrank(user2);
+        // First contribution from user2, after some time
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(user2);
         presale.mint{value: 3 ether}();
-        vm.stopPrank();
+        checkPresaleNFTInvariants(2, 3 ether);
+        assertEq(stratOption.balanceOf(user2), 1);
+        assertEq(presaleMultisig.balance, 5 ether);
 
-        assertEq(presale.contributions(user2), 3 ether);
-        assertEq(presale.totalRaised(), 5 ether);
-
-        // Second contribution from user1
-        vm.startPrank(user1);
+        // Second contribution from user1, again after some time
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(user1);
         presale.mint{value: 2 ether}();
-        vm.stopPrank();
+        checkPresaleNFTInvariants(3, 2 ether);
+        assertEq(stratOption.balanceOf(user1), 2);
+        assertEq(presaleMultisig.balance, 7 ether);
+    }
 
-        assertEq(presale.contributions(user1), 4 ether);
-        assertEq(presale.totalRaised(), 7 ether);
+    function checkPresaleNFTInvariants(uint256 tokenId, uint256 expectedNotionalUnderlyingAmount) internal {
+        assertEq(stratOption.strikeAmount(tokenId), 0);
+        assertEq(stratOption.notionalUnderlyingAmount(tokenId), expectedNotionalUnderlyingAmount);
+        assertEq(stratOption.notionalUSDAmount(tokenId), 0);
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days));
+        assertEq(stratOption.timelock(tokenId), block.timestamp + (120 days));
+
+        assertGt(stratOption.expiry(tokenId), stratOption.timelock(tokenId));
+        assertGt(stratOption.expiry(tokenId), block.timestamp);
+        assertGt(stratOption.timelock(tokenId), block.timestamp);
     }
 }
