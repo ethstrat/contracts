@@ -29,7 +29,7 @@ contract MockOracle {
 }
 
 contract MockTreasury is ITreasury {
-    function withdraw(uint256 amount, address to) external {
+    function withdraw(uint256, address) external pure {
         revert("MockTreasury: StratETHLongBonds should never withdraw from treasury");
     }
 
@@ -113,7 +113,7 @@ contract StratETHLongBondsTest is Test {
         bonds.bond{value: 1 ether}(address(0));
     }
 
-    function testStrikePrice() public {
+    function testStrikePrice() public view {
         uint256 notionalUSDAmount = 3000e18;
 
         // Expected strike with no CDT, 1 ETH in treasury and 10k STRAT (without scaling) is
