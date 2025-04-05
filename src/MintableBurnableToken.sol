@@ -6,7 +6,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 
 /**
- * @title The STRAT Token
+ * @title Base token for CDT and STRAT
  */
 contract MintableBurnableToken is ERC20Permit, Ownable2Step {
     mapping(address => bool) public minters;
