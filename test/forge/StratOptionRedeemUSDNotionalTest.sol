@@ -2,13 +2,14 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../../../src/StratOptionRedeemUSDNotional.sol";
-import "../../../src/StratOption.sol";
-import "../../../src/CdtToken.sol";
-import "../../../src/StratToken.sol";
+import "../../src/StratOptionRedeemUSDNotional.sol";
+import "../../src/StratOption.sol";
+import "../../src/CdtToken.sol";
+import "../../src/StratToken.sol";
+import "../../src/interfaces/ITreasury.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
-contract MockTreasury is Treasury {
+contract MockTreasury is ITreasury {
     function withdraw(uint256 amount, address to) external {
         payable(to).transfer(amount);
     }
