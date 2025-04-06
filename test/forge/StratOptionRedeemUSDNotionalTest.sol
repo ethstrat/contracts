@@ -8,6 +8,7 @@ import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/interfaces/ITreasury.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
+import {MockOracle} from "../mocks/MockOracle.sol";
 
 contract MockTreasury is ITreasury {
     function withdraw(uint256 amount, address to) external {
@@ -16,28 +17,6 @@ contract MockTreasury is ITreasury {
 
     function total() external view returns (uint256) {
         return address(this).balance;
-    }
-}
-
-contract MockOracle is IOracle {
-    uint256 public price;
-    uint8 public baseTokenDecimals = 18;
-    uint8 public quoteTokenDecimals = 8;
-
-    constructor(uint256 initialPrice) {
-        price = initialPrice;
-    }
-
-    function setPrice(uint256 newPrice) external {
-        price = newPrice;
-    }
-
-    function setQuoteTokenDecimals(uint8 newQuoteTokenDecimals) external {
-        quoteTokenDecimals = newQuoteTokenDecimals;
-    }
-
-    function setBaseTokenDecimals(uint8 newBaseTokenDecimals) external {
-        baseTokenDecimals = newBaseTokenDecimals;
     }
 }
 
@@ -63,7 +42,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         stratToken = new StratToken(owner);
         stratOption = new StratOption(owner);
         mockTreasury = new MockTreasury();
-        mockOracle = new MockOracle(2000e8); // e.g., 1 ETH = 2000 USD
+        mockOracle = new MockOracle(2000e8, 18, 8); // e.g., 1 ETH = 2000 USD
 
         // Deploy target contract
         optionRedeem = new StratOptionRedeemUSDNotional(
