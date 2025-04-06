@@ -82,17 +82,20 @@ contract StratETHLongBonds is Ownable2Step {
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
 
-        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE;
-        uint256 strikeAmount = notionalUSDAmount;
-        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount);
+        // redemption
+        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
+        uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
+        uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // Scale: 18
+            // decimals (since strikePrice is always 18 decimals)
 
         stratOption.mint(
-            bonder,
-            strikeAmount,
-            notionalUnderlyingAmount,
-            notionalUSDAmount,
-            block.timestamp + (4.2 * 365 days),
-            block.timestamp + 6.9 days
+            bonder, // Option owner
+            strikeAmount, // Strike amount: amount of CDT to be burned to exercise the option
+            notionalUnderlyingAmount, // Notional underlying amount: amount of STRAT that will be received if the option
+                // is exercised
+            notionalUSDAmount, // Notional USD amount: USD value of the ETH that was deposited at the time of minting
+            block.timestamp + (4.2 * 365 days), // Expiry: 4.2 years from now
+            block.timestamp + 6.9 days // Timelock: 6.9 days from now
         );
 
         cdtToken.mint(bonder, notionalUSDAmount);
@@ -112,12 +115,16 @@ contract StratETHLongBonds is Ownable2Step {
         );
     }
 
-    function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
+    /// @notice Provides the strike price for a given USD value of ETH
+    ///
+    /// @param  notionalUSDAmount   The USD value of ETH to calculate the strike price for
+    /// @return strikePrice_        The strike price, in terms of SCALE
+    function strikePrice(uint256 notionalUSDAmount) public view returns (uint256 strikePrice_) {
         uint256 gav = treasury.total() * ethUsdOracle.price() / USD_ORACLE_SCALE;
 
         uint256 stratTotalSupply = stratToken.totalSupply();
         uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSDAmount / 2));
 
-        return ((gav * SCALE) + (bcv * adjustedCdtSupply)) / stratTotalSupply;
+        strikePrice_ = ((gav * SCALE) + (bcv * adjustedCdtSupply)) / stratTotalSupply;
     }
 }
