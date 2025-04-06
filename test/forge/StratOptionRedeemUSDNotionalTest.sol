@@ -8,29 +8,8 @@ import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/interfaces/ITreasury.sol";
 
-contract MockTreasury is ITreasury {
-    function withdraw(uint256 amount, address to) external {
-        payable(to).transfer(amount);
-    }
-
-    function total() external view returns (uint256) {
-        return address(this).balance;
-    }
-}
-
-contract MockOracle is IOracle {
-    uint256 public price;
-    uint8 public baseTokenDecimals = 18;
-    uint8 public quoteTokenDecimals = 8;
-
-    constructor(uint256 initialPrice) {
-        price = initialPrice;
-    }
-
-    function setPrice(uint256 newPrice) external {
-        price = newPrice;
-    }
-}
+import "../mocks/MockOracle.sol";
+import "../mocks/MockTreasury.sol";
 
 contract StratOptionRedeemUSDNotionalTest is Test {
     CdtToken public cdtToken;
@@ -51,7 +30,8 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         stratToken = new StratToken(owner);
         stratOption = new StratOption(owner);
         mockTreasury = new MockTreasury();
-        mockOracle = new MockOracle(2000e8); // e.g., 1 ETH = 2000 USD
+        mockTreasury.setWithdrawAllowed(true); // Allow withdrawals for testing
+        mockOracle = new MockOracle(2000e8, 18, 8); // e.g., 1 ETH = 2000 USD
 
         // Deploy target contract
         optionRedeem = new StratOptionRedeemUSDNotional(

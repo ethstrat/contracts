@@ -7,38 +7,8 @@ import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
 import "../../src/interfaces/ITreasury.sol";
-
-contract MockOracle {
-    uint256 private _price;
-    uint8 public baseTokenDecimals;
-    uint8 public quoteTokenDecimals;
-
-    constructor(uint256 initialPrice, uint8 _baseTokenDecimals, uint8 _quoteTokenDecimals) {
-        _price = initialPrice;
-        baseTokenDecimals = _baseTokenDecimals;
-        quoteTokenDecimals = _quoteTokenDecimals;
-    }
-
-    function setPrice(uint256 newPrice) public {
-        _price = newPrice;
-    }
-
-    function price() external view returns (uint256) {
-        return _price;
-    }
-}
-
-contract MockTreasury is ITreasury {
-    function withdraw(uint256, address) external pure {
-        revert("MockTreasury: StratETHLongBonds should never withdraw from treasury");
-    }
-
-    function total() external view returns (uint256) {
-        return address(this).balance;
-    }
-
-    receive() external payable {}
-}
+import "../mocks/MockOracle.sol";
+import "../mocks/MockTreasury.sol";
 
 contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
