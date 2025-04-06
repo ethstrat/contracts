@@ -84,6 +84,8 @@ contract StratOptionExerciseTest is Test {
         stratToken.mint(owner, 1000e18);
     }
 
+    // TODO restore simple tests, shift integration tests to a new file
+
     modifier givenTimelockNotPassed() {
         if (stratOption.timelock(1) == 0) revert("no token id");
 

@@ -95,6 +95,8 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.stopPrank();
     }
 
+    // TODO restore simple tests, shift integration tests to a new file
+
     modifier givenTimelockPassed() {
         if (stratOption.timelock(1) == 0) {
             revert("No token id");
