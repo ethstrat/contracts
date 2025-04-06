@@ -95,7 +95,7 @@ contract StratETHLongBonds is Ownable2Step {
                 // is exercised
             notionalUSDAmount, // Notional USD amount: USD value of the ETH that was deposited at the time of minting
             block.timestamp + (4.2 * 365 days), // Expiry: 4.2 years from now
-            block.timestamp + 6.9 days// Timelock: 6.9 days from now
+            block.timestamp + 6.9 days // Timelock: 6.9 days from now
         );
 
         cdtToken.mint(bonder, notionalUSDAmount);
