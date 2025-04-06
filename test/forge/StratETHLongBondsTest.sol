@@ -6,20 +6,8 @@ import "../../src/StratETHLongBonds.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
-import "../../src/interfaces/ITreasury.sol";
 import {MockOracle} from "../mocks/MockOracle.sol";
-
-contract MockTreasury is ITreasury {
-    function withdraw(uint256, address) external pure {
-        revert("MockTreasury: StratETHLongBonds should never withdraw from treasury");
-    }
-
-    function total() external view returns (uint256) {
-        return address(this).balance;
-    }
-
-    receive() external payable {}
-}
+import {MockTreasury} from "../mocks/MockTreasury.sol";
 
 contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
