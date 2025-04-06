@@ -45,7 +45,27 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         stratEthOracle = new MockOracle(1e18, 18, 18);
         treasury = new MockTreasury();
         treasury.setWithdrawAllowed(true); // Allow withdrawals for testing
+        vm.stopPrank();
 
+        _createContracts();
+
+        _authoriseMinting();
+
+        vm.startPrank(owner);
+
+        // Mint STRAT tokens, required for long and short bonds
+        stratToken.mint(owner, 1000e18);
+
+        // Give the treasury some initial balance
+        vm.deal(address(treasury), 100 ether);
+
+        vm.stopPrank();
+    }
+
+    function _createContracts() internal {
+        optionRedeem = new StratOptionRedeemUSDNotional(
+            address(cdtToken), address(stratToken), address(treasury), address(ethUsdOracle), address(stratOption)
+        );
         longBonds = new StratETHLongBonds(
             address(cdtToken),
             address(stratToken),
@@ -67,35 +87,36 @@ contract StratOptionRedeemUSDNotionalTest is Test {
             owner
         );
         presale = new StratPresale(address(stratOption), owner);
+    }
 
-        // Deploy target contract
-        optionRedeem = new StratOptionRedeemUSDNotional(
-            address(cdtToken), address(stratToken), address(treasury), address(ethUsdOracle), address(stratOption)
-        );
-
-        // Enable minting
+    function _authoriseMinting() internal {
+        vm.startPrank(owner);
         cdtToken.manageMinter(address(longBonds), true);
         cdtToken.manageMinter(address(shortBonds), false);
         cdtToken.manageMinter(address(presale), false);
+        cdtToken.manageMinter(owner, true);
+
         stratOption.manageMinter(address(longBonds), true);
         stratOption.manageMinter(address(shortBonds), true);
         stratOption.manageMinter(address(presale), true);
 
-        cdtToken.manageMinter(owner, true);
         stratToken.manageMinter(owner, true);
         stratToken.manageMinter(address(shortBonds), true);
         stratToken.manageMinter(address(optionRedeem), true);
-
-        // Mint STRAT tokens, required for long and short bonds
-        stratToken.mint(owner, 1000e18);
-
-        // Give the treasury some initial balance
-        vm.deal(address(treasury), 100 ether);
-
         vm.stopPrank();
     }
 
     // TODO restore simple tests, shift integration tests to a new file
+
+    modifier givenEthUsdOracleScale(uint8 scale_, uint256 price_) {
+        ethUsdOracle.setQuoteTokenDecimals(scale_);
+        ethUsdOracle.setPrice(price_);
+
+        // Re-create the contracts
+        _createContracts();
+        _authoriseMinting();
+        _;
+    }
 
     modifier givenTimelockPassed() {
         if (stratOption.timelock(1) == 0) {
@@ -397,6 +418,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     function test_treasuryGtDebt_oracleDecimals18()
         public
+        givenEthUsdOracleScale(18, 2000e18)
         givenLongBondMinted(1e18)
         givenAccountHasApprovedCDTSpending(user, 2000e18)
         givenOptionSpendingApproved(1)
@@ -414,10 +436,6 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         // option has redemption value of 2000e18 * 1e18 / 2000e18 = 1e18
         uint256 expectedRedemptionValue = 2000e18;
         uint256 expectedEthAmount = expectedRedemptionValue * 1e18 / 2000e18;
-
-        // Set the oracle scale to 18
-        ethUsdOracle.setQuoteTokenDecimals(18);
-        ethUsdOracle.setPrice(2000e18);
 
         // Expect event
         vm.expectEmit();
@@ -513,6 +531,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     function test_treasuryLtDebt_ethPrice9_oracleDecimals18()
         public
+        givenEthUsdOracleScale(18, 2000e18)
         givenLongBondMinted(1e18)
         givenAccountHasApprovedCDTSpending(user, 2000e18)
         givenOptionSpendingApproved(1)
@@ -523,8 +542,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         // Warp past expiry
         _warpPastExpiry();
 
-        // Set the oracle price to $9 and scale to 18
-        ethUsdOracle.setQuoteTokenDecimals(18);
+        // Adjust price to $9
         ethUsdOracle.setPrice(9e18); // 1 ETH = 9 USD
 
         // Treasury has:

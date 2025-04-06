@@ -67,10 +67,10 @@ contract StratOptionRedeemUSDNotional {
         // Presale options have a notional USD amount of 0, so cannot be redeemed
         if (notionalUSDAmount == 0) revert Unsupported(msg.sender, tokenId);
 
-        uint256 totalDebt = cdtToken.totalSupply();
-        uint256 ethPriceUSD = ethUsdOracle.price();
-        uint256 treasuryInETH = treasury.total();
-        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / oracleScale;
+        uint256 totalDebt = cdtToken.totalSupply(); // Scale: 18 decimals
+        uint256 ethPriceUSD = ethUsdOracle.price() * 1e18 / oracleScale; // Scale: 18 decimals
+        uint256 treasuryInETH = treasury.total(); // Scale: 18 decimals
+        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / 1e18; // Scale: 18 decimals
         address optionOwner = stratOption.ownerOf(tokenId);
 
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
@@ -87,18 +87,11 @@ contract StratOptionRedeemUSDNotional {
             // At the time of redemption:
             // - if the ETH price is 3000e18, the ETH returned will be 4000e18 * 1e18 / 3000e18 = 1.3333e18 ETH
             // - if the ETH price is 1500e18, the ETH returned will be 4000e18 * 1e18 / 1500e18 = 2.6666e18 ETH
-            ethAmount = notionalUSDAmount * oracleScale / ethPriceUSD;
+            ethAmount = notionalUSDAmount * 1e18 / ethPriceUSD;
         }
         // Otherwise, the value of the treasury (ETH) in USD is less than the USD value of what was bonded
         else {
             // The option owner receives the proportional amount of ETH in the treasury
-            //
-            // e.g. if 2e18 ETH @ 2000e18 is deposited, the notional USD amount is 4000e18.
-            // At the time of redemption, with 1.5e18 ETH in the treasury and 6000e18 of debt:
-            // - if the ETH price is 2000 USD (2000e8), the treasury is valued at 3000e18 (1.5e18 * 2000e8 / 1e8) the
-            // option owner has a claim of 4000e18 * 3000e18 / 6000e18 = 2000e18 USD = 2000e18 * 1e8 / 2000e8 = 1e18 ETH
-            // - if the ETH price is 3000e18, the treasury is valued at 4500e18 (1.5e18 * 3000e8 / 1e8) the option owner
-            // has a claim of 4000e18 * 4500e18 / 6000e18 = 3000e18 USD = 3000e18 * 1e8 / 3000e8 = 1e18 ETH
             ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
 
