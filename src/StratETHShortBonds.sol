@@ -66,7 +66,7 @@ contract StratETHShortBonds is Ownable2Step {
         emit UpdateBCV(_newBcv);
     }
 
-    function bondWithPermit(address bonder, uint256 amount, Permit.IPermitApproval memory permitApproval) public {
+    function bondWithPermit(address bonder, uint256 amount, Permit.IPermitApproval memory cdtPermitApproval) public {
         require(amount > 0, "Amount must be greater than 0");
         uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
 
@@ -74,7 +74,7 @@ contract StratETHShortBonds is Ownable2Step {
             bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
         );
 
-        cdtToken.validatePermit(msg.sender, address(this), amount, permitApproval);
+        cdtToken.validatePermit(msg.sender, address(this), amount, cdtPermitApproval);
         cdtToken.burnFrom(msg.sender, amount);
         stratToken.mint(bondConverter, notionalUnderlyingAmount);
 
