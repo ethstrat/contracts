@@ -4,8 +4,18 @@ pragma solidity ^0.8.20;
 import {ITreasury} from "../../src/interfaces/ITreasury.sol";
 
 contract MockTreasury is ITreasury {
-    function withdraw(uint256, address) external pure {
-        revert("MockTreasury: StratETHLongBonds should never withdraw from treasury");
+    bool public isWithdrawAllowed = false;
+
+    function withdraw(uint256 amount, address to) external {
+        if (!isWithdrawAllowed) {
+            revert("MockTreasury: Withdrawal not allowed");
+        }
+
+        payable(to).transfer(amount);
+    }
+
+    function setWithdrawAllowed(bool allowed) external {
+        isWithdrawAllowed = allowed;
     }
 
     function total() external view returns (uint256) {
