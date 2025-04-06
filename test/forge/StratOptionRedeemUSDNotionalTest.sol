@@ -97,7 +97,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         vm.warp(block.timestamp + 3601);
 
         vm.prank(owner);
-        mockOracle.setPrice(1e8);
+        mockOracle.setPrice(0.5e8);
 
         vm.startPrank(user);
 

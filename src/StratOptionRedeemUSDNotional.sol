@@ -48,7 +48,8 @@ contract StratOptionRedeemUSDNotional {
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();
         uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
-        uint256 treasuryInUSD = treasury.total() * ethPriceUSD / oracleScale;
+        uint256 treasuryInETH = treasury.total();
+        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / oracleScale;
         address optionOwner = stratOption.ownerOf(tokenId);
 
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
@@ -58,7 +59,7 @@ contract StratOptionRedeemUSDNotional {
         if (treasuryInUSD > cdtToken.totalSupply()) {
             ethAmount = notionalUSDAmount * oracleScale / ethPriceUSD;
         } else {
-            ethAmount = notionalUSDAmount * treasuryInUSD / totalDebt;
+            ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
 
         treasury.withdraw(ethAmount, optionOwner);
