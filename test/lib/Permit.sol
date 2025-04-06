@@ -15,7 +15,7 @@ abstract contract PermitGenerator is Test {
         uint256 deadline_,
         uint256 amount_,
         bytes32 domainSeparator_
-    ) internal view returns (Permit.IPermitApproval memory) {
+    ) internal pure returns (Permit.IPermitApproval memory) {
         bytes32 hashStruct = keccak256(abi.encode(PERMIT_TYPEHASH, owner_, spender_, amount_, 0, deadline_));
         bytes32 permitHash = keccak256(abi.encodePacked(uint16(0x1901), domainSeparator_, hashStruct));
 

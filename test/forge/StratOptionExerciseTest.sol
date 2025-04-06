@@ -438,7 +438,7 @@ contract StratOptionExerciseTest is Test, PermitGenerator {
         vm.warp(block.timestamp + 1801);
 
         // Create a new user
-        (address newUser, uint256 newUserPk) = makeAddrAndKey("NEW_USER");
+        (address newUser,) = makeAddrAndKey("NEW_USER");
 
         // Give new user CDT
         vm.prank(owner);
