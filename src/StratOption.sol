@@ -28,11 +28,9 @@ contract StratOption is ERC721, Ownable2Step {
     mapping(uint256 tokenId => uint256) public notionalUSDAmount;
 
     /// @notice The timestamp at which the option expires
-    // TODO uint48?
     mapping(uint256 tokenId => uint256) public expiry;
 
     /// @notice The timestamp at which the option can be exercised
-    // TODO uint48?
     mapping(uint256 tokenId => uint256) public timelock;
 
     mapping(address => bool) public minters;
