@@ -419,9 +419,13 @@ contract StratOptionExerciseTest is Test, PermitGenerator {
 
         // Check balances
         assertEq(stratToken.balanceOf(permitOwner), 900 ether, "Permit owner should get STRAT");
-        assertEq(stratOption.balanceOf(permitOwner), 0, "Option should be burned");
-        assertEq(cdtToken.balanceOf(newUser), 0, "newUser: cdtToken should be burned");
+        assertEq(stratToken.balanceOf(newUser), 0, "newUser: STRAT balance");
+
+        assertEq(stratOption.balanceOf(permitOwner), 0, "permitOwner: Option balance");
+        assertEq(stratOption.balanceOf(newUser), 0, "newUser: Option balance");
+
         assertEq(cdtToken.balanceOf(permitOwner), 0, "permitOwner: CDT balance");
+        assertEq(cdtToken.balanceOf(newUser), 0, "newUser: CDT balance");
     }
 
     function test_exerciseWithPermit_callerNotRecipient_permitFromRecipient_reverts() public {
