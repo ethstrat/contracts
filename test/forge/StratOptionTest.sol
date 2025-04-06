@@ -105,7 +105,7 @@ contract StratOptionTest is Test {
         collection.manageMinter(minter, true);
 
         // Expect revert
-        vm.expectRevert(abi.encodeWithSelector(StratOption.InvalidParams.selector, "timelock"));
+        vm.expectRevert(abi.encodeWithSelector(StratOption.TimelockExpiryInvariantViolated.selector));
 
         vm.startPrank(minter);
         collection.mint(user, 1, 1, 3000, block.timestamp + 100000, timelock);
@@ -121,7 +121,7 @@ contract StratOptionTest is Test {
         collection.manageMinter(minter, true);
 
         // Expect revert
-        vm.expectRevert(abi.encodeWithSelector(StratOption.InvalidParams.selector, "timelock"));
+        vm.expectRevert(abi.encodeWithSelector(StratOption.TimelockExpiryInvariantViolated.selector));
 
         vm.startPrank(minter);
         collection.mint(user, 1, 1, 3000, block.timestamp + 100000, timelock);
