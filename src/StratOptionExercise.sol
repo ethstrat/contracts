@@ -40,22 +40,9 @@ contract StratOptionExercise {
 
     /**
      * @notice Exercises an option if it is not under a timelock and not expired.
-     * @dev    This function performs the following actions:
-     *         - Validates the option can be exercised
-     *         - Burns the CDT tokens from the caller (quantity is the strike amount)
-     *         - Mints the STRAT tokens to the option owner (quantity is the notional underlying amount)
-     *         - Burns the STRAT option from the option owner
-     *         - Emits an OptionExercised event
-     *
-     *         The function can be called by the option owner or an another address (as long as the option owner
+     * @dev    The function can be called by the option owner or an another address (as long as the option owner
      *         has granted approval)
      *
-     *         The function reverts if:
-     *         - The option is under a timelock
-     *         - The option has expired
-     *         - The caller is not the owner of the option and does not have approval by the owner
-     *         - The caller has not provided enough CDT tokens
-     *         - The caller has not approved spending of the required amount of CDT tokens
      * @param tokenId The identifier of the STRAT option token to exercise.
      */
     function exercise(uint256 tokenId) external {
