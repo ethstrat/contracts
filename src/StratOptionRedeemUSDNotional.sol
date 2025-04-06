@@ -6,12 +6,15 @@ import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
+/// @title StratOptionRedeemUSDNotional
+/// @notice This contract allows a user to redeem their STRAT option for the underlying value of the option
 contract StratOptionRedeemUSDNotional {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
     IOracle public immutable ethUsdOracle;
     StratOption public immutable stratOption;
+    uint256 public immutable oracleScale;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
@@ -38,8 +41,17 @@ contract StratOptionRedeemUSDNotional {
         treasury = ITreasury(_treasury);
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratOption = StratOption(_stratOption);
+        oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
     }
 
+    /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid
+    //          back in ETH
+    /// @dev    The amount of ETH to withdraw from the treasury is calculated based on the following:
+    ///           - If the treasury holds sufficient ETH (value in USD is higher than CDT total supply), the full USD
+    /// notional
+    ///             is converted into ETH at the current oracle price
+    ///           - Otherwise, a proportional share of the treasury's ETH is provided
+    /// @param tokenId The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
         if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (stratOption.expiry(tokenId) > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
@@ -47,7 +59,6 @@ contract StratOptionRedeemUSDNotional {
         uint256 notionalUSDAmount = stratOption.notionalUSDAmount(tokenId);
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();
-        uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
         uint256 treasuryInETH = treasury.total();
         uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / oracleScale;
         address optionOwner = stratOption.ownerOf(tokenId);
