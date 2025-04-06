@@ -40,7 +40,12 @@ contract StratPresale {
         if (msg.value == 0) revert NoEthSent();
 
         stratOption.mint(
-            msg.sender, 0, msg.value * UNIT_BIAS, 0, block.timestamp + (420 * 365 days), block.timestamp + 120 days
+            msg.sender, // owner
+            0, // Strike amount
+            msg.value * UNIT_BIAS, // Underlying amount
+            0, // Underlying USD amount, cannot be redeemed
+            block.timestamp + (420 * 365 days), // Expiry
+            block.timestamp + 120 days // Timelock
         );
 
         // send ETH to presale multisig
