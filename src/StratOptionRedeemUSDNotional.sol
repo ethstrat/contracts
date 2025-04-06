@@ -14,6 +14,7 @@ contract StratOptionRedeemUSDNotional {
     ITreasury public immutable treasury;
     IOracle public immutable ethUsdOracle;
     StratOption public immutable stratOption;
+    uint256 public immutable oracleScale;
 
     error TimelockActive(address account, uint256 tokenId);
     error OptionUnexpired(address account, uint256 tokenId);
@@ -41,27 +42,19 @@ contract StratOptionRedeemUSDNotional {
         treasury = ITreasury(_treasury);
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratOption = StratOption(_stratOption);
+        oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
     }
 
-    /// @notice Redeem a STRAT option for the underlying value of the option
-    /// @dev    This function performs the following actions:
-    ///         - Validates the option can be redeemed
-    ///         - Burns the CDT tokens from the caller
-    ///         - Calculates the amount of ETH to withdraw from the treasury
-    ///         - Withdraws the ETH from the treasury and sends it to the option owner
-    ///         - Emits an OptionRedeemed event
+    /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid
+    //          back in ETH
+    /// @dev    The amount of ETH to withdraw from the treasury is calculated based on the following:
+    ///           - If the treasury holds sufficient ETH (value in USD is higher than CDT total supply), the full USD
+    /// notional
+    ///             is converted into ETH at the current oracle price
+    ///           - Otherwise, a proportional share of the treasury's ETH is provided
     ///
     ///         This function can only be called by the option owner or another address (as long as the option owner has
     /// granted approval)
-    ///
-    ///         The function reverts if:
-    ///         - The option token ID is invalid
-    ///         - The option timelock has not passed
-    ///         - The option has not expired
-    ///         - The contract has not been approved to spend the option
-    ///         - The caller has not provided enough CDT tokens
-    ///         - The caller has not approved spending of the required amount of CDT tokens
-    ///         - The option has a notional USD amount of 0 (presale option)
     ///
     /// @param tokenId The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
@@ -76,8 +69,8 @@ contract StratOptionRedeemUSDNotional {
 
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = ethUsdOracle.price();
-        uint256 oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
-        uint256 treasuryInUSD = treasury.total() * ethPriceUSD / oracleScale;
+        uint256 treasuryInETH = treasury.total();
+        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / oracleScale;
         address optionOwner = stratOption.ownerOf(tokenId);
 
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
@@ -106,8 +99,7 @@ contract StratOptionRedeemUSDNotional {
             // option owner has a claim of 4000e18 * 3000e18 / 6000e18 = 2000e18 USD = 2000e18 * 1e8 / 2000e8 = 1e18 ETH
             // - if the ETH price is 3000e18, the treasury is valued at 4500e18 (1.5e18 * 3000e8 / 1e8) the option owner
             // has a claim of 4000e18 * 4500e18 / 6000e18 = 3000e18 USD = 3000e18 * 1e8 / 3000e8 = 1e18 ETH
-            uint256 usdEntitlement = notionalUSDAmount * treasuryInUSD / totalDebt;
-            ethAmount = usdEntitlement * oracleScale / ethPriceUSD;
+            ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
 
         treasury.withdraw(ethAmount, optionOwner);

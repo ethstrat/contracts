@@ -6,6 +6,7 @@ import "../../src/StratETHLongBonds.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
+import {ITreasury} from "../../src/interfaces/ITreasury.sol";
 import {MockOracle} from "../mocks/MockOracle.sol";
 import {MockTreasury} from "../mocks/MockTreasury.sol";
 

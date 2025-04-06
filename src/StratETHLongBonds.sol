@@ -126,6 +126,5 @@ contract StratETHLongBonds is Ownable2Step {
         uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSDAmount / 2));
 
         strikePrice_ = ((gav * SCALE) + (bcv * adjustedCdtSupply)) / stratTotalSupply;
-        return strikePrice_;
     }
 }

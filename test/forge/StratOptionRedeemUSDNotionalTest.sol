@@ -11,6 +11,7 @@ import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IE
 import {StratETHLongBonds} from "../../src/StratETHLongBonds.sol";
 import {StratETHShortBonds} from "../../src/StratETHShortBonds.sol";
 import {StratPresale} from "../../src/StratPresale.sol";
+
 import {MockOracle} from "../mocks/MockOracle.sol";
 import {MockTreasury} from "../mocks/MockTreasury.sol";
 
@@ -43,7 +44,7 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         ethUsdOracle = new MockOracle(2000e8, 18, 8); // e.g., 1 ETH = 2000 USD
         stratEthOracle = new MockOracle(1e18, 18, 18);
         treasury = new MockTreasury();
-        treasury.setWithdrawAllowed(true);
+        treasury.setWithdrawAllowed(true); // Allow withdrawals for testing
 
         longBonds = new StratETHLongBonds(
             address(cdtToken),
