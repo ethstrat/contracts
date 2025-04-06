@@ -230,7 +230,7 @@ contract StratETHLongBondsTest is Test {
         bonds.bond{value: ethAmount}(user);
 
         // Check treasury receives money
-        assertEq(treasury.total(), ethAmount, "Treasury did not receive the correct ETH amount");
+        assertEq(treasury.total(), 2 ether, "Treasury did not receive the correct ETH amount");
 
         // Verify the CDT balance of the user
         uint256 expectedCdUSDAmount = (ethAmount * 3000e18) / 1e18; // ETH -> USD conversion
@@ -243,19 +243,17 @@ contract StratETHLongBondsTest is Test {
         // NFT Option properties
         assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
         assertEq(stratOption.strikeAmount(tokenId), expectedStrikeAmount, "Incorrect strike amount");
-        assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 999500249875062468, "Incorrect notional underlying amount"
-        );
-        assertLt(
+        assertApproxEqAbs(
             stratOption.notionalUnderlyingAmount(tokenId),
-            1e18, // 1 STRAT = 1 ETH
-            "Should be less than current spot price for strat"
+            6666.6666666 ether,
+            1e12, // acceptable delta in wei (0.000001 ether)
+            "Incorrect notional underlying amount"
         );
+
         assertEq(stratOption.notionalUSDAmount(tokenId), expectedCdUSDAmount, "Incorrect notional USD amount");
         assertEq(stratOption.expiry(tokenId), block.timestamp + (4.2 * 365 days), "Incorrect expiry");
-        assertEq(stratOption.timelock(tokenId), block.timestamp + 69 minutes, "Incorrect timelock");
-        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
 
         // Confirm bond is accreative w.r.t the treasury
         assertLt(

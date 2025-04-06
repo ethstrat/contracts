@@ -121,6 +121,7 @@ contract StratETHShortBondsTest is Test {
             address(stratOption),
             address(ethUsdOracle),
             address(stratEthOracle),
+            bondConverter,
             1e18, // BCV
             owner
         );
@@ -225,10 +226,12 @@ contract StratETHShortBondsTest is Test {
             address(stratOption),
             address(ethUsdOracle),
             address(stratEthOracle),
+            bondConverter,
             1e18, // BCV
             owner
         );
         cdtToken.manageMinter(address(bonds), true);
+        stratToken.manageMinter(address(bonds), true);
         stratOption.manageMinter(address(bonds), true);
         vm.stopPrank();
 
