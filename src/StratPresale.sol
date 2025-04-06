@@ -10,17 +10,23 @@ import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
  *         we leverage the the same option as the rest of the system for simplicity
  */
 contract StratPresale {
-    /// @dev the option minter
+    /**
+     * @notice The option minter contract
+     */
     IStratOptionMinter public stratOption;
 
-    /// @dev The gnosis multisig dev that receives the funds collected during the presale.
+    /**
+     * @notice The gnosis multisig dev that receives the funds collected during the presale.
+     */
     address public immutable presaleMultisig;
 
     // Errors
     error NoEthSent();
     error EthTransferFailed();
 
-    /// @notice Event triggered on each presale mint
+    /**
+     * @notice Event triggered on each presale mint
+     */
     event PresaleMint(address indexed from, uint256 value);
 
     uint256 public constant UNIT_BIAS = 10_000;
@@ -31,23 +37,9 @@ contract StratPresale {
     }
 
     /**
-     * @notice Mints NFT capturing presale settlement using the sent ETH and forwards the ETH to the presale multisig.
-     * @dev STRAT is minted at redemption 1:1 (with a unit bias captured at redemption) to the ETH sent. NFT can be
-     * redeemed
-     *      for STRAT 120 days from the moment of mint
-     *
-     *      This function performs the following actions:
-     *      - Validates the inputs
-     *      - Updates the total amount of ETH raised
-     *      - Updates the contribution made by the caller
-     *      - Mints the STRAT option to the caller
-     *      - Sends the ETH raised to the presale multisig
-     *      - Emits a PresaleMint event
-     *
-     *      The function reverts if:
-     *      - The value of the function call is 0
-     *      - The updated total amount of ETH raised exceeds the cap
-     *      - The ETH transfer to the presale multisig fails
+     * @notice  Mints NFT capturing presale settlement using the sent ETH and forwards the ETH to the presale multisig.
+     * @dev     STRAT is minted at redemption 1:1 (with a unit bias captured at redemption) to the ETH sent. NFT can be
+     * redeemed for STRAT 120 days from the moment of mint
      */
     function mint() external payable {
         if (msg.value == 0) revert NoEthSent();

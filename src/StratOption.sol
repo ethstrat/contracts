@@ -15,22 +15,32 @@ contract StratOption is ERC721, Ownable2Step {
 
     uint256 public constant SCALE = 1e18;
 
-    /// @notice The amount of CDT required to exercise the amount
-    /// @dev    Scale: SCALE
+    /**
+     * @notice The amount of CDT required to exercise the amount
+     * @dev    Scale: SCALE
+     */
     mapping(uint256 tokenId => uint256) public strikeAmount;
 
-    /// @notice The amount of STRAT that will be received if the option is exercised
-    /// @dev    Scale: SCALE
+    /**
+     * @notice The amount of STRAT that will be received if the option is exercised
+     * @dev    Scale: SCALE
+     */
     mapping(uint256 tokenId => uint256) public notionalUnderlyingAmount;
 
-    /// @notice The USD value of the ETH that was deposited, at the moment the user bonds
-    /// @dev    Scale: SCALE
+    /**
+     * @notice The USD value of the ETH that was deposited, at the moment the user bonds
+     * @dev    Scale: SCALE
+     */
     mapping(uint256 tokenId => uint256) public notionalUSDAmount;
 
-    /// @notice The timestamp at which the option expires
+    /**
+     * @notice The timestamp at which the option expires
+     */
     mapping(uint256 tokenId => uint256) public expiry;
 
-    /// @notice The timestamp at which the option can be exercised
+    /**
+     * @notice The timestamp at which the option can be exercised
+     */
     mapping(uint256 tokenId => uint256) public timelock;
 
     mapping(address => bool) public minters;
