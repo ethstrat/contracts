@@ -105,9 +105,30 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
     }
 
+    function testStrikePrice_priceNotEqual() public {
+        uint256 amount = 3000e18;
+
+        // Adjust the STRAT-ETH price to be not 1:1
+        stratEthOracle.setBasePerQuote(2e18);
+
+        uint256 stratPrice = (2e18 * _ETH_USD_INITIAL_PRICE) / 1e18; // 18 DP
+
+        // Expected strike with 2000000 CDT and 1000 STRAT (without scaling and BCV of 1) is
+        //   STRAT_PRICE * 1000 * STRAT_PRICE / (2000000 - (3000 / 2))
+        // = STRAT_PRICE^2 * 1000 / (2000000 - (3000 / 2))
+        // = STRAT_PRICE^2 * 1000 / 1998500
+        uint256 expectedStrikePrice = stratPrice * stratPrice / 1998500e18 * 1000e18 / 1e18;
+        uint256 calculatedStrikePrice = bonds.strikePrice(amount);
+        assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
+    }
+
     function testBond() public {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
+
+        // Calculate the expected underlying amount
+        uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
+        assertEq(expectedUnderlyingAmount, 222166666666666666, "Incorrect expected underlying amount");
 
         cdtToken.approve(address(bonds), cdtAmount);
         bonds.bond(user, cdtAmount);
@@ -122,7 +143,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
         assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
         assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+            stratOption.notionalUnderlyingAmount(tokenId),
+            expectedUnderlyingAmount,
+            "Incorrect notional underlying amount"
         );
         assertEq(stratOption.notionalUnderlyingAmount(tokenId), stratToken.balanceOf(bondConverter));
 
@@ -398,6 +421,45 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
         assertEq(
             stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+        );
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+    }
+
+    function test_bondWithPermit_priceNotEqual() public {
+        uint256 startingCdtSupply = cdtToken.totalSupply();
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(bonds), block.timestamp + 1 days, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Adjust the STRAT-ETH price to be not 1:1
+        stratEthOracle.setBasePerQuote(2e18);
+
+        // Calculate the expected underlying amount
+        uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+
+        assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
+
+        // Verify the minted StratOption attributes
+        uint256 tokenId = 1; // Assuming this is the first minted option
+
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), permitOwner, "Incorrect owner");
+        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
+        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId),
+            expectedUnderlyingAmount,
+            "Incorrect notional underlying amount"
         );
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
