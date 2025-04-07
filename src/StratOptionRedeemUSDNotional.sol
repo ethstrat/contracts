@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {StratOption} from "./StratOption.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
@@ -16,7 +16,7 @@ contract StratOptionRedeemUSDNotional {
     IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
     IOracle public immutable ethUsdOracle;
-    StratOption public immutable stratOption;
+    IStratOptionMinter public immutable stratOption;
     uint256 public immutable oracleScale;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
@@ -43,7 +43,7 @@ contract StratOptionRedeemUSDNotional {
         stratToken = IERC20(_stratToken);
         treasury = ITreasury(_treasury);
         ethUsdOracle = IOracle(_ethUsdOracle);
-        stratOption = StratOption(_stratOption);
+        stratOption = IStratOptionMinter(_stratOption);
         oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
     }
 
