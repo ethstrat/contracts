@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {StratOption} from "./StratOption.sol";
-import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
+import {Permit} from "./lib/Permit.sol";
 
 /// @title StratOptionRedeemUSDNotional
 /// @notice This contract allows a user to redeem their STRAT option for the underlying value of the option
 contract StratOptionRedeemUSDNotional {
-    IERC20MintableBurnable public immutable cdtToken;
+    using Permit for IERC20MintableBurnablePermit;
+
+    IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
     IOracle public immutable ethUsdOracle;
-    StratOption public immutable stratOption;
+    IStratOptionMinter public immutable stratOption;
     uint256 public immutable oracleScale;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
@@ -36,11 +39,11 @@ contract StratOptionRedeemUSDNotional {
         address _ethUsdOracle,
         address _stratOption
     ) {
-        cdtToken = IERC20MintableBurnable(_cdtToken);
+        cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20(_stratToken);
         treasury = ITreasury(_treasury);
         ethUsdOracle = IOracle(_ethUsdOracle);
-        stratOption = StratOption(_stratOption);
+        stratOption = IStratOptionMinter(_stratOption);
         oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
     }
 
@@ -51,8 +54,14 @@ contract StratOptionRedeemUSDNotional {
     /// notional
     ///             is converted into ETH at the current oracle price
     ///           - Otherwise, a proportional share of the treasury's ETH is provided
-    /// @param tokenId The ID of the option to redeem
-    function redeemCdtForUsdNotional(uint256 tokenId) external {
+    ///
+    ///         Uses the ERC-2612 permit mechanism to approve the CDT burn
+    ///
+    /// @param tokenId              The ID of the option to redeem
+    /// @param cdtPermitApproval    The permit approval for the CDT tokens
+    function redeemCdtForUsdNotionalWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval)
+        public
+    {
         if (stratOption.timelock(tokenId) > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (stratOption.expiry(tokenId) > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
 
@@ -63,6 +72,8 @@ contract StratOptionRedeemUSDNotional {
         uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / oracleScale;
         address optionOwner = stratOption.ownerOf(tokenId);
 
+        // Burn CDT and STRAT option
+        cdtToken.validatePermit(msg.sender, address(this), notionalUSDAmount, cdtPermitApproval);
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);
         stratOption.burn(tokenId);
 
@@ -75,5 +86,16 @@ contract StratOptionRedeemUSDNotional {
 
         treasury.withdraw(ethAmount, optionOwner);
         emit OptionRedeemed(optionOwner, tokenId, notionalUSDAmount, ethAmount);
+    }
+
+    /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid
+    //          back in ETH
+    /// @dev    This is the same as {redeemCdtForUsdNotionalWithPermit}, but without the permit approval
+    ///
+    /// @param tokenId  The ID of the option to redeem
+    function redeemCdtForUsdNotional(uint256 tokenId) external {
+        redeemCdtForUsdNotionalWithPermit(
+            tokenId, Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)})
+        );
     }
 }

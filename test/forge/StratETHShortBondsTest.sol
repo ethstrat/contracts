@@ -2,15 +2,17 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import {PermitGenerator} from "../lib/Permit.sol";
+import {MockOracle} from "../mocks/MockOracle.sol";
+
 import "../../src/StratETHShortBonds.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
+import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
+import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-import "../mocks/MockOracle.sol";
-import "../mocks/MockTreasury.sol";
-
-contract StratETHShortBondsTest is Test {
+contract StratETHShortBondsTest is Test, PermitGenerator {
     StratETHShortBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
@@ -24,7 +26,15 @@ contract StratETHShortBondsTest is Test {
     address internal user = address(0x789);
     address internal bondConverter = address(0x989);
 
+    address internal permitOwner;
+    uint256 internal permitPk;
+
     function setUp() public {
+        // Block timestamp needs to be non-zero
+        vm.warp(1_000_000);
+
+        (permitOwner, permitPk) = makeAddrAndKey("PERMIT_OWNER");
+
         // Deploy mock oracles
         ethUsdOracle = new MockOracle(3000e8, 18, 8); // ETH price: $3000
         stratEthOracle = new MockOracle(1e18, 18, 18); // Strat price: 1 ETH
@@ -134,5 +144,259 @@ contract StratETHShortBondsTest is Test {
                 "Each subsequent bond should have less notional than the previous"
             );
         }
+    }
+
+    // bondWithPermit
+    // given the deadline is 0
+    //  given the caller has not approved spending of CDT
+    //   [X] it reverts
+    //  [X] it uses the existing spending allowance
+    // given the deadline has passed
+    //  [X] it reverts
+    // given the signature is for another user
+    //  [X] it reverts
+    // given the caller is not the recipient
+    //  given the signature is for the recipient
+    //   [X] it reverts
+    //  [X] it does not require approval to spend the CDT
+    //  [X] it burns the CDT
+    // given the signature is for a different spender
+    //  [X] it reverts
+    // given the signature is invalid
+    //  [X] it reverts
+    // [X] it does not require approval to spend the CDT
+    // [X] it burns the CDT
+
+    function test_bondWithPermit_deadlineIsZero_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Get an empty permit approval
+        Permit.IPermitApproval memory permitApproval =
+            Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
+
+        // Expect allowance revert
+        vm.expectRevert("ERC20: burn amount exceeds allowance");
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+    }
+
+    function test_bondWithPermit_deadlineIsZero_spendingApprovalProvided() public {
+        uint256 startingCdtSupply = cdtToken.totalSupply();
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate empty permit approval
+        Permit.IPermitApproval memory permitApproval =
+            Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
+
+        // Approve spending of CDT
+        vm.prank(permitOwner);
+        cdtToken.approve(address(bonds), cdtAmount);
+
+        // Bond with permit
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+
+        assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
+
+        // Verify the minted StratOption attributes
+        uint256 tokenId = 1; // Assuming this is the first minted option
+
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
+        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+        );
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+    }
+
+    function test_bondWithPermit_deadlineHasPassed_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(bonds), block.timestamp - 1, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(ERC20Permit.ERC2612ExpiredSignature.selector, block.timestamp - 1));
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+    }
+
+    function test_bondWithPermit_differentOwner_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Sign a permit approval with a different owner
+        (address newOwner, uint256 newOwnerPk) = makeAddrAndKey("NEW_OWNER");
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            newOwner, newOwnerPk, address(bonds), block.timestamp + 1 days, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector,
+                0x0f1C5dD77Af48dDcBF0274501560cC7728eB45F7, // Expected signer address, given the parameters
+                permitOwner
+            )
+        );
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+    }
+
+    function test_bondWithPermit_differentSpender_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner,
+            permitPk,
+            address(stratOption),
+            block.timestamp + 1 days,
+            cdtAmount,
+            cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector,
+                0xC8Ad2A0e446B4E7756A20103B871e73Df299dce2, // Expected signer address, given the parameters
+                permitOwner
+            )
+        );
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+    }
+
+    function test_bondWithPermit_invalidSignature_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Sign a different message
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(permitPk, keccak256("INVALID"));
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval =
+            Permit.IPermitApproval({deadline: block.timestamp + 1 days, v: v, r: r, s: s});
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector,
+                0xd536203415F35823982fD73d70dC933BE1dB899e, // Expected signer address, given the parameters
+                permitOwner
+            )
+        );
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+    }
+
+    function test_bondWithPermit_callerNotReceipient() public {
+        uint256 startingCdtSupply = cdtToken.totalSupply();
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(bonds), block.timestamp + 1 days, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+
+        assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
+
+        // Verify the minted StratOption attributes
+        uint256 tokenId = 1; // Assuming this is the first minted option
+
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
+        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
+        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+        );
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+    }
+
+    function test_bondWithPermit_callerNotRecipient_permitFromRecipient_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Sign a permit approval with the recipient
+        (address newOwner, uint256 newOwnerPk) = makeAddrAndKey("NEW_OWNER");
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            newOwner, newOwnerPk, address(bonds), block.timestamp + 1 days, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector,
+                0x0f1C5dD77Af48dDcBF0274501560cC7728eB45F7, // Expected signer address, given the parameters
+                permitOwner
+            )
+        );
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(newOwner, cdtAmount, permitApproval);
+    }
+
+    function test_bondWithPermit() public {
+        uint256 startingCdtSupply = cdtToken.totalSupply();
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(bonds), block.timestamp + 1 days, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+
+        assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
+
+        // Verify the minted StratOption attributes
+        uint256 tokenId = 1; // Assuming this is the first minted option
+
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), permitOwner, "Incorrect owner");
+        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
+        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+        );
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
     }
 }

@@ -4,13 +4,14 @@ pragma solidity 0.8.20;
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 
 /**
  * @title A call option over strat.
  * @dev Primarily used to represent the option part of issued convertible notes,
  * as well as during the presale and to bootstrap the DAO
  */
-contract StratOption is ERC721, Ownable2Step {
+contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
     uint256 public _tokenIdCounter;
 
     uint256 public constant SCALE = 1e18;
@@ -89,7 +90,7 @@ contract StratOption is ERC721, Ownable2Step {
         _burn(tokenId);
     }
 
-    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
             return TokenURIRenderer(tokenURIRenderer).render(
@@ -103,6 +104,14 @@ contract StratOption is ERC721, Ownable2Step {
         } else {
             return "";
         }
+    }
+
+    function balanceOf(address owner) public view override(ERC721, IStratOptionMinter) returns (uint256) {
+        return super.balanceOf(owner);
+    }
+
+    function ownerOf(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (address) {
+        return super.ownerOf(tokenId);
     }
 
     /**

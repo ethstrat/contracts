@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
+import {PermitGenerator} from "../lib/Permit.sol";
+
 import "../../src/StratOptionRedeemUSDNotional.sol";
 import "../../src/StratOption.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/interfaces/ITreasury.sol";
 
-import "../mocks/MockOracle.sol";
-import "../mocks/MockTreasury.sol";
+import {MockOracle} from "../mocks/MockOracle.sol";
+import {MockTreasury} from "../mocks/MockTreasury.sol";
 
-contract StratOptionRedeemUSDNotionalTest is Test {
+contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
@@ -22,8 +24,12 @@ contract StratOptionRedeemUSDNotionalTest is Test {
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
+    address internal permitOwner;
+    uint256 internal permitPk;
 
     function setUp() public {
+        (permitOwner, permitPk) = makeAddrAndKey("PERMIT_OWNER");
+
         vm.startPrank(owner);
         // Deploy tokens and mocks
         cdtToken = new CdtToken(owner);
@@ -51,6 +57,11 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         stratOption.mint(user, 0, 0, 500 ether, block.timestamp + 3600, block.timestamp + 1800);
 
         vm.stopPrank();
+    }
+
+    function _mintOption(address to_) internal {
+        vm.prank(owner);
+        stratOption.mint(to_, 0, 0, 500 ether, block.timestamp + 3600, block.timestamp + 1800);
     }
 
     function testRedeemSuccessTreasuryGtDebt() public {
@@ -128,5 +139,348 @@ contract StratOptionRedeemUSDNotionalTest is Test {
         optionRedeem.redeemCdtForUsdNotional(1);
 
         vm.stopPrank();
+    }
+
+    // redeemCdtForUsdNotionalWithPermit
+    // given the deadline is 0
+    //  given the caller has not approved spending of CDT
+    //   [X] it reverts
+    //  [X] it uses the existing spending allowance
+    // given the deadline has passed
+    //  [X] it reverts
+    // given the signature is for another user
+    //  [X] it reverts
+    // given the caller is not the recipient
+    //  given the signature is for the recipient
+    //   [X] it reverts
+    //  [X] it does not require approval to spend the CDT
+    //  [X] it burns the CDT
+    // given the signature is for a different spender
+    //  [X] it reverts
+    // given the signature is invalid
+    //  [X] it reverts
+    // [X] it does not require approval to spend the CDT
+    // [X] it burns the CDT
+
+    function test_redeemCdtForUsdNotionalWithPermit_deadlineIsZero_reverts() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval =
+            Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
+
+        // Expect revert
+        vm.expectRevert("ERC20: burn amount exceeds allowance");
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_deadlineIsZero_spendingApprovalProvided() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Approve CDT spending
+        vm.prank(permitOwner);
+        cdtToken.approve(address(optionRedeem), 500 ether);
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval =
+            Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+
+        // Check balances
+        assertEq(stratOption.balanceOf(permitOwner), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(permitOwner), 500 ether, "CDT should be partially burned");
+        assertEq(address(permitOwner).balance, 0.25 ether, "should withdraw $500 of ETH (0.25 ETH)");
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_deadlineHasPassed_reverts() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(optionRedeem), block.timestamp - 1, 500 ether, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSelector(ERC20Permit.ERC2612ExpiredSignature.selector, block.timestamp - 1));
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_differentOwner_reverts() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        (address newOwner, uint256 newOwnerPk) = makeAddrAndKey("NEW_OWNER");
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            newOwner,
+            newOwnerPk,
+            address(optionRedeem),
+            block.timestamp + 1 days,
+            500 ether,
+            cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector, 0x3983b8126a249758567f81864598Cd15D8097638, permitOwner
+            )
+        );
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_differentSpender_reverts() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner,
+            permitPk,
+            address(stratOption),
+            block.timestamp + 1 days,
+            500 ether,
+            cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector, 0xe5A54C0A2Dba58236A62112044f84Bccdc90a62a, permitOwner
+            )
+        );
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_invalidSignature_reverts() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate invalid signature
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(permitPk, keccak256("INVALID"));
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval =
+            Permit.IPermitApproval({deadline: block.timestamp + 1 days, v: v, r: r, s: s});
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector, 0x1Aec31dFB7D8b1D36BcA6ac8964d87C281378Fa6, permitOwner
+            )
+        );
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_callerNotRecipient() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Create a new user
+        (address newUser, uint256 newUserPk) = makeAddrAndKey("NEW_USER");
+
+        // Give new user CDT
+        vm.prank(owner);
+        cdtToken.mint(newUser, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            newUser, newUserPk, address(optionRedeem), block.timestamp + 1 days, 500 ether, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Redeem
+        vm.prank(newUser);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+
+        // Check balances
+        assertEq(stratOption.balanceOf(permitOwner), 0, "permitOwner: Option balance");
+        assertEq(stratOption.balanceOf(newUser), 0, "newUser: Option balance");
+
+        assertEq(stratToken.balanceOf(permitOwner), 0, "permitOwner: STRAT balance");
+        assertEq(stratToken.balanceOf(newUser), 0, "newUser: STRAT balance");
+
+        assertEq(cdtToken.balanceOf(permitOwner), 0, "permitOwner: CDT balance");
+        assertEq(cdtToken.balanceOf(newUser), 500 ether, "newUser: CDT balance");
+
+        assertEq(address(permitOwner).balance, 0.25 ether, "permitOwner: ETH balance");
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit_callerNotRecipient_permitFromRecipient_reverts() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Create a new user
+        (address newUser,) = makeAddrAndKey("NEW_USER");
+
+        // Give new user CDT
+        vm.prank(owner);
+        cdtToken.mint(newUser, 1000 ether);
+
+        // Generate permit approval as the permit owner
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner,
+            permitPk,
+            address(optionRedeem),
+            block.timestamp + 1 days,
+            500 ether,
+            cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC20Permit.ERC2612InvalidSigner.selector, 0xE5b91e3BC1F267A104ab4AEacF9328ae77c57EFb, newUser
+            )
+        );
+
+        // Redeem
+        vm.prank(newUser);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+    }
+
+    function test_redeemCdtForUsdNotionalWithPermit() public {
+        // Mint an option to the permit owner
+        _mintOption(permitOwner);
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        // Give permit owner CDT
+        vm.prank(owner);
+        cdtToken.mint(permitOwner, 1000 ether);
+
+        // Do NOT approve CDT spending
+
+        // Approve option transfer
+        vm.prank(permitOwner);
+        stratOption.approve(address(optionRedeem), 2);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner,
+            permitPk,
+            address(optionRedeem),
+            block.timestamp + 1 days,
+            500 ether,
+            cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Redeem
+        vm.prank(permitOwner);
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+
+        // Check balances
+        assertEq(stratOption.balanceOf(permitOwner), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(permitOwner), 500 ether, "CDT should be partially burned");
+        assertEq(address(permitOwner).balance, 0.25 ether, "should withdraw $500 of ETH (0.25 ETH)");
     }
 }
