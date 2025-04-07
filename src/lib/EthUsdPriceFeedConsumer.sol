@@ -34,6 +34,8 @@ abstract contract EthUsdPriceFeedConsumer {
      */
     function _getEthUsdPrice() internal view returns (uint256 price) {
         // Quantity of USD for 1 WETH
+        // This will revert if the base or quote tokens are not as expected,
+        // which would indicate that the incorrect IPriceOracle was provided.
         price = ethUsdOracle.getQuote(1e18, _WETH, _USD);
 
         // Revert if the price is not returned
