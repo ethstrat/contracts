@@ -83,12 +83,86 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
         vm.stopPrank();
     }
 
+    function testRedeemSuccessTreasuryGtDebt_oracleDecimals18() public {
+        // Adjust the oracle scale to 18
+        mockOracle.setQuoteTokenDecimals(18);
+        mockOracle.setPrice(2000e18);
+
+        // Re-create contracts
+        optionRedeem = new StratOptionRedeemUSDNotional(
+            address(cdtToken), address(stratToken), address(mockTreasury), address(mockOracle), address(stratOption)
+        );
+
+        // Enable minting
+        vm.startPrank(owner);
+        cdtToken.manageMinter(owner, true);
+        stratToken.manageMinter(owner, true);
+        stratOption.manageMinter(owner, true);
+        vm.stopPrank();
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        vm.startPrank(user);
+
+        cdtToken.approve(address(optionRedeem), 500 ether);
+        stratOption.approve(address(optionRedeem), 1);
+
+        optionRedeem.redeemCdtForUsdNotional(1);
+
+        assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(user), 500 ether, "CDT should be partially burned");
+        // In this case: if treasury.total() * price >= totalDebt, so withdraw should be $500 of ETH at 2k / ETH
+        assertEq(address(user).balance, 0.25 ether, "should withdraw $500 of ETH (0.25 ETH)");
+
+        vm.stopPrank();
+    }
+
     function testRedeemSuccessTreasuryLtDebt() public {
         // Move time beyond timelock and expiry
         vm.warp(block.timestamp + 3601);
 
         vm.prank(owner);
         mockOracle.setPrice(0.5e8);
+
+        vm.startPrank(user);
+
+        cdtToken.approve(address(optionRedeem), 500 ether);
+        stratOption.approve(address(optionRedeem), 1);
+
+        optionRedeem.redeemCdtForUsdNotional(1);
+
+        assertEq(stratOption.balanceOf(user), 0, "Option should be burned");
+        assertEq(cdtToken.balanceOf(user), 500 ether, "CDT should be partially burned");
+        // In this case: if treasury.total() * price < totalDebt, so withdraw should be half of treasury
+        // (500 CDT out of a total of 1k CDT)
+        assertEq(address(user).balance, 50 ether, "should withdraw half of all ETH in treasury");
+
+        vm.stopPrank();
+    }
+
+    function testRedeemSuccessTreasuryLtDebt_oracleDecimals18() public {
+        // Adjust the oracle scale to 18
+        mockOracle.setQuoteTokenDecimals(18);
+        mockOracle.setPrice(2000e18);
+
+        // Re-create contracts
+        optionRedeem = new StratOptionRedeemUSDNotional(
+            address(cdtToken), address(stratToken), address(mockTreasury), address(mockOracle), address(stratOption)
+        );
+
+        // Enable minting
+        vm.startPrank(owner);
+        cdtToken.manageMinter(owner, true);
+        stratToken.manageMinter(owner, true);
+        stratOption.manageMinter(owner, true);
+        vm.stopPrank();
+
+        // Move time beyond timelock and expiry
+        vm.warp(block.timestamp + 3601);
+
+        vm.prank(owner);
+        mockOracle.setPrice(0.5e18);
 
         vm.startPrank(user);
 
