@@ -2,8 +2,10 @@
 pragma solidity 0.8.20;
 
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
 import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {Permit} from "./lib/Permit.sol";
 
@@ -11,20 +13,18 @@ import {Permit} from "./lib/Permit.sol";
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
-contract StratETHShortBonds is Ownable2Step {
+contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer {
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
-    IOracle public immutable ethUsdOracle;
     IOracle public immutable stratEthOracle;
     address public immutable bondConverter;
 
     uint256 public bcv;
 
-    uint256 public immutable SCALE = 1e18;
-    uint256 public immutable USD_ORACLE_SCALE;
+    uint256 public constant SCALE = 1e18;
 
     event UpdateBCV(uint256 newBcv);
     event ShortBond(address indexed bonder, uint256 cdt, uint256 strat, uint256 expiry, uint256 timelock);
@@ -47,15 +47,13 @@ contract StratETHShortBonds is Ownable2Step {
         address _bondConverter,
         uint256 _bcv,
         address owner
-    ) Ownable(owner) {
+    ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
         stratOption = IStratOptionMinter(_stratOption);
-        ethUsdOracle = IOracle(_ethUsdOracle);
         stratEthOracle = IOracle(_stratEthOracle);
         bondConverter = _bondConverter;
 
-        USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
         require(stratEthOracle.quoteTokenDecimals() == 18, "StratEthOracle must have 18 decimals");
 
         bcv = _bcv;
@@ -88,7 +86,7 @@ contract StratETHShortBonds is Ownable2Step {
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
-        uint256 stratPrice = stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE;
+        uint256 stratPrice = stratEthOracle.price() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
         //TODO(nap): Do we neeed to price by taking into account the expected cdt burn?
         return stratPrice * stratToken.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
             * stratPrice / SCALE / SCALE;

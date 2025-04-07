@@ -2,27 +2,27 @@
 pragma solidity 0.8.20;
 
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
+
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
-import {IOracle} from "./interfaces/IOracle.sol";
+import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
 /**
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
-contract StratETHLongBonds is Ownable2Step {
+contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
     ITreasury public immutable treasury;
     address immutable treasuryVault;
-    IOracle public immutable ethUsdOracle;
 
     uint256 public bcv;
 
-    uint256 public immutable SCALE = 1e18;
-    uint256 public immutable USD_ORACLE_SCALE;
+    uint256 public constant SCALE = 1e18;
 
     event UpdateBCV(uint256 newBcv);
     event LongBond(
@@ -58,15 +58,12 @@ contract StratETHLongBonds is Ownable2Step {
         address _ethUsdOracle,
         uint256 _bcv,
         address owner
-    ) Ownable(owner) {
+    ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20(_stratToken);
         stratOption = IStratOptionMinter(_stratOption);
         treasury = ITreasury(_treasury);
         treasuryVault = _treasuryVault;
-        ethUsdOracle = IOracle(_ethUsdOracle);
-
-        USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
 
         bcv = _bcv;
     }
@@ -81,7 +78,7 @@ contract StratETHLongBonds is Ownable2Step {
         if (bonder == address(0)) revert ZeroAddress();
 
         // redemption
-        uint256 notionalUSDAmount = msg.value * ethUsdOracle.price() / USD_ORACLE_SCALE; // Scale: 18 decimals
+        uint256 notionalUSDAmount = msg.value * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
         uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
         uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // Scale: 18
             // decimals (since strikePrice is always 18 decimals)
@@ -118,7 +115,7 @@ contract StratETHLongBonds is Ownable2Step {
     /// @param  notionalUSDAmount   The USD value of ETH to calculate the strike price for
     /// @return strikePrice_        The strike price, in terms of SCALE
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256 strikePrice_) {
-        uint256 gav = treasury.total() * ethUsdOracle.price() / USD_ORACLE_SCALE;
+        uint256 gav = treasury.total() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
 
         uint256 stratTotalSupply = stratToken.totalSupply();
         uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSDAmount / 2));
