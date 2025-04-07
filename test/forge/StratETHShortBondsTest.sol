@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
-import {MockOracle} from "../mocks/MockOracle.sol";
+import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
+import {StratEthPriceOracleProvider} from "../lib/StratEthPriceOracleProvider.sol";
 
 import "../../src/StratETHShortBonds.sol";
 import "../../src/CdtToken.sol";
@@ -12,15 +13,11 @@ import "../../src/StratOption.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-contract StratETHShortBondsTest is Test, PermitGenerator {
+contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvider, StratEthPriceOracleProvider {
     StratETHShortBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
-
-    // Mock oracles are defined directly here
-    MockOracle public ethUsdOracle;
-    MockOracle public stratEthOracle;
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
@@ -29,21 +26,27 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
     address internal permitOwner;
     uint256 internal permitPk;
 
+    /// @dev ETH price: $3000
+    uint256 internal _ETH_USD_INITIAL_PRICE = 3000e18;
+
+    /// @dev STRAT price: 1 ETH = $3000
+    uint256 internal _STRAT_ETH_INITIAL_PRICE = 1e18;
+
     function setUp() public {
         // Block timestamp needs to be non-zero
         vm.warp(1_000_000);
 
         (permitOwner, permitPk) = makeAddrAndKey("PERMIT_OWNER");
 
-        // Deploy mock oracles
-        ethUsdOracle = new MockOracle(3000e8, 18, 8); // ETH price: $3000
-        stratEthOracle = new MockOracle(1e18, 18, 18); // Strat price: 1 ETH
-
         // Deploy the real contracts
         vm.startPrank(owner);
         cdtToken = new CdtToken(owner);
         stratToken = new StratToken(owner);
         stratOption = new StratOption(owner);
+
+        // Deploy mock oracles
+        _setUpEthUsdOracle(_ETH_USD_INITIAL_PRICE);
+        _setUpStratEthOracle(_STRAT_ETH_INITIAL_PRICE, address(stratToken));
 
         // Deploy the StratETHShortBonds contract
         bonds = new StratETHShortBonds(
@@ -91,7 +94,24 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
     function testStrikePrice() public view {
         uint256 amount = 3000e18;
 
-        uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e8; // 18 DP
+        uint256 stratPrice = (_STRAT_ETH_INITIAL_PRICE * _ETH_USD_INITIAL_PRICE) / 1e18; // 18 DP
+
+        // Expected strike with 2000000 CDT and 1000 STRAT (without scaling and BCV of 1) is
+        //   STRAT_PRICE * 1000 * STRAT_PRICE / (2000000 - (3000 / 2))
+        // = STRAT_PRICE^2 * 1000 / (2000000 - (3000 / 2))
+        // = STRAT_PRICE^2 * 1000 / 1998500
+        uint256 expectedStrikePrice = stratPrice * stratPrice / 1998500e18 * 1000e18 / 1e18;
+        uint256 calculatedStrikePrice = bonds.strikePrice(amount);
+        assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
+    }
+
+    function testStrikePrice_priceNotEqual() public {
+        uint256 amount = 3000e18;
+
+        // Adjust the STRAT-ETH price to be not 1:1
+        stratEthOracle.setBasePerQuote(2e18);
+
+        uint256 stratPrice = (2e18 * _ETH_USD_INITIAL_PRICE) / 1e18; // 18 DP
 
         // Expected strike with 2000000 CDT and 1000 STRAT (without scaling and BCV of 1) is
         //   STRAT_PRICE * 1000 * STRAT_PRICE / (2000000 - (3000 / 2))
@@ -106,6 +126,10 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
 
+        // Calculate the expected underlying amount
+        uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
+        assertEq(expectedUnderlyingAmount, 222166666666666666, "Incorrect expected underlying amount");
+
         cdtToken.approve(address(bonds), cdtAmount);
         bonds.bond(user, cdtAmount);
 
@@ -119,7 +143,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
         assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
         assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+            stratOption.notionalUnderlyingAmount(tokenId),
+            expectedUnderlyingAmount,
+            "Incorrect notional underlying amount"
         );
         assertEq(stratOption.notionalUnderlyingAmount(tokenId), stratToken.balanceOf(bondConverter));
 
@@ -252,7 +278,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0x0f1C5dD77Af48dDcBF0274501560cC7728eB45F7, // Expected signer address, given the parameters
+                0xF9Aad7df470d89159a46c8D6Ba8335B4d81DD288, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -280,7 +306,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0xC8Ad2A0e446B4E7756A20103B871e73Df299dce2, // Expected signer address, given the parameters
+                0xC23821808273bA077f3548d26699b83452EE9f7a, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -305,7 +331,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0xd536203415F35823982fD73d70dC933BE1dB899e, // Expected signer address, given the parameters
+                0x19341391b744a947E3709DBf0194B82C456526a9, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -360,7 +386,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0x0f1C5dD77Af48dDcBF0274501560cC7728eB45F7, // Expected signer address, given the parameters
+                0xF9Aad7df470d89159a46c8D6Ba8335B4d81DD288, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -395,6 +421,45 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
         assertEq(
             stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+        );
+        assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
+        assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+    }
+
+    function test_bondWithPermit_priceNotEqual() public {
+        uint256 startingCdtSupply = cdtToken.totalSupply();
+        uint256 cdtAmount = 1000 ether;
+
+        // Give permit owner CDT
+        cdtToken.transfer(permitOwner, cdtAmount);
+
+        // Generate permit approval
+        Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(bonds), block.timestamp + 1 days, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
+        );
+
+        // Adjust the STRAT-ETH price to be not 1:1
+        stratEthOracle.setBasePerQuote(2e18);
+
+        // Calculate the expected underlying amount
+        uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
+
+        vm.prank(permitOwner);
+        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+
+        assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
+
+        // Verify the minted StratOption attributes
+        uint256 tokenId = 1; // Assuming this is the first minted option
+
+        // NFT Option properties
+        assertEq(stratOption.ownerOf(tokenId), permitOwner, "Incorrect owner");
+        assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
+        assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
+        assertEq(
+            stratOption.notionalUnderlyingAmount(tokenId),
+            expectedUnderlyingAmount,
+            "Incorrect notional underlying amount"
         );
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");

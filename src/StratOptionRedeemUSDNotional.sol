@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
+import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
+
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
-import {IOracle} from "./interfaces/IOracle.sol";
+import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 import {Permit} from "./lib/Permit.sol";
 
 /// @title StratOptionRedeemUSDNotional
 /// @notice This contract allows a user to redeem their STRAT option for the underlying value of the option
-contract StratOptionRedeemUSDNotional {
+contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
-    IOracle public immutable ethUsdOracle;
     IStratOptionMinter public immutable stratOption;
-    uint256 public immutable oracleScale;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
@@ -32,19 +32,13 @@ contract StratOptionRedeemUSDNotional {
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratOption The STRAT option
      */
-    constructor(
-        address _cdtToken,
-        address _stratToken,
-        address _treasury,
-        address _ethUsdOracle,
-        address _stratOption
-    ) {
+    constructor(address _cdtToken, address _stratToken, address _treasury, address _ethUsdOracle, address _stratOption)
+        EthUsdPriceFeedConsumer(_ethUsdOracle)
+    {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20(_stratToken);
         treasury = ITreasury(_treasury);
-        ethUsdOracle = IOracle(_ethUsdOracle);
         stratOption = IStratOptionMinter(_stratOption);
-        oracleScale = 10 ** ethUsdOracle.quoteTokenDecimals();
     }
 
     /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid
@@ -67,9 +61,9 @@ contract StratOptionRedeemUSDNotional {
 
         uint256 notionalUSDAmount = stratOption.notionalUSDAmount(tokenId);
         uint256 totalDebt = cdtToken.totalSupply();
-        uint256 ethPriceUSD = ethUsdOracle.price();
+        uint256 ethPriceUSD = _getEthUsdPrice();
         uint256 treasuryInETH = treasury.total();
-        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / oracleScale;
+        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         address optionOwner = stratOption.ownerOf(tokenId);
 
         // Burn CDT and STRAT option
@@ -79,7 +73,7 @@ contract StratOptionRedeemUSDNotional {
 
         uint256 ethAmount = 0;
         if (treasuryInUSD > cdtToken.totalSupply()) {
-            ethAmount = notionalUSDAmount * oracleScale / ethPriceUSD;
+            ethAmount = notionalUSDAmount * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
         } else {
             ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
