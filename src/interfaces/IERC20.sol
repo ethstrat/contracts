@@ -30,3 +30,9 @@ interface IERC20MintableBurnable is IERC20 {
 
     function burnFrom(address from, uint256 amount) external;
 }
+
+interface IERC20MintableBurnablePermit is IERC20MintableBurnable {
+    // From IERC20Permit
+    function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external;
+}

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {IERC20MintableBurnable} from "./interfaces/IERC20.sol";
-import {MintableBurnableToken} from "./MintableBurnableToken.sol";
+import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {StratOption} from "./StratOption.sol";
 import {Permit} from "./lib/Permit.sol";
 
@@ -15,10 +14,10 @@ import {Permit} from "./lib/Permit.sol";
  *      STRAT tokens (with unit bias) to the option owner, and burns the STRAT option token.
  */
 contract StratOptionExercise {
-    using Permit for MintableBurnableToken;
+    using Permit for IERC20MintableBurnablePermit;
 
     // Immutable references to the CDT and STRAT tokens, and the STRAT option contract.
-    MintableBurnableToken public immutable cdtToken;
+    IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
     StratOption public immutable stratOption;
 
@@ -36,7 +35,7 @@ contract StratOptionExercise {
      * @param _stratOption The address of the STRAT option contract.
      */
     constructor(address _cdtToken, address _stratToken, address _stratOption) {
-        cdtToken = MintableBurnableToken(_cdtToken);
+        cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
         stratOption = StratOption(_stratOption);
     }

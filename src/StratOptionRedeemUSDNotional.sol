@@ -2,8 +2,7 @@
 pragma solidity 0.8.20;
 
 import {StratOption} from "./StratOption.sol";
-import {MintableBurnableToken} from "./MintableBurnableToken.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
+import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 import {Permit} from "./lib/Permit.sol";
@@ -11,9 +10,9 @@ import {Permit} from "./lib/Permit.sol";
 /// @title StratOptionRedeemUSDNotional
 /// @notice This contract allows a user to redeem their STRAT option for the underlying value of the option
 contract StratOptionRedeemUSDNotional {
-    using Permit for MintableBurnableToken;
+    using Permit for IERC20MintableBurnablePermit;
 
-    MintableBurnableToken public immutable cdtToken;
+    IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
     IOracle public immutable ethUsdOracle;
@@ -40,7 +39,7 @@ contract StratOptionRedeemUSDNotional {
         address _ethUsdOracle,
         address _stratOption
     ) {
-        cdtToken = MintableBurnableToken(_cdtToken);
+        cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20(_stratToken);
         treasury = ITreasury(_treasury);
         ethUsdOracle = IOracle(_ethUsdOracle);

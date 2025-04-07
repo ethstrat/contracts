@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import {MintableBurnableToken} from "./MintableBurnableToken.sol";
+import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 import {Permit} from "./lib/Permit.sol";
@@ -12,10 +12,10 @@ import {Permit} from "./lib/Permit.sol";
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
 contract StratETHShortBonds is Ownable2Step {
-    using Permit for MintableBurnableToken;
+    using Permit for IERC20MintableBurnablePermit;
 
-    MintableBurnableToken public immutable cdtToken;
-    MintableBurnableToken public immutable stratToken;
+    IERC20MintableBurnablePermit public immutable cdtToken;
+    IERC20MintableBurnable public immutable stratToken;
     IStratOptionMinter public immutable stratOption;
     IOracle public immutable ethUsdOracle;
     IOracle public immutable stratEthOracle;
@@ -48,8 +48,8 @@ contract StratETHShortBonds is Ownable2Step {
         uint256 _bcv,
         address owner
     ) Ownable(owner) {
-        cdtToken = MintableBurnableToken(_cdtToken);
-        stratToken = MintableBurnableToken(_stratToken);
+        cdtToken = IERC20MintableBurnablePermit(_cdtToken);
+        stratToken = IERC20MintableBurnable(_stratToken);
         stratOption = IStratOptionMinter(_stratOption);
         ethUsdOracle = IOracle(_ethUsdOracle);
         stratEthOracle = IOracle(_stratEthOracle);

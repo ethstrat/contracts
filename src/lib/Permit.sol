@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {IERC20MintableBurnablePermit} from "../interfaces/IERC20.sol";
 
 library Permit {
     struct IPermitApproval {
@@ -16,7 +16,7 @@ library Permit {
     }
 
     function validatePermit(
-        ERC20Permit permit_,
+        IERC20MintableBurnablePermit permit_,
         address owner_,
         address spender_,
         uint256 value_,
