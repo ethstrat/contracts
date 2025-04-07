@@ -7,25 +7,27 @@ import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
 import "../../src/interfaces/ITreasury.sol";
-import "../mocks/MockOracle.sol";
 import "../mocks/MockTreasury.sol";
+import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
 
-contract StratETHLongBondsTest is Test {
+contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
     StratETHLongBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
 
     // Mocks
-    MockOracle public ethUsdOracle;
     MockTreasury public treasury;
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
 
+    /// @dev ETH price: $3000
+    uint256 internal _ETH_USD_INITIAL_PRICE = 3000e18;
+
     function setUp() public {
         // mocks
-        ethUsdOracle = new MockOracle(3000e8, 18, 8); // ETH price: $3000
+        _setUpEthUsdOracle(_ETH_USD_INITIAL_PRICE);
         treasury = new MockTreasury();
 
         // Deploy the real contracts
@@ -104,7 +106,7 @@ contract StratETHLongBondsTest is Test {
         assertEq(treasury.total(), 2 ether, "Treasury did not receive the correct ETH amount");
 
         // Verify the CDT balance of the user
-        uint256 expectedCdUSDAmount = (1 ether * ethUsdOracle.price()) / 1e8; // ETH -> USD conversion
+        uint256 expectedCdUSDAmount = (1 ether * _ETH_USD_INITIAL_PRICE) / 1e18; // ETH -> USD conversion
         assertEq(cdtToken.balanceOf(user), expectedCdUSDAmount, "User CDT balance incorrect");
 
         // Verify the minted StratOption attributes
@@ -169,7 +171,7 @@ contract StratETHLongBondsTest is Test {
         bonds.bond{value: 1 ether}(user);
 
         // Bond 1 more ETH, after eth price goes up to $4000
-        ethUsdOracle.setPrice(4000e8);
+        ethUsdOracle.setBasePerQuote(4000e18);
         vm.deal(user, 1 ether);
         vm.prank(user);
         bonds.bond{value: 1 ether}(user);
@@ -182,7 +184,7 @@ contract StratETHLongBondsTest is Test {
         );
 
         // Bond 1 more ETH, after ETH/USD price goes down to $3000
-        ethUsdOracle.setPrice(3000e8);
+        ethUsdOracle.setBasePerQuote(3000e18);
         vm.deal(user, 1 ether);
         vm.prank(user);
         bonds.bond{value: 1 ether}(user);

@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
 import {MockOracle} from "../mocks/MockOracle.sol";
+import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
 
 import "../../src/StratETHShortBonds.sol";
 import "../../src/CdtToken.sol";
@@ -12,14 +13,13 @@ import "../../src/StratOption.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-contract StratETHShortBondsTest is Test, PermitGenerator {
+contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvider {
     StratETHShortBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
 
     // Mock oracles are defined directly here
-    MockOracle public ethUsdOracle;
     MockOracle public stratEthOracle;
 
     address internal owner = address(0x123);
@@ -29,6 +29,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
     address internal permitOwner;
     uint256 internal permitPk;
 
+    /// @dev ETH price: $3000
+    uint256 internal _ETH_USD_INITIAL_PRICE = 3000e18;
+
     function setUp() public {
         // Block timestamp needs to be non-zero
         vm.warp(1_000_000);
@@ -36,7 +39,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         (permitOwner, permitPk) = makeAddrAndKey("PERMIT_OWNER");
 
         // Deploy mock oracles
-        ethUsdOracle = new MockOracle(3000e8, 18, 8); // ETH price: $3000
+        _setUpEthUsdOracle(_ETH_USD_INITIAL_PRICE);
         stratEthOracle = new MockOracle(1e18, 18, 18); // Strat price: 1 ETH
 
         // Deploy the real contracts
@@ -91,7 +94,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
     function testStrikePrice() public view {
         uint256 amount = 3000e18;
 
-        uint256 stratPrice = (stratEthOracle.price() * ethUsdOracle.price()) / 1e8; // 18 DP
+        uint256 stratPrice = (stratEthOracle.price() * _ETH_USD_INITIAL_PRICE) / 1e18; // 18 DP
 
         // Expected strike with 2000000 CDT and 1000 STRAT (without scaling and BCV of 1) is
         //   STRAT_PRICE * 1000 * STRAT_PRICE / (2000000 - (3000 / 2))
