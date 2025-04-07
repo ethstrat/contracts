@@ -9,7 +9,7 @@ import {WETH, USD} from "./PriceOracleConstants.sol";
  * @dev     Abstract contract that provides the price of ETH in USD, using an Euler price oracle.
  */
 abstract contract EthUsdPriceFeedConsumer {
-    IPriceOracle public immutable ethUsdOracle;
+    IPriceOracle public immutable ETH_USD_ORACLE;
 
     /**
      * @dev Can be pre-set as both wETH and USD have a scale of 18.
@@ -19,7 +19,7 @@ abstract contract EthUsdPriceFeedConsumer {
     error EthUsdPriceInvalid();
 
     constructor(address _ethUsdOracle) {
-        ethUsdOracle = IPriceOracle(_ethUsdOracle);
+        ETH_USD_ORACLE = IPriceOracle(_ethUsdOracle);
 
         // Validate that the oracle is correct
         _getEthUsdPrice();
@@ -34,7 +34,7 @@ abstract contract EthUsdPriceFeedConsumer {
         // Quantity of USD for 1 WETH
         // This will revert if the base or quote tokens are not as expected,
         // which would indicate that the incorrect IPriceOracle was provided.
-        price = ethUsdOracle.getQuote(1e18, WETH, USD);
+        price = ETH_USD_ORACLE.getQuote(1e18, WETH, USD);
 
         // Revert if the price is not returned
         if (price == 0) revert EthUsdPriceInvalid();
