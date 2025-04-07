@@ -6,8 +6,6 @@ import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 import {IOracle} from "./interfaces/IOracle.sol";
 
-import "forge-std/console.sol";
-
 /**
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
