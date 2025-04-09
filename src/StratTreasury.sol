@@ -9,7 +9,7 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
  *         limit our risk exposure by only keeping a small amount of ETH in this contract based on
  *         the amount of ETH we expect to be redeemable
  */
-contract MintableBurnableToken is Ownable2Step {
+contract StratTreasury is Ownable2Step {
     mapping(address => bool) public canWithdraw;
     uint256 public totalDeployedEth;
     address public treasuryVault;
@@ -50,10 +50,10 @@ contract MintableBurnableToken is Ownable2Step {
     }
 
     function total() external view returns (uint256) {
-        return treasuryVault.balance + totalDeployedEth;
+        return treasuryVault.balance + totalDeployedEth + address(this).balance;
     }
 
     receive() external payable {
-        totalDeployedEth += msg.value;
+        // solhint-disable-previous-line no-empty-blocks
     }
 }
