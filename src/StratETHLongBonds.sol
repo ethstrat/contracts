@@ -20,11 +20,14 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
     ITreasury public immutable treasury;
     address immutable treasuryVault;
 
-    uint256 public bcv;
+    uint256 public pcf;
+    uint256 public gcf;
 
     uint256 public constant SCALE = 1e18;
 
-    event UpdateBCV(uint256 newBcv);
+    event OwnerChangedPCF(uint256 oldVal, uint256 newVal);
+    event OwnerChangedGCF(uint256 oldVal, uint256 newVal);
+
     event LongBond(
         address indexed bonder,
         uint256 strike,
@@ -46,7 +49,8 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
      * @param _treasury operations on treasury
      * @param _treasuryVault vault where bonded ETH is sent
      * @param _ethUsdOracle The ETH/USD oracle
-     * @param _bcv The bond conversion value, scaled by SCALE
+     * @param _pcf scaling factor applied on the debt ratio when deciding the bond conversion value (scaled by SCALE)
+     * @param _gcf scaling factor applied on the gav baseline when deciding the bond conversion value (scaled by SCALE)
      * @param owner The owner
      */
     constructor(
@@ -56,7 +60,8 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
         address _treasury,
         address _treasuryVault,
         address _ethUsdOracle,
-        uint256 _bcv,
+        uint256 _pcf,
+        uint256 _gcf,
         address owner
     ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
         cdtToken = IERC20MintableBurnable(_cdtToken);
@@ -65,12 +70,28 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
         treasury = ITreasury(_treasury);
         treasuryVault = _treasuryVault;
 
-        bcv = _bcv;
+        pcf = _pcf;
+        gcf = _gcf;
     }
 
-    function setBCV(uint256 _newBcv) external onlyOwner {
-        bcv = _newBcv;
-        emit UpdateBCV(_newBcv);
+    /**
+     * @notice Updates the premium control factor (PCF)
+     * @dev Only the contract owner can call this function.
+     * @param newVal The new PCF value to be set.
+     */
+    function setPCF(uint256 newVal) external onlyOwner {
+        emit OwnerChangedPCF(pcf, newVal);
+        pcf = newVal;
+    }
+
+    /**
+     * @notice Updates the GCF (Gropss asset Value(GAV) Control Factor) to the new specified value.
+     * @dev This function can only be called by the contract owner.
+     * @param newVal The new value to set for the GCF.
+     */
+    function setGCF(uint256 newVal) external onlyOwner {
+        emit OwnerChangedGCF(gcf, newVal);
+        gcf = newVal;
     }
 
     function bond(address bonder) external payable {
@@ -120,6 +141,6 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
         uint256 stratTotalSupply = stratToken.totalSupply();
         uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSDAmount / 2));
 
-        strikePrice_ = ((gav * SCALE) + (bcv * adjustedCdtSupply)) / stratTotalSupply;
+        strikePrice_ = ((gav * gcf) + (pcf * adjustedCdtSupply)) / stratTotalSupply;
     }
 }

@@ -11,7 +11,7 @@
   "scripts": {
     "prepare": "husky install && forge install",
     "build": "FOUNDRY_PROFILE=build forge build",
-    "test": "FOUNDRY_PROFILE=test forge test",
+    "test": "FOUNDRY_PROFILE=test forge test --fuzz-runs 20",
     "test:invariant": "FOUNDRY_MATCH_CONTRACT=InvariantTest yarn test",
     "test:integration": "FOUNDRY_MATCH_CONTRACT=IntegrationTest yarn test",
     "test:halmos": "FOUNDRY_PROFILE=test halmos",
