@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8;
 
-import {uint2str} from "./Uint2Str.sol";
-import {console2} from "forge-std/console2.sol";
+import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 
 library DecimalString {
     /// @notice Converts a uint256 value to a string with a specified number of decimal places.
@@ -24,13 +23,13 @@ library DecimalString {
         if (value_ == 0) return "0";
 
         // Convert the entire number to string first
-        string memory str = uint2str(value_);
+        string memory str = Strings.toString(value_);
         bytes memory bStr = bytes(str);
 
         // If no decimal places requested, just handle the scaling and return
         if (decimalPlaces_ == 0) {
             if (bStr.length <= valueDecimals_) return "0";
-            return uint2str(value_ / (10 ** valueDecimals_));
+            return Strings.toString(value_ / (10 ** valueDecimals_));
         }
 
         // If value is a whole number, return as-is

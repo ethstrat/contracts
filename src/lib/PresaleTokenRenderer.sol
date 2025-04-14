@@ -4,6 +4,7 @@ pragma solidity 0.8.20;
 import {ITokenURIRenderer} from "../interfaces/ITokenURIRenderer.sol";
 
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
+import {DecimalString} from "./DecimalString.sol";
 
 /// @title PresaleTokenRenderer
 /// @notice Renders the token URI for the presale token
@@ -21,7 +22,6 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             return "";
         }
 
-        // TODO convert to decimal strings
         // TODO add image
 
         return string.concat(
@@ -30,18 +30,20 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             string.concat('"symbol": "', "oSTRAT", '",'),
             '"attributes": [',
             string.concat("{", '"trait_type": "ID", "value": "', Strings.toString(tokenId), '"', "},"),
-            string.concat("{", '"trait_type": "Strike Amount", "value": "', Strings.toString(strikeAmount), '"', "},"), // This
-                // is 0 in a presale token, but we include it for clarity
+            // This is 0 in a presale token, but we include it for clarity
+            string.concat("{", '"trait_type": "Strike Amount", "value": "', Strings.toString(strikeAmount), '"', "},"),
+            // Display the notional underlying amount with 2 decimal places, e.g. "1.23"
             string.concat(
                 "{",
                 '"trait_type": "Notional Underlying Amount", "value": "',
-                Strings.toString(notionalUnderlyingAmount),
+                DecimalString.toDecimalString(notionalUnderlyingAmount, 18, 2),
                 '"',
                 "},"
             ),
+            // This is 0 in a presale token, but we include it for clarity
             string.concat(
                 "{", '"trait_type": "Notional USD Amount", "value": "', Strings.toString(notionalUSDAmount), '"', "},"
-            ), // This is 0 in a presale token, but we include it for clarity
+            ),
             string.concat(
                 "{", '"trait_type": "Expiry", "display_type": "date", "value": "', Strings.toString(expiry), '"', "},"
             ),
