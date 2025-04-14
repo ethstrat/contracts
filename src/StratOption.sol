@@ -3,7 +3,7 @@ pragma solidity 0.8.20;
 
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
-import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
+import {ITokenURIRenderer} from "./interfaces/ITokenURIRenderer.sol";
 import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 
 /**
@@ -93,7 +93,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
     function tokenURI(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
-            return TokenURIRenderer(tokenURIRenderer).render(
+            return ITokenURIRenderer(tokenURIRenderer).render(
                 tokenId,
                 strikeAmount[tokenId],
                 notionalUnderlyingAmount[tokenId],

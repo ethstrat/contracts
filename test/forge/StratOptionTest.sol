@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
+import {ITokenURIRenderer} from "../../src/interfaces/ITokenURIRenderer.sol";
 import "../../src/StratOption.sol";
 
-contract MockRenderer is TokenURIRenderer {
+contract MockRenderer is ITokenURIRenderer {
     uint256 public tokenId;
     uint256 public strikeAmount;
     uint256 public notionalUnderlyingAmount;
