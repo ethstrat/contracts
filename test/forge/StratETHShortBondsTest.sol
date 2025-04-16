@@ -204,7 +204,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
             Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
 
         // Expect allowance revert
-        vm.expectRevert("ERC20: burn amount exceeds allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(bonds), 0, cdtAmount)
+        );
 
         vm.prank(permitOwner);
         bonds.bondWithPermit(user, cdtAmount, permitApproval);

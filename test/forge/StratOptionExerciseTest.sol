@@ -8,6 +8,7 @@ import "../../src/StratOptionExercise.sol";
 import "../../src/StratOption.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
+import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
 contract StratOptionExerciseTest is Test, PermitGenerator {
     CdtToken public cdtToken;
@@ -193,7 +194,11 @@ contract StratOptionExerciseTest is Test, PermitGenerator {
         stratOption.approve(address(optionExercise), 2);
 
         // Expect allowance revert
-        vm.expectRevert("ERC20: burn amount exceeds allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(optionExercise), 0, 100 ether
+            )
+        );
 
         // Generate permit approval
         Permit.IPermitApproval memory permitApproval =
