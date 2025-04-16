@@ -86,8 +86,6 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
     ///
     /// @param tokenId  The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
-        redeemCdtForUsdNotionalWithPermit(
-            tokenId, Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)})
-        );
+        redeemCdtForUsdNotionalWithPermit(tokenId, Permit.getEmptyApproval());
     }
 }
