@@ -36,9 +36,11 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
 
     mapping(address => bool) public minters;
 
+    address public tokenURIRenderer;
+
     error MinterUnauthorizedAccount(address account);
 
-    address public tokenURIRenderer;
+    event MinterUpdated(address indexed minter, bool canMint);
 
     constructor(address owner) ERC721("STRAT Option", "oSTRAT") Ownable(owner) {
         _tokenIdCounter = 1;
@@ -49,6 +51,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
      */
     function manageMinter(address who, bool canMint) external onlyOwner {
         minters[who] = canMint;
+        emit MinterUpdated(who, canMint);
     }
 
     /**
