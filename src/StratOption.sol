@@ -37,7 +37,6 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
     mapping(address => bool) public minters;
 
     error MinterUnauthorizedAccount(address account);
-    error NotOwnerOrApproved(address account, uint256 tokenId);
 
     address public tokenURIRenderer;
 
@@ -77,9 +76,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
     }
 
     function burn(uint256 tokenId) external {
-        if (ownerOf(tokenId) != msg.sender && getApproved(tokenId) != msg.sender) {
-            revert NotOwnerOrApproved(msg.sender, tokenId);
-        }
+        _checkAuthorized(ownerOf(tokenId), msg.sender, tokenId);
 
         strikeAmount[tokenId] = 0;
         notionalUnderlyingAmount[tokenId] = 0;
