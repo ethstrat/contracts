@@ -44,7 +44,7 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator, EthUsdPriceO
 
         // Deploy target contract
         optionRedeem = new StratOptionRedeemUSDNotional(
-            address(cdtToken), address(stratToken), address(mockTreasury), address(ethUsdOracle), address(stratOption)
+            address(cdtToken), address(mockTreasury), address(ethUsdOracle), address(stratOption)
         );
 
         // Enable minting
