@@ -117,7 +117,7 @@ contract TokenRenderer is ITokenURIRenderer {
                 '"trait_type": "Timelock", "display_type": "date", "value": "',
                 Strings.toString(timelock),
                 '"',
-                "},"
+                "}"
             ),
             "]",
             "}"
