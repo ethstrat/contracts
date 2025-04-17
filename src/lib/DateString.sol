@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.15;
+pragma solidity ^0.8;
 
-import {uint2str} from "./Uint2Str.sol";
+import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 
-library Timestamp {
-    function toPaddedString(uint48 timestamp) internal pure returns (string memory, string memory, string memory) {
+library DateString {
+    function toPaddedString(uint256 timestamp) internal pure returns (string memory) {
         // Convert a number of days into a human-readable date, courtesy of BokkyPooBah.
         // Source:
         // https://github.com/bokkypoobah/BokkyPooBahsDateTimeLibrary/blob/master/contracts/BokkyPooBahsDateTimeLibrary.sol
@@ -13,7 +13,7 @@ library Timestamp {
         uint256 month;
         uint256 day;
         {
-            int256 __days = int256(int48(timestamp) / 1 days);
+            int256 __days = int256(int256(timestamp) / 1 days);
 
             int256 num1 = __days + 68_569 + 2_440_588; // 2440588 = OFFSET19700101
             int256 num2 = (4 * num1) / 146_097;
@@ -31,10 +31,11 @@ library Timestamp {
             day = uint256(_day);
         }
 
-        string memory yearStr = uint2str(year % 10_000);
-        string memory monthStr = month < 10 ? string(abi.encodePacked("0", uint2str(month))) : uint2str(month);
-        string memory dayStr = day < 10 ? string(abi.encodePacked("0", uint2str(day))) : uint2str(day);
+        string memory yearStr = Strings.toString(year % 10_000);
+        string memory monthStr =
+            month < 10 ? string(abi.encodePacked("0", Strings.toString(month))) : Strings.toString(month);
+        string memory dayStr = day < 10 ? string(abi.encodePacked("0", Strings.toString(day))) : Strings.toString(day);
 
-        return (yearStr, monthStr, dayStr);
+        return string.concat(yearStr, "-", monthStr, "-", dayStr);
     }
 }
