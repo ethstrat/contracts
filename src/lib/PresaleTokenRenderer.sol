@@ -31,7 +31,13 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             '"attributes": [',
             string.concat("{", '"trait_type": "ID", "value": "', Strings.toString(tokenId), '"', "},"),
             // This is 0 in a presale token, but we include it for clarity
-            string.concat("{", '"trait_type": "Strike Amount", "value": "', Strings.toString(strikeAmount), '"', "},"),
+            string.concat(
+                "{",
+                '"trait_type": "Strike Amount", "value": "',
+                DecimalString.toDecimalString(strikeAmount, 18, 2),
+                '"',
+                "},"
+            ),
             // Display the notional underlying amount with 2 decimal places, e.g. "1.23"
             string.concat(
                 "{",
@@ -42,7 +48,11 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             ),
             // This is 0 in a presale token, but we include it for clarity
             string.concat(
-                "{", '"trait_type": "Notional USD Amount", "value": "', Strings.toString(notionalUSDAmount), '"', "},"
+                "{",
+                '"trait_type": "Notional USD Amount", "value": "',
+                DecimalString.toDecimalString(notionalUSDAmount, 18, 2),
+                '"',
+                "},"
             ),
             string.concat(
                 "{", '"trait_type": "Expiry", "display_type": "date", "value": "', Strings.toString(expiry), '"', "},"
