@@ -33,7 +33,7 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             // This is 0 in a presale token, but we include it for clarity
             string.concat(
                 "{",
-                '"trait_type": "Strike Amount", "value": "',
+                '"trait_type": "Exercise Cost (CDT)", "value": "',
                 DecimalString.toDecimalString(strikeAmount, 18, 2),
                 '"',
                 "},"
@@ -41,7 +41,7 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             // Display the notional underlying amount with 2 decimal places, e.g. "1.23"
             string.concat(
                 "{",
-                '"trait_type": "Notional Underlying Amount", "value": "',
+                '"trait_type": "STRAT Output", "value": "',
                 DecimalString.toDecimalString(notionalUnderlyingAmount, 18, 2),
                 '"',
                 "},"
@@ -49,7 +49,7 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             // This is 0 in a presale token, but we include it for clarity
             string.concat(
                 "{",
-                '"trait_type": "Notional USD Amount", "value": "',
+                '"trait_type": "Redeem Value (USD)", "value": "',
                 DecimalString.toDecimalString(notionalUSDAmount, 18, 2),
                 '"',
                 "},"
