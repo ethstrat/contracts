@@ -21,46 +21,82 @@ contract TokenRenderer is ITokenURIRenderer {
     ) public pure returns (string memory) {
         // Generate SVG
         string memory svg = string.concat(
-            '<svg width="800" height="480" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg" style="border-radius: 30px">',
+            '<svg width="400" height="600" viewBox="0 0 400 600" xmlns="http://www.w3.org/2000/svg">',
             "<defs>",
-            '  <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">',
-            '    <stop offset="0%" stop-color="rgb(234, 56, 84)" />',
-            '    <stop offset="100%" stop-color="rgb(210, 71, 191)" />',
+            // Background gradient
+            '  <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="0%" y2="100%">',
+            '    <stop offset="0%" style="stop-color:#1a1b2e"/>',
+            '    <stop offset="100%" style="stop-color:#131320"/>',
             "  </linearGradient>",
+            // Card gradient
+            '  <linearGradient id="card-gradient" x1="0%" y1="0%" x2="100%" y2="100%">',
+            '    <stop offset="0%" style="stop-color:#FF3399"/>',
+            '    <stop offset="50%" style="stop-color:#6633FF"/>',
+            '    <stop offset="100%" style="stop-color:#00CCFF"/>',
+            "  </linearGradient>",
+            // Glow effect
+            '  <filter id="glow">',
+            '    <feGaussianBlur stdDeviation="3" result="blur"/>',
+            '    <feComposite in="SourceGraphic" in2="blur" operator="over"/>',
+            "  </filter>",
             "</defs>",
-            '<rect width="800" height="480" rx="30" fill="url(#gradient)" />',
+            // Background
+            '<rect width="400" height="600" fill="url(#bg-gradient)"/>',
+            // Card with border and glow
+            '<g transform="translate(20, 20)">',
+            '<rect width="360" height="560" rx="30" fill="none" stroke="#00CCFF" stroke-width="1" stroke-opacity="0.3" filter="url(#glow)"/>',
+            '<rect width="360" height="560" rx="30" fill="url(#card-gradient)"/>',
+            "</g>",
             "<style>",
-            '  .title { font-family: "Segoe UI", sans-serif; font-weight: bold; font-size: 48px; fill: #ffffff; }',
-            '  .label { font-family: "Segoe UI", sans-serif; font-size: 24px; fill: #ffffff; }',
-            '  .value { font-family: "Segoe UI", sans-serif; font-size: 28px; font-weight: bold; fill: #ffffff; text-anchor: end; }',
+            "  .title { font: bold 36px sans-serif; fill: white; }",
+            "  .subtitle { font: bold 48px sans-serif; fill: white; }",
+            "  .label { font: 20px sans-serif; fill: white; opacity: 0.8; }",
+            "  .value { font: bold 24px sans-serif; fill: white; }",
+            "  .value-right { font: bold 24px sans-serif; fill: white; text-anchor: end; }",
             "</style>",
-            '<text x="60" y="90" class="title">ETH Strategy</text>',
-            '<text x="740" y="90" class="title" text-anchor="end">oSTRAT</text>',
-            '<line x1="60" y1="120" x2="740" y2="120" stroke="#ffffff" opacity="0.3" stroke-width="1"/>',
-            string.concat('<text x="60" y="170" class="label">Token ID:</text>'),
-            string.concat('<text x="220" y="170" class="label">#', Strings.toString(tokenId), "</text>"),
-            '<text x="420" y="170" class="label">Expiry:</text>',
+            // Header - adjusted for new margins
+            '<text x="50" y="70" class="title">ETH Strategy</text>',
+            '<text x="50" y="140" class="subtitle">oSTRAT</text>',
+            // Token ID and Expiry side by side
+            '<g transform="translate(50, 200)">',
+            '  <text class="label">Token ID</text>',
+            string.concat('  <text y="40" class="value">', Strings.toString(tokenId), "</text>"),
+            "</g>",
+            '<g transform="translate(220, 200)">',
+            '  <text class="label">Expiry</text>',
+            string.concat('  <text x="130" y="40" class="value-right">', DateString.toPaddedString(expiry), "</text>"),
+            "</g>",
+            // Exercise Cost
+            '<g transform="translate(50, 300)">',
+            '  <text class="label">Exercise Cost</text>',
             string.concat(
-                '<text x="740" y="170" class="label" text-anchor="end">', DateString.toPaddedString(expiry), "</text>"
-            ),
-            '<text x="60" y="240" class="label">Exercise Cost:</text>',
-            string.concat(
-                '<text x="740" y="240" class="value">',
+                '  <text x="300" y="40" class="value-right">',
                 DecimalString.toDecimalString(strikeAmount, 18, 2),
-                " CDT</text>"
+                " USDC</text>"
             ),
-            '<text x="60" y="310" class="label">STRAT Output:</text>',
+            "</g>",
+            // STRAT Output
+            '<g transform="translate(50, 380)">',
+            '  <text class="label">STRAT Output</text>',
             string.concat(
-                '<text x="740" y="310" class="value">',
+                '  <text x="300" y="40" class="value-right">',
                 DecimalString.toDecimalString(notionalUnderlyingAmount, 18, 2),
-                " STRAT</text>"
+                "</text>"
             ),
-            '<text x="60" y="380" class="label">Redeem Value:</text>',
+            "</g>",
+            // Redeem Value
+            '<g transform="translate(50, 460)">',
+            '  <text class="label">Redeem Value</text>',
             string.concat(
-                '<text x="740" y="380" class="value">$',
+                '  <text x="300" y="40" class="value-right">$',
                 DecimalString.toDecimalString(notionalUSDAmount, 18, 2),
                 "</text>"
             ),
+            "</g>",
+            // Ethereum Logo
+            '<circle cx="320" cy="90" r="30" fill="#627EEA"/>',
+            '<path d="M320 50l-20 35 20 12 20-12z" fill="white" fill-opacity="0.6"/>',
+            '<path d="M320 97l-20-12 20 28 20-28z" fill="white"/>',
             "</svg>"
         );
 
