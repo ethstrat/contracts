@@ -8,9 +8,9 @@ import {DecimalString} from "./DecimalString.sol";
 import {DateString} from "./DateString.sol";
 import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 
-/// @title PresaleTokenRenderer
-/// @notice Renders the token URI for the presale token
-contract PresaleTokenRenderer is ITokenURIRenderer {
+/// @title TokenRenderer
+/// @notice Renders the token URI for the oSTRAT token
+contract TokenRenderer is ITokenURIRenderer {
     function render(
         uint256 tokenId,
         uint256 strikeAmount,
