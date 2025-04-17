@@ -11,19 +11,14 @@ import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 /// @title TokenRenderer
 /// @notice Renders the token URI for the oSTRAT token
 contract TokenRenderer is ITokenURIRenderer {
-    function render(
+    function renderSvg(
         uint256 tokenId,
         uint256 strikeAmount,
         uint256 notionalUnderlyingAmount,
         uint256 notionalUSDAmount,
         uint256 expiry,
         uint256 timelock
-    ) external pure returns (string memory) {
-        // If it is not a presale token, return an empty string
-        if (strikeAmount != 0 || notionalUSDAmount != 0) {
-            return "";
-        }
-
+    ) public pure returns (string memory) {
         // Generate SVG
         string memory svg = string.concat(
             '<svg width="800" height="480" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg" style="border-radius: 30px">',
@@ -68,6 +63,20 @@ contract TokenRenderer is ITokenURIRenderer {
             ),
             "</svg>"
         );
+
+        return svg;
+    }
+
+    function render(
+        uint256 tokenId,
+        uint256 strikeAmount,
+        uint256 notionalUnderlyingAmount,
+        uint256 notionalUSDAmount,
+        uint256 expiry,
+        uint256 timelock
+    ) external pure returns (string memory) {
+        string memory svg =
+            renderSvg(tokenId, strikeAmount, notionalUnderlyingAmount, notionalUSDAmount, expiry, timelock);
 
         // Encode SVG to base64
         string memory base64Svg = Base64.encode(bytes(svg));
