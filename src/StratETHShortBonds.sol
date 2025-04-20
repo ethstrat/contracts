@@ -82,7 +82,6 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
         uint256 stratUsdPrice = _getStratEthPrice() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
-        //XXX(nap): we decided *not* to price by taking into account the expected cdt burn?
         return stratUsdPrice * STRAT.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
             * stratUsdPrice / SCALE / SCALE;
     }
