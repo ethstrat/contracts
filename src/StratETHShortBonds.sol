@@ -33,6 +33,7 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
      * @param _stratOption The STRAT option
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratEthOracle The STRAT/ETH oracle
+     * @param _bondConverter The address where short bond holders will eventually convert their bonds to STRAT
      * @param _bcv The bond conversion value, scaled by SCALE
      * @param owner The owner
      */
