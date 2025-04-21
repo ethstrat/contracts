@@ -11,14 +11,21 @@ import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 /// @title PresaleTokenRenderer
 /// @notice Renders the token URI for the presale token
 contract PresaleTokenRenderer is ITokenURIRenderer {
-    function renderSvg(
-        uint256 tokenId,
-        uint256 strikeAmount,
-        uint256 notionalUnderlyingAmount,
-        uint256 notionalUSDAmount,
-        uint256 expiry,
-        uint256 timelock
-    ) public pure returns (string memory) {
+    function renderSvg(uint256 tokenId, uint256, uint256 notionalUnderlyingAmount, uint256, uint256, uint256 timelock)
+        public
+        view
+        returns (string memory)
+    {
+        // Calculate time until unlock
+        uint256 currentTime = block.timestamp;
+        uint256 timeUntilUnlock = timelock > currentTime ? timelock - currentTime : 0;
+        uint256 daysUntilUnlock = timeUntilUnlock / 86400;
+        uint256 hoursUntilUnlock = (timeUntilUnlock % 86400) / 3600;
+
+        string memory unlockText = timeUntilUnlock > 0
+            ? string.concat(Strings.toString(daysUntilUnlock), " days, ", Strings.toString(hoursUntilUnlock), " hours")
+            : "Unlocked";
+
         // Generate SVG
         string memory svg = string.concat(
             '<svg width="400" height="600" viewBox="0 0 400 600" xmlns="http://www.w3.org/2000/svg">',
@@ -56,42 +63,25 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
             "</style>",
             // Header - adjusted for new margins
             '<text x="50" y="70" class="title">ETH Strategy</text>',
-            '<text x="50" y="140" class="subtitle">oSTRAT</text>',
-            // Token ID and Expiry side by side
+            '<text x="50" y="140" class="subtitle">Presale</text>',
+            // Token ID
             '<g transform="translate(50, 200)">',
             '  <text class="label">Token ID</text>',
             string.concat('  <text y="40" class="value">', Strings.toString(tokenId), "</text>"),
             "</g>",
-            '<g transform="translate(220, 200)">',
-            '  <text class="label">Expiry</text>',
-            string.concat('  <text x="130" y="40" class="value-right">', DateString.toPaddedString(expiry), "</text>"),
-            "</g>",
-            // Exercise Cost
-            '<g transform="translate(50, 300)">',
-            '  <text class="label">Exercise Cost</text>',
-            string.concat(
-                '  <text x="300" y="40" class="value-right">',
-                DecimalString.toDecimalString(strikeAmount, 18, 2),
-                " USDC</text>"
-            ),
-            "</g>",
             // STRAT Output
-            '<g transform="translate(50, 380)">',
+            '<g transform="translate(50, 300)">',
             '  <text class="label">STRAT Output</text>',
             string.concat(
-                '  <text x="300" y="40" class="value-right">',
+                '  <text y="40" class="value">',
                 DecimalString.toDecimalString(notionalUnderlyingAmount, 18, 2),
                 "</text>"
             ),
             "</g>",
-            // Redeem Value
-            '<g transform="translate(50, 460)">',
-            '  <text class="label">Redeem Value</text>',
-            string.concat(
-                '  <text x="300" y="40" class="value-right">$',
-                DecimalString.toDecimalString(notionalUSDAmount, 18, 2),
-                "</text>"
-            ),
+            // Unlock Time
+            '<g transform="translate(50, 400)">',
+            '  <text class="label">Unlock</text>',
+            string.concat('  <text y="40" class="value">', unlockText, "</text>"),
             "</g>",
             // Ethereum Logo
             '<circle cx="320" cy="90" r="30" fill="#627EEA"/>',
@@ -110,7 +100,7 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
         uint256 notionalUSDAmount,
         uint256 expiry,
         uint256 timelock
-    ) external pure returns (string memory) {
+    ) external view returns (string memory) {
         // If not a presale token, return nothing
         if (!(strikeAmount == 0 && notionalUSDAmount == 0)) {
             return "";
