@@ -10,6 +10,9 @@ contract PresaleTokenRendererTest is Test {
 
     function setUp() public {
         renderer = new PresaleTokenRenderer();
+
+        // Set the block timestamp to 2025-06-15
+        vm.warp(1749974400);
     }
 
     function test_render() public {
@@ -51,8 +54,33 @@ contract PresaleTokenRendererTest is Test {
         vm.createDir("tmp", true);
 
         // Write to file
-        vm.writeFile("tmp/svg.svg", svg);
+        vm.writeFile("tmp/timelocked.svg", svg);
 
-        console2.log("Wrote SVG to tmp/svg.svg");
+        console2.log("Wrote SVG to tmp/timelocked.svg");
+    }
+
+    function test_renderSvg_unlocked() public {
+        // Example values for testing
+        uint256 tokenId = 1;
+        uint256 strikeAmount = 2000.12 * 10 ** 18; // 2000.12 CDT
+        uint256 notionalUnderlyingAmount = 22.33 * 10 ** 18; // 22.33 STRAT
+        uint256 notionalUSDAmount = 2200.44 * 10 ** 18; // $2200.44
+        uint256 expiry = 1751328000; // 2025-07-01
+        uint256 timelock = 1751328000; // Same as expiry for this example
+
+        // Warp to timelock time
+        vm.warp(1751328000 + 1);
+
+        // Generate the SVG
+        string memory svg =
+            renderer.renderSvg(tokenId, strikeAmount, notionalUnderlyingAmount, notionalUSDAmount, expiry, timelock);
+
+        // Create the tmp directory if it doesn't exist
+        vm.createDir("tmp", true);
+
+        // Write to file
+        vm.writeFile("tmp/unlocked.svg", svg);
+
+        console2.log("Wrote SVG to tmp/unlocked.svg");
     }
 }
