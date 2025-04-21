@@ -8,9 +8,9 @@ import {DecimalString} from "./DecimalString.sol";
 import {DateString} from "./DateString.sol";
 import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 
-/// @title TokenRenderer
-/// @notice Renders the token URI for the oSTRAT token
-contract TokenRenderer is ITokenURIRenderer {
+/// @title PresaleTokenRenderer
+/// @notice Renders the token URI for the presale token
+contract PresaleTokenRenderer is ITokenURIRenderer {
     function renderSvg(
         uint256 tokenId,
         uint256 strikeAmount,
@@ -111,6 +111,11 @@ contract TokenRenderer is ITokenURIRenderer {
         uint256 expiry,
         uint256 timelock
     ) external pure returns (string memory) {
+        // If not a presale token, return nothing
+        if (!(strikeAmount == 0 && notionalUSDAmount == 0)) {
+            return "";
+        }
+
         string memory svg =
             renderSvg(tokenId, strikeAmount, notionalUnderlyingAmount, notionalUSDAmount, expiry, timelock);
 

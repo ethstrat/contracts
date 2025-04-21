@@ -2,14 +2,14 @@
 pragma solidity 0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {TokenRenderer} from "../../src/lib/TokenRenderer.sol";
+import {PresaleTokenRenderer} from "../../src/lib/PresaleTokenRenderer.sol";
 import {console2} from "forge-std/console2.sol";
 
-contract TokenRendererTest is Test {
-    TokenRenderer public renderer;
+contract PresaleTokenRendererTest is Test {
+    PresaleTokenRenderer public renderer;
 
     function setUp() public {
-        renderer = new TokenRenderer();
+        renderer = new PresaleTokenRenderer();
     }
 
     function test_render() public {
