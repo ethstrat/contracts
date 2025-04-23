@@ -64,16 +64,18 @@ contract StratOptionExercise {
         uint256 strike = stratOption.strikeAmount(tokenId);
         uint256 strat = stratOption.notionalUnderlyingAmount(tokenId);
 
-        // Burn the corresponding amount from the sender and mint the underlying token for the option owner.
+        // Burn the corresponding amount from the sender
         cdtToken.validatePermit(msg.sender, address(this), strike, cdtPermitApproval);
         cdtToken.burnFrom(msg.sender, strike);
+        stratOption.burn(tokenId);
+
+        // mint the underlying token for the option owner.
         uint256 premintedStratBalance = stratToken.balanceOf(address(this));
         if (premintedStratBalance < strat) {
             // Mint the required amount of STRAT tokens to this contract.
             stratToken.mint(address(this), strat - premintedStratBalance);
         }
         stratToken.transfer(optionOwner, strat);
-        stratOption.burn(tokenId);
 
         // Emit event on successful exercise.
         emit OptionExercised(optionOwner, tokenId, strike, strat);

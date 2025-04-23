@@ -36,7 +36,7 @@ contract StratETHShortBonds is Ownable2Step {
      * @param _stratToken The STRAT token
      * @param _stratOption The STRAT option
      * @param _priceService The price service
-     * @param _bondConverter The bond converter address
+     * @param _bondConverter The address where short bond holders will eventually convert their bonds to STRAT
      * @param _bcv The bond conversion value, scaled by SCALE
      * @param owner The owner
      */
@@ -103,8 +103,7 @@ contract StratETHShortBonds is Ownable2Step {
         (uint256 stratEthPrice, uint256 stratEthPriceScale) = priceService.getStratEthPrice();
         (uint256 ethUsdPrice,) = priceService.getEthUsdPrice();
         uint256 stratUsdPrice = stratEthPrice * ethUsdPrice / stratEthPriceScale;
-        //TODO(nap): Do we neeed to price by taking into account the expected cdt burn?
-        return stratUsdPrice * stratToken.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
+        return stratUsdPrice * STRAT.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
             * stratUsdPrice / SCALE / SCALE;
     }
 }

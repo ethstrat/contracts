@@ -10,6 +10,7 @@ import "../../src/StratOption.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../../src/interfaces/ITreasury.sol";
+import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
 import {MockTreasury} from "../mocks/MockTreasury.sol";
 
@@ -44,12 +45,7 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
 
         // Deploy target contract
         optionRedeem = new StratOptionRedeemUSDNotional(
-            address(cdtToken),
-            address(stratToken),
-            address(mockTreasury),
-            address(priceService),
-            address(stratOption),
-            owner
+            address(cdtToken), address(mockTreasury), address(priceService), address(stratOption), owner
         );
 
         // Enable minting
@@ -191,7 +187,11 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
             Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
 
         // Expect revert
-        vm.expectRevert("ERC20: burn amount exceeds allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(optionRedeem), 0, 500 ether
+            )
+        );
 
         // Redeem
         vm.prank(permitOwner);

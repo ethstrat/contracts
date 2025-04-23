@@ -14,7 +14,6 @@ contract StratOptionRedeemUSDNotional is Ownable2Step {
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
-    IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
     IStratOptionMinter public immutable stratOption;
     IPriceService public priceService;
@@ -29,28 +28,20 @@ contract StratOptionRedeemUSDNotional is Ownable2Step {
 
     /**
      * @param _cdtToken The CDT token
-     * @param _stratOption The STRAT option
      * @param _treasury STRAT treasury
      * @param _priceService The price service
      * @param _stratOption The STRAT option
      * @param owner The owner
      */
-    constructor(
-        address _cdtToken,
-        address _stratToken,
-        address _treasury,
-        address _priceService,
-        address _stratOption,
-        address owner
-    ) Ownable(owner) {
+    constructor(address _cdtToken, address _treasury, address _priceService, address _stratOption, address owner)
+        Ownable(owner)
+    {
         if (_cdtToken == address(0)) revert ZeroAddress();
-        if (_stratToken == address(0)) revert ZeroAddress();
         if (_treasury == address(0)) revert ZeroAddress();
         if (_priceService == address(0)) revert ZeroAddress();
         if (_stratOption == address(0)) revert ZeroAddress();
 
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
-        stratToken = IERC20(_stratToken);
         treasury = ITreasury(_treasury);
         stratOption = IStratOptionMinter(_stratOption);
         priceService = IPriceService(_priceService);
@@ -112,8 +103,6 @@ contract StratOptionRedeemUSDNotional is Ownable2Step {
     ///
     /// @param tokenId  The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
-        redeemCdtForUsdNotionalWithPermit(
-            tokenId, Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)})
-        );
+        redeemCdtForUsdNotionalWithPermit(tokenId, Permit.getEmptyApproval());
     }
 }

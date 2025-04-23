@@ -45,7 +45,8 @@ contract StratETHLongBondsTest is Test {
             address(treasury),
             address(treasury),
             address(priceService),
-            1e18, // BCV
+            1e18, // PCF
+            1e18, // GCF
             owner
         );
 
@@ -61,16 +62,28 @@ contract StratETHLongBondsTest is Test {
         vm.stopPrank();
     }
 
-    function testOnlyOwnerCanSetBCV() public {
+    function testOnlyOwnerCanSetPCF() public {
         // A non-owner attempting to change BCV should fail
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(user)));
-        bonds.setBCV(5); // Should revert because user is not the owner
+        bonds.setPCF(5); // Should revert because user is not the owner
 
         // A owner attempting to change BCV should suceed
         vm.prank(owner);
-        bonds.setBCV(5);
-        assertEq(bonds.bcv(), 5, "BCV should be updated to 5000");
+        bonds.setPCF(5);
+        assertEq(bonds.pcf(), 5, "PCF should be updated to 5000");
+    }
+
+    function testOnlyOwnerCanSetGCF() public {
+        // A non-owner attempting to change GCF should fail
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(user)));
+        bonds.setGCF(5); // Should revert because user is not the owner
+
+        // An owner attempting to change GCF should succeed
+        vm.prank(owner);
+        bonds.setGCF(5);
+        assertEq(bonds.gcf(), 5, "GCF should be updated to 5");
     }
 
     function testBondRevertIfNoETHSent() public {
@@ -94,6 +107,29 @@ contract StratETHLongBondsTest is Test {
         // = 0.45
         uint256 expectedStrikePrice = 0.45 ether;
         uint256 calculatedStrikePrice = bonds.strikePrice(notionalUSDAmount);
+        assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
+    }
+
+    function testFuzz_strikePriceWithPCFandGCFupdates(uint256 pcf, uint256 gcf) public {
+        pcf = bound(pcf, 1.5e18, 2e18);
+        gcf = bound(gcf, 0.5e18, 1e18);
+
+        // Update PCF and GCF using the owner account
+        vm.startPrank(owner);
+        bonds.setPCF(pcf);
+        bonds.setGCF(gcf);
+        vm.stopPrank();
+
+        uint256 notionalUSDAmount = 3000e18;
+        // Expected strike price calculation:
+        //  =  (gav * GCF / stratSupply) + (PCF * (debt/gav) * (gav/stratSupply))
+        //  =  (gav * GCF / stratSupply) + (PCF * debt / stratSupply) # cancel gav
+        //  =  (gav * GCF + PCF * debt) / stratSupply
+        // substituting the values for gav (1) eth price (3k) and strat supply (10k) and no starting debt, we get
+        //  =  (3000 * 1 * GCF + PCF * 1500) / 10_000
+        uint256 expectedStrikePrice = (3000e18 * gcf + pcf * (notionalUSDAmount / 2)) / 10_000e18;
+        uint256 calculatedStrikePrice = bonds.strikePrice(notionalUSDAmount);
+
         assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
     }
 
