@@ -103,7 +103,7 @@ contract StratETHShortBonds is Ownable2Step {
         (uint256 stratEthPrice, uint256 stratEthPriceScale) = priceService.getStratEthPrice();
         (uint256 ethUsdPrice,) = priceService.getEthUsdPrice();
         uint256 stratUsdPrice = stratEthPrice * ethUsdPrice / stratEthPriceScale;
-        return stratUsdPrice * STRAT.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
+        return stratUsdPrice * stratToken.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
             * stratUsdPrice / SCALE / SCALE;
     }
 }
