@@ -33,6 +33,7 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
      * @param _stratOption The STRAT option
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratEthOracle The STRAT/ETH oracle
+     * @param _bondConverter The address where short bond holders will eventually convert their bonds to STRAT
      * @param _bcv The bond conversion value, scaled by SCALE
      * @param owner The owner
      */
@@ -81,7 +82,6 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
         uint256 stratUsdPrice = _getStratEthPrice() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
-        //XXX(nap): we decided *not* to price by taking into account the expected cdt burn?
         return stratUsdPrice * STRAT.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
             * stratUsdPrice / SCALE / SCALE;
     }

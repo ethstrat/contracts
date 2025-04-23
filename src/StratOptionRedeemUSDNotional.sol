@@ -15,7 +15,6 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
-    IERC20 public immutable stratToken;
     ITreasury public immutable treasury;
     IStratOptionMinter public immutable stratOption;
 
@@ -32,11 +31,10 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratOption The STRAT option
      */
-    constructor(address _cdtToken, address _stratToken, address _treasury, address _ethUsdOracle, address _stratOption)
+    constructor(address _cdtToken, address _treasury, address _ethUsdOracle, address _stratOption)
         EthUsdPriceFeedConsumer(_ethUsdOracle)
     {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
-        stratToken = IERC20(_stratToken);
         treasury = ITreasury(_treasury);
         stratOption = IStratOptionMinter(_stratOption);
     }
@@ -88,8 +86,6 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
     ///
     /// @param tokenId  The ID of the option to redeem
     function redeemCdtForUsdNotional(uint256 tokenId) external {
-        redeemCdtForUsdNotionalWithPermit(
-            tokenId, Permit.IPermitApproval({deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)})
-        );
+        redeemCdtForUsdNotionalWithPermit(tokenId, Permit.getEmptyApproval());
     }
 }
