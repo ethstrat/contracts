@@ -73,6 +73,11 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         vm.stopPrank();
     }
 
+    // setBCV
+    // given the caller is not the owner
+    //  [X] it reverts
+    // [X] it sets the BCV
+
     function testOnlyOwnerCanSetBCV() public {
         // A non-owner attempting to change BCV should fail
         vm.prank(user);
@@ -90,6 +95,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         vm.expectRevert("Amount must be greater than 0");
         bonds.bond(user, 0); // Should revert because no CDT is sent
     }
+
+    // strikePrice
+    // [X] the strike price is calculated correctly
 
     function testStrikePrice() public view {
         uint256 amount = 3000e18;
@@ -122,6 +130,21 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
     }
 
+    // bond
+    // when no amount is sent
+    //  [X] it reverts
+    // when the caller has not approved spending of CDT
+    //  [X] it reverts
+    // when the caller does not have enough CDT
+    //  [X] it reverts
+    // [X] the strike amount is 0
+    // [X] the notional USD amount is 0
+    // [X] the notional underlying amount is calculated correctly
+    // [X] the expiry is 4.2 years from now
+    // [X] the timelock is 69 minutes from now
+    // [X] the CDT is burned
+    // [X] the owner of the option is the bonder
+
     function testBond() public {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
@@ -148,9 +171,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
             "Incorrect notional underlying amount"
         );
         assertEq(stratOption.notionalUnderlyingAmount(tokenId), stratToken.balanceOf(bondConverter));
-
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+        assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
     }
 
     function testBondDataInvariants() public {
@@ -170,6 +193,36 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
                 "Each subsequent bond should have less notional than the previous"
             );
         }
+    }
+
+    function test_bond_cdtSpendingNotApproved_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Mint CDT to the user
+        vm.prank(owner);
+        cdtToken.mint(user, cdtAmount);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(bonds), 0, cdtAmount)
+        );
+
+        vm.prank(user);
+        bonds.bond(user, cdtAmount);
+    }
+
+    function test_bond_cdtBalanceInsufficient_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Approve spending of CDT
+        vm.prank(user);
+        cdtToken.approve(address(bonds), cdtAmount);
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user, 0, cdtAmount));
+
+        vm.prank(user);
+        bonds.bond(user, cdtAmount);
     }
 
     // bondWithPermit

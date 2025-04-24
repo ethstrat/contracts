@@ -61,6 +61,11 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
         vm.stopPrank();
     }
 
+    // setPCF
+    // given the caller is not the owner
+    //  [X] it reverts
+    // [X] it updates the PCF
+
     function testOnlyOwnerCanSetPCF() public {
         // A non-owner attempting to change BCV should fail
         vm.prank(user);
@@ -88,7 +93,7 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
     function testBondRevertIfNoETHSent() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.NoEthSent.selector));
-        bonds.bond(user); // Should revert because no ETH is sent
+        bonds.bond(user);
     }
 
     function testBondRevertIfBonderAddressIsZero() public {
@@ -97,6 +102,9 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
         vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.ZeroAddress.selector));
         bonds.bond{value: 1 ether}(address(0));
     }
+
+    // strikePrice
+    // [X] the strike price is calculated correctly
 
     function testStrikePrice() public view {
         uint256 notionalUSDAmount = 3000e18;
@@ -108,6 +116,17 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
         uint256 calculatedStrikePrice = bonds.strikePrice(notionalUSDAmount);
         assertEq(calculatedStrikePrice, expectedStrikePrice, "Strike price calculation is incorrect");
     }
+
+    // bond
+    // when no ETH is sent
+    //  [X] it reverts
+    // [X] the strike amount is calculated correctly
+    // [X] the notional underlying amount is calculated correctly
+    // [X] the CDT balance of the user is the notional USD amount
+    // [X] the expiry is 4.2 years from now
+    // [X] the timelock is 69 minutes from now
+    // [X] the owner of the option is the bonder
+    // [X] the treasury receives the ETH
 
     function testFuzz_strikePriceWithPCFandGCFupdates(uint256 pcf, uint256 gcf) public {
         pcf = bound(pcf, 1.5e18, 2e18);

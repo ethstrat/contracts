@@ -131,10 +131,12 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
         );
     }
 
-    /// @notice Provides the strike price for a given USD value of ETH
-    ///
-    /// @param  notionalUSDAmount   The USD value of ETH to calculate the strike price for
-    /// @return strikePrice_        The strike price, in terms of SCALE
+    /**
+     * @notice Provides the strike price for a given USD value of ETH
+     *
+     * @param  notionalUSDAmount   The USD value of ETH to calculate the strike price for
+     * @return strikePrice_        The strike price, in terms of SCALE
+     */
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256 strikePrice_) {
         uint256 gav = treasury.total() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
 

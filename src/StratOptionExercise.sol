@@ -25,6 +25,7 @@ contract StratOptionExercise {
     error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
     error OptionExpired(address account, uint256 tokenId);
+    error InvalidTokenId(address account, uint256 tokenId);
 
     // Event emitted when an option is successfully exercised.
     event OptionExercised(address indexed optionOwner, uint256 tokenId, uint256 strike, uint256 strat);
@@ -47,8 +48,11 @@ contract StratOptionExercise {
      * @param cdtPermitApproval The permit approval for the CDT tokens.
      */
     function exerciseWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) public {
+        uint256 timelock = stratOption.timelock(tokenId);
+        if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
+
         // Check that the timelock period has passed.
-        if (stratOption.timelock(tokenId) > block.timestamp) {
+        if (timelock > block.timestamp) {
             revert TimelockActive(msg.sender, tokenId);
         }
 

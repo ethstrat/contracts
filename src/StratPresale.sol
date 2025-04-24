@@ -10,17 +10,23 @@ import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
  *         we leverage the the same option as the rest of the system for simplicity
  */
 contract StratPresale {
-    /// @dev the option minter
+    /**
+     * @notice The option minter contract
+     */
     IStratOptionMinter public stratOption;
 
-    /// @dev The gnosis multisig dev that receives the funds collected during the presale.
+    /**
+     * @notice The gnosis multisig dev that receives the funds collected during the presale.
+     */
     address public immutable presaleMultisig;
 
     // Errors
     error NoEthSent();
     error EthTransferFailed();
 
-    /// @notice Event triggered on each presale mint
+    /**
+     * @notice Event triggered on each presale mint
+     */
     event PresaleMint(address indexed from, uint256 value);
 
     uint256 public constant UNIT_BIAS = 10_000;
@@ -31,16 +37,23 @@ contract StratPresale {
     }
 
     /**
-     * @notice Mints NFT capturing presale settlement using the sent ETH and forwards the ETH to the presale multisig.
-     * @dev STRAT is minted at redemption 1:1 (with a unit bias captured at redemption) to the ETH sent. NFT can be
-     * redeemed
-     *      for STRAT 120 days from the moment of mint
+     * @notice  Mints NFT capturing presale settlement using the sent ETH and forwards the ETH to the presale multisig.
+     * @dev     STRAT is minted at redemption 1:1 (with a unit bias captured at redemption) to the ETH sent. NFT can be
+     * redeemed for STRAT 120 days from the moment of mint
      */
     function mint() external payable {
         if (msg.value == 0) revert NoEthSent();
 
+        // Mint the STRAT option
+        // When exercised, this will result in:
+        // - `msg.value` STRAT tokens being minted to the caller
+        //
+        // e.g. if 2 ETH (2e18) is provided:
+        // - Strike amount: 0
+        // - Underlying amount: 2e18
+        // - Can be exercised for 0 CDT (total input of 2 ETH + 2e18 CDT) for 2e18 STRAT
         stratOption.mint(
-            msg.sender, // owner
+            msg.sender, // Owner
             0, // Strike amount
             msg.value * UNIT_BIAS, // Underlying amount
             0, // Underlying USD amount, cannot be redeemed
@@ -48,7 +61,7 @@ contract StratPresale {
             block.timestamp + 120 days // Timelock
         );
 
-        // send ETH to presale multisig
+        // Send ETH to presale multisig
         (bool success,) = presaleMultisig.call{value: msg.value}("");
         if (!success) revert EthTransferFailed();
 

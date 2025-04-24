@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
-import "../../src/StratOption.sol";
+import {Test} from "forge-std/Test.sol";
+import {StratOption} from "../../src/StratOption.sol";
+import {TokenURIRenderer} from "../../src/interfaces/TokenURIRenderer.sol";
 
 contract MockRenderer is TokenURIRenderer {
     uint256 public tokenId;
@@ -56,9 +57,19 @@ contract StratOptionTest is Test {
     address internal user = address(0x789);
 
     function setUp() external {
+        // Needed so that historical timestamps can be tested
+        vm.warp(1000000);
+
         vm.prank(owner);
         collection = new StratOption(owner);
     }
+
+    // manageMinter
+    // when the caller is not the owner
+    //  [X] it reverts
+    // when canMint is false
+    //  [X] it removes the minter
+    // [X] it adds the minter
 
     function testOnlyOwnerCanManageMinters() external {
         // Attempting to add a minter from non-owner should fail
@@ -76,6 +87,11 @@ contract StratOptionTest is Test {
         collection.manageMinter(minter, false);
         assertFalse(collection.minters(minter));
     }
+
+    // mint
+    // when the caller is not a minter
+    //  [X] it reverts
+    // [X] it mints the option
 
     function testOnlyMintersCanMint() external {
         // Add minter
@@ -102,6 +118,15 @@ contract StratOptionTest is Test {
         // Check balance
         assertEq(collection.balanceOf(user), 1);
     }
+
+    // burn
+    // when the caller has already burned the option
+    //  [X] it reverts
+    // when the caller is not the owner of the option
+    //  given the owner has not approved the caller
+    //   [X] it reverts
+    //  [X] it burns the option
+    // [X] it burns the option
 
     function testBurnByHolder() external {
         // Owner mints tokens to user
@@ -145,6 +170,11 @@ contract StratOptionTest is Test {
         vm.stopPrank();
     }
 
+    // managerRenderer
+    // when the caller is not the owner
+    //  [X] it reverts
+    // [X] it sets the renderer
+
     function testOnlyOwnerCanSetRenderer() external {
         MockRenderer mock = new MockRenderer(0, 0, 0, 0, 0, 0);
 
@@ -159,6 +189,11 @@ contract StratOptionTest is Test {
         collection.managerRenderer(address(mock));
         vm.stopPrank();
     }
+
+    // tokenURI
+    // when no renderer is set
+    //  [X] it returns an empty string
+    // [X] it returns the renderer's tokenURI
 
     function testTokenURIReturnsEmptyIfNoRendererSet() external {
         vm.startPrank(owner);

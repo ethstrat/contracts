@@ -6,6 +6,8 @@ import "../../src/StratPresale.sol";
 import "../../src/StratOption.sol";
 
 contract StratPresaleTest is Test {
+    event PresaleMint(address indexed from, uint256 value);
+
     StratPresale private presale;
     StratOption private stratOption;
     address presaleMultisig = address(0x123);
@@ -19,6 +21,13 @@ contract StratPresaleTest is Test {
         vm.stopPrank();
     }
 
+    // when no ETH is sent
+    //  [X] it reverts
+    // [X] it mints the STRAT option to the caller
+    // [X] it does not mint CDT tokens to the caller
+    // [X] it sends the ETH to the presale multisig
+    // [X] it emits a PresaleMint event
+
     function testMintRevertsIfNoEthSent() public {
         vm.expectRevert(abi.encodeWithSelector(StratPresale.NoEthSent.selector));
         presale.mint();
@@ -27,6 +36,10 @@ contract StratPresaleTest is Test {
     function testMintSuccessfully() public {
         uint256 valueToSend = 2 ether;
         vm.deal(address(this), valueToSend);
+
+        vm.expectEmit();
+        emit PresaleMint(address(this), valueToSend);
+
         presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, valueToSend);

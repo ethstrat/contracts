@@ -4,12 +4,13 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
 import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
+import {Permit} from "../../src/lib/Permit.sol";
+import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-import "../../src/StratOptionRedeemUSDNotional.sol";
-import "../../src/StratOption.sol";
-import "../../src/CdtToken.sol";
-import "../../src/StratToken.sol";
-import "../../src/interfaces/ITreasury.sol";
+import {StratOptionRedeemUSDNotional} from "../../src/StratOptionRedeemUSDNotional.sol";
+import {StratOption} from "../../src/StratOption.sol";
+import {CdtToken} from "../../src/CdtToken.sol";
+import {StratToken} from "../../src/StratToken.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
 import {MockTreasury} from "../mocks/MockTreasury.sol";
