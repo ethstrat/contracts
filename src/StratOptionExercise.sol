@@ -50,7 +50,7 @@ contract StratOptionExercise {
         if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
 
         // Check that the timelock period has passed.
-        if (stratOption.timelock(tokenId) > block.timestamp) {
+        if (timelock > block.timestamp) {
             revert TimelockActive(msg.sender, tokenId);
         }
 
