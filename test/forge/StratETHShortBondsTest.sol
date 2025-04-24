@@ -145,9 +145,13 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
     // [X] the CDT is burned
     // [X] the owner of the option is the bonder
 
-    function test_bond() public {
+    function testBond() public {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
+
+        // Calculate the expected underlying amount
+        uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
+        assertEq(expectedUnderlyingAmount, 222166666666666666, "Incorrect expected underlying amount");
 
         cdtToken.approve(address(bonds), cdtAmount);
         bonds.bond(user, cdtAmount);
@@ -162,8 +166,11 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         assertEq(stratOption.strikeAmount(tokenId), 0, "Strike should be 0");
         assertEq(stratOption.notionalUSDAmount(tokenId), 0, "notional USD amount should be 0");
         assertEq(
-            stratOption.notionalUnderlyingAmount(tokenId), 222166666666666666, "Incorrect notional underlying amount"
+            stratOption.notionalUnderlyingAmount(tokenId),
+            expectedUnderlyingAmount,
+            "Incorrect notional underlying amount"
         );
+        assertEq(stratOption.notionalUnderlyingAmount(tokenId), stratToken.balanceOf(bondConverter));
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
         assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
