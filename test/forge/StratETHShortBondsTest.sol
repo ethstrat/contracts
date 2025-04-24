@@ -90,6 +90,12 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         assertEq(bonds.bcv(), 5, "BCV should be updated to 5000");
     }
 
+    function testBondRevertIfNoCDTSent() public {
+        vm.prank(user);
+        vm.expectRevert("Amount must be greater than 0");
+        bonds.bond(user, 0); // Should revert because no CDT is sent
+    }
+
     // strikePrice
     // [X] the strike price is calculated correctly
 
@@ -139,42 +145,6 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
     // [X] the CDT is burned
     // [X] the owner of the option is the bonder
 
-    function test_bond_noAmount_reverts() public {
-        vm.prank(user);
-        vm.expectRevert("Amount must be greater than 0");
-        bonds.bond(user, 0); // Should revert because no CDT is sent
-    }
-
-    function test_bond_cdtSpendingNotApproved_reverts() public {
-        uint256 cdtAmount = 1000 ether;
-
-        // Mint CDT to the user
-        vm.prank(owner);
-        cdtToken.mint(user, cdtAmount);
-
-        // Expect revert
-        vm.expectRevert(
-            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(bonds), 0, cdtAmount)
-        );
-
-        vm.prank(user);
-        bonds.bond(user, cdtAmount);
-    }
-
-    function test_bond_cdtBalanceInsufficient_reverts() public {
-        uint256 cdtAmount = 1000 ether;
-
-        // Approve spending of CDT
-        vm.prank(user);
-        cdtToken.approve(address(bonds), cdtAmount);
-
-        // Expect revert
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user, 0, cdtAmount));
-
-        vm.prank(user);
-        bonds.bond(user, cdtAmount);
-    }
-
     function test_bond() public {
         uint256 startingCdtSupply = cdtToken.totalSupply();
         uint256 cdtAmount = 1000 ether;
@@ -216,6 +186,36 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
                 "Each subsequent bond should have less notional than the previous"
             );
         }
+    }
+
+    function test_bond_cdtSpendingNotApproved_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Mint CDT to the user
+        vm.prank(owner);
+        cdtToken.mint(user, cdtAmount);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(bonds), 0, cdtAmount)
+        );
+
+        vm.prank(user);
+        bonds.bond(user, cdtAmount);
+    }
+
+    function test_bond_cdtBalanceInsufficient_reverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        // Approve spending of CDT
+        vm.prank(user);
+        cdtToken.approve(address(bonds), cdtAmount);
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user, 0, cdtAmount));
+
+        vm.prank(user);
+        bonds.bond(user, cdtAmount);
     }
 
     // bondWithPermit

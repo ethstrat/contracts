@@ -90,6 +90,19 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
         assertEq(bonds.gcf(), 5, "GCF should be updated to 5");
     }
 
+    function testBondRevertIfNoETHSent() public {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.NoEthSent.selector));
+        bonds.bond(user);
+    }
+
+    function testBondRevertIfBonderAddressIsZero() public {
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.ZeroAddress.selector));
+        bonds.bond{value: 1 ether}(address(0));
+    }
+
     // strikePrice
     // [X] the strike price is calculated correctly
 
@@ -114,19 +127,6 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
     // [X] the timelock is 69 minutes from now
     // [X] the owner of the option is the bonder
     // [X] the treasury receives the ETH
-
-    function testBondRevertIfNoETHSent() public {
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.NoEthSent.selector));
-        bonds.bond(user);
-    }
-
-    function testBondRevertIfBonderAddressIsZero() public {
-        vm.deal(user, 1 ether);
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.ZeroAddress.selector));
-        bonds.bond{value: 1 ether}(address(0));
-    }
 
     function testFuzz_strikePriceWithPCFandGCFupdates(uint256 pcf, uint256 gcf) public {
         pcf = bound(pcf, 1.5e18, 2e18);
