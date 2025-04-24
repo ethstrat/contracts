@@ -50,9 +50,7 @@ contract MintableBurnableToken is ERC20Permit, Ownable2Step {
      * @param amount Number of tokens to be burned.
      */
     function burnFrom(address from, uint256 amount) external {
-        uint256 currentAllowance = allowance(from, msg.sender);
-        require(currentAllowance >= amount, "ERC20: burn amount exceeds allowance");
-        _approve(from, msg.sender, currentAllowance - amount);
+        _spendAllowance(from, msg.sender, amount);
         _burn(from, amount);
     }
 

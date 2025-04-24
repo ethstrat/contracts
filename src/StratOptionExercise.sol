@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {IERC20MintableBurnable} from "./interfaces/IERC20.sol";
-import {StratOption} from "./StratOption.sol";
+import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {Permit} from "./lib/Permit.sol";
 
 /**
  * @title StratOptionExercise
@@ -13,10 +14,12 @@ import {StratOption} from "./StratOption.sol";
  *      STRAT tokens (with unit bias) to the option owner, and burns the STRAT option token.
  */
 contract StratOptionExercise {
+    using Permit for IERC20MintableBurnablePermit;
+
     // Immutable references to the CDT and STRAT tokens, and the STRAT option contract.
-    IERC20MintableBurnable public immutable cdtToken;
+    IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
-    StratOption public immutable stratOption;
+    IStratOptionMinter public immutable stratOption;
 
     // Custom errors to provide clear failure reasons.
     error NotOwnerOrApproved(address account, uint256 tokenId);
@@ -33,19 +36,18 @@ contract StratOptionExercise {
      * @param _stratOption The address of the STRAT option contract.
      */
     constructor(address _cdtToken, address _stratToken, address _stratOption) {
-        cdtToken = IERC20MintableBurnable(_cdtToken);
+        cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
-        stratOption = StratOption(_stratOption);
+        stratOption = IStratOptionMinter(_stratOption);
     }
 
     /**
-     * @notice Exercises an option if it is not under a timelock and not expired.
-     * @dev    The function can be called by the option owner or an another address (as long as the option owner
-     *         has granted approval)
+     * @notice Exercises an option if it is not under a timelock and not expired, using an ERC-2612 permit.
      *
      * @param tokenId The identifier of the STRAT option token to exercise.
+     * @param cdtPermitApproval The permit approval for the CDT tokens.
      */
-    function exercise(uint256 tokenId) external {
+    function exerciseWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) public {
         uint256 timelock = stratOption.timelock(tokenId);
         if (timelock == 0) revert InvalidTokenId(msg.sender, tokenId);
 
@@ -66,17 +68,29 @@ contract StratOptionExercise {
         uint256 strike = stratOption.strikeAmount(tokenId);
         uint256 strat = stratOption.notionalUnderlyingAmount(tokenId);
 
-        // Burn the corresponding amount from the sender and mint the underlying token for the option owner.
+        // Burn the corresponding amount from the sender
+        cdtToken.validatePermit(msg.sender, address(this), strike, cdtPermitApproval);
         cdtToken.burnFrom(msg.sender, strike);
+        stratOption.burn(tokenId);
+
+        // mint the underlying token for the option owner.
         uint256 premintedStratBalance = stratToken.balanceOf(address(this));
         if (premintedStratBalance < strat) {
             // Mint the required amount of STRAT tokens to this contract.
             stratToken.mint(address(this), strat - premintedStratBalance);
         }
         stratToken.transfer(optionOwner, strat);
-        stratOption.burn(tokenId);
 
         // Emit event on successful exercise.
         emit OptionExercised(optionOwner, tokenId, strike, strat);
+    }
+
+    /**
+     * @notice Exercises an option if it is not under a timelock and not expired.
+     *
+     * @param tokenId The identifier of the STRAT option token to exercise.
+     */
+    function exercise(uint256 tokenId) external {
+        exerciseWithPermit(tokenId, Permit.getEmptyApproval());
     }
 }

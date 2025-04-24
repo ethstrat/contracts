@@ -2,28 +2,27 @@
 pragma solidity 0.8.20;
 
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
-import {IOracle} from "./interfaces/IOracle.sol";
+import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
+import {StratEthPriceFeedConsumer} from "./lib/StratEthPriceFeedConsumer.sol";
 
-import "forge-std/console.sol";
+import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {Permit} from "./lib/Permit.sol";
 
 /**
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
-contract StratETHShortBonds is Ownable2Step {
-    IERC20MintableBurnable public immutable cdtToken;
-    IERC20MintableBurnable public immutable stratToken;
+contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPriceFeedConsumer {
+    using Permit for IERC20MintableBurnablePermit;
+
+    IERC20MintableBurnablePermit public immutable cdtToken;
     IStratOptionMinter public immutable stratOption;
-    IOracle public immutable ethUsdOracle;
-    IOracle public immutable stratEthOracle;
     address public immutable bondConverter;
 
     uint256 public bcv;
 
-    uint256 public immutable SCALE = 1e18;
-    uint256 public immutable USD_ORACLE_SCALE;
+    uint256 public constant SCALE = 1e18;
 
     event UpdateBCV(uint256 newBcv);
     event ShortBond(address indexed bonder, uint256 cdt, uint256 strat, uint256 expiry, uint256 timelock);
@@ -34,6 +33,7 @@ contract StratETHShortBonds is Ownable2Step {
      * @param _stratOption The STRAT option
      * @param _ethUsdOracle The ETH/USD oracle
      * @param _stratEthOracle The STRAT/ETH oracle
+     * @param _bondConverter The address where short bond holders will eventually convert their bonds to STRAT
      * @param _bcv The bond conversion value, scaled by SCALE
      * @param owner The owner
      */
@@ -46,16 +46,10 @@ contract StratETHShortBonds is Ownable2Step {
         address _bondConverter,
         uint256 _bcv,
         address owner
-    ) Ownable(owner) {
-        cdtToken = IERC20MintableBurnable(_cdtToken);
-        stratToken = IERC20MintableBurnable(_stratToken);
+    ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) StratEthPriceFeedConsumer(_stratEthOracle, _stratToken) {
+        cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratOption = IStratOptionMinter(_stratOption);
-        ethUsdOracle = IOracle(_ethUsdOracle);
-        stratEthOracle = IOracle(_stratEthOracle);
         bondConverter = _bondConverter;
-
-        USD_ORACLE_SCALE = 10 ** ethUsdOracle.quoteTokenDecimals();
-        require(stratEthOracle.quoteTokenDecimals() == 18, "StratEthOracle must have 18 decimals");
 
         bcv = _bcv;
     }
@@ -65,7 +59,7 @@ contract StratETHShortBonds is Ownable2Step {
         emit UpdateBCV(_newBcv);
     }
 
-    function bond(address bonder, uint256 amount) external {
+    function bondWithPermit(address bonder, uint256 amount, Permit.IPermitApproval memory cdtPermitApproval) public {
         require(amount > 0, "Amount must be greater than 0");
         uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
 
@@ -73,18 +67,22 @@ contract StratETHShortBonds is Ownable2Step {
             bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
         );
 
+        cdtToken.validatePermit(msg.sender, address(this), amount, cdtPermitApproval);
         cdtToken.burnFrom(msg.sender, amount);
-        stratToken.mint(bondConverter, notionalUnderlyingAmount);
+        STRAT.mint(bondConverter, notionalUnderlyingAmount);
 
         emit ShortBond(
             bonder, amount, notionalUnderlyingAmount, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
         );
     }
 
+    function bond(address bonder, uint256 amount) external {
+        bondWithPermit(bonder, amount, Permit.getEmptyApproval());
+    }
+
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {
-        uint256 stratPrice = stratEthOracle.price() * ethUsdOracle.price() / USD_ORACLE_SCALE;
-        //TODO(nap): Do we neeed to price by taking into account the expected cdt burn?
-        return stratPrice * stratToken.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
-            * stratPrice / SCALE / SCALE;
+        uint256 stratUsdPrice = _getStratEthPrice() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
+        return stratUsdPrice * STRAT.totalSupply() / (cdtToken.totalSupply() - (notionalUSDAmount / 2)) * bcv
+            * stratUsdPrice / SCALE / SCALE;
     }
 }

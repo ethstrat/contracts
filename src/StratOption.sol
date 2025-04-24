@@ -4,13 +4,14 @@ pragma solidity 0.8.20;
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
+import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
 
 /**
  * @title A call option over strat.
  * @dev Primarily used to represent the option part of issued convertible notes,
  * as well as during the presale and to bootstrap the DAO
  */
-contract StratOption is ERC721, Ownable2Step {
+contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
     uint256 public _tokenIdCounter;
 
     uint256 public constant SCALE = 1e18;
@@ -45,10 +46,11 @@ contract StratOption is ERC721, Ownable2Step {
 
     mapping(address => bool) public minters;
 
-    error MinterUnauthorizedAccount(address account);
-    error NotOwnerOrApproved(address account, uint256 tokenId);
-
     address public tokenURIRenderer;
+
+    error MinterUnauthorizedAccount(address account);
+
+    event MinterUpdated(address indexed minter, bool canMint);
 
     constructor(address owner) ERC721("STRAT Option", "oSTRAT") Ownable(owner) {
         _tokenIdCounter = 1;
@@ -59,6 +61,7 @@ contract StratOption is ERC721, Ownable2Step {
      */
     function manageMinter(address who, bool canMint) external onlyOwner {
         minters[who] = canMint;
+        emit MinterUpdated(who, canMint);
     }
 
     /**
@@ -86,9 +89,7 @@ contract StratOption is ERC721, Ownable2Step {
     }
 
     function burn(uint256 tokenId) external {
-        if (ownerOf(tokenId) != msg.sender && getApproved(tokenId) != msg.sender) {
-            revert NotOwnerOrApproved(msg.sender, tokenId);
-        }
+        _checkAuthorized(ownerOf(tokenId), msg.sender, tokenId);
 
         strikeAmount[tokenId] = 0;
         notionalUnderlyingAmount[tokenId] = 0;
@@ -99,7 +100,7 @@ contract StratOption is ERC721, Ownable2Step {
         _burn(tokenId);
     }
 
-    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
             return TokenURIRenderer(tokenURIRenderer).render(
@@ -113,6 +114,14 @@ contract StratOption is ERC721, Ownable2Step {
         } else {
             return "";
         }
+    }
+
+    function balanceOf(address owner) public view override(ERC721, IStratOptionMinter) returns (uint256) {
+        return super.balanceOf(owner);
+    }
+
+    function ownerOf(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (address) {
+        return super.ownerOf(tokenId);
     }
 
     /**
