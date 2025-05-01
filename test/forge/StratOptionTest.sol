@@ -145,6 +145,37 @@ contract StratOptionTest is Test {
         vm.stopPrank();
     }
 
+    struct InvalidTimelockOrExpiry_Cases {
+        uint256 timelock;
+        uint256 expiry;
+    }
+
+    function testInvalidTimelockOrExpiryReverts() external {
+        // Attempt to mint with invalid timelock or expiry
+        vm.startPrank(owner);
+        collection.manageMinter(owner, true);
+
+        vm.warp(block.timestamp + 200);
+        InvalidTimelockOrExpiry_Cases[] memory testCases = new InvalidTimelockOrExpiry_Cases[](3);
+        testCases[0] = InvalidTimelockOrExpiry_Cases(block.timestamp - 100, block.timestamp - 100); // Both in the past
+        testCases[1] = InvalidTimelockOrExpiry_Cases(block.timestamp + 100, block.timestamp - 100); // Expiry in the
+            // past
+        testCases[2] = InvalidTimelockOrExpiry_Cases(block.timestamp - 100, block.timestamp + 100); // Timelock in the
+            // past
+
+        for (uint256 i = 0; i < testCases.length; i++) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    StratOption.InvalidTimelockOrExpiry.selector, testCases[i].timelock, testCases[i].expiry
+                )
+            );
+            collection.mint(user, 1, 1, 3000, testCases[i].expiry, testCases[i].timelock);
+        }
+
+        // finally, a valid case shouldn't revert
+        collection.mint(user, 1, 1, 3000, block.timestamp, block.timestamp);
+    }
+
     function testOnlyOwnerCanSetRenderer() external {
         MockRenderer mock = new MockRenderer(0, 0, 0, 0, 0, 0);
 

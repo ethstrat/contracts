@@ -39,6 +39,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOption {
     address public tokenURIRenderer;
 
     error MinterUnauthorizedAccount(address account);
+    error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
 
     event MinterUpdated(address indexed minter, bool canMint);
 
@@ -69,6 +70,11 @@ contract StratOption is ERC721, Ownable2Step, IStratOption {
         uint256 _expiry,
         uint256 _timelock
     ) external onlyMinter {
+        // minimal checks (NOTE: it's the caller's responsibility to ensure the values are correct)
+        if (block.timestamp > _timelock || _timelock > _expiry) {
+            revert InvalidTimelockOrExpiry(_timelock, _expiry);
+        }
+
         uint256 tokenId = _tokenIdCounter++;
         _mint(to, tokenId);
         strikeAmount[tokenId] = _strikeAmount;
