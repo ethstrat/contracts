@@ -418,7 +418,15 @@ contract StratOptionExerciseTest is Test, PermitGenerator {
             cdtToken.DOMAIN_SEPARATOR()
         );
 
-        // Exercise as new user
+        // Exercise as newUser should fail, as they aren't an operator
+        vm.prank(newUser);
+        vm.expectRevert(abi.encodeWithSelector(StratOptionExercise.NotOwnerOrApproved.selector, newUser, 2));
+        optionExercise.exerciseWithPermit(2, permitApproval);
+
+        // Exercise as new user only if the option owner has granted
+        // newUser as an operator
+        vm.prank(permitOwner);
+        stratOption.setApprovalForAll(newUser, true);
         vm.prank(newUser);
         optionExercise.exerciseWithPermit(2, permitApproval);
 
@@ -448,6 +456,9 @@ contract StratOptionExerciseTest is Test, PermitGenerator {
         // Give new user CDT
         vm.prank(owner);
         cdtToken.mint(newUser, cdtAmount);
+
+        vm.prank(permitOwner);
+        stratOption.setApprovalForAll(newUser, true);
 
         // Do NOT approve CDT burn
 

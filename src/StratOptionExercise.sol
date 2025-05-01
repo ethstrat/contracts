@@ -60,6 +60,11 @@ contract StratOptionExercise {
         // Retrieve the owner of the option token.
         address optionOwner = stratOption.ownerOf(tokenId);
 
+        // Check that the sender is either the owner or approved for the option token.
+        if (msg.sender != optionOwner && !stratOption.isApprovedForAll(optionOwner, msg.sender)) {
+            revert NotOwnerOrApproved(msg.sender, tokenId);
+        }
+
         // Retrieve strike and underlying amounts.
         uint256 strike = stratOption.strikeAmount(tokenId);
         uint256 strat = stratOption.notionalUnderlyingAmount(tokenId);

@@ -64,6 +64,11 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
         uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         address optionOwner = stratOption.ownerOf(tokenId);
 
+        // Check the caller is either the option owner, or operator
+        if (msg.sender != optionOwner && !stratOption.isApprovedForAll(optionOwner, msg.sender)) {
+            revert NotOwnerOrApproved(msg.sender, tokenId);
+        }
+
         // Burn CDT and STRAT option
         cdtToken.validatePermit(msg.sender, address(this), notionalUSDAmount, cdtPermitApproval);
         cdtToken.burnFrom(msg.sender, notionalUSDAmount);

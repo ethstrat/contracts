@@ -114,6 +114,15 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
         return super.ownerOf(tokenId);
     }
 
+    function isApprovedForAll(address owner, address operator)
+        public
+        view
+        override(ERC721, IStratOptionMinter)
+        returns (bool)
+    {
+        return super.isApprovedForAll(owner, operator);
+    }
+
     /**
      * @dev Throws if called by any account other than a minter.
      */

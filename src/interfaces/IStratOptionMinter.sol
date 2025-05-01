@@ -16,6 +16,8 @@ interface IStratOptionMinter {
 
     function ownerOf(uint256 tokenId) external view returns (address);
 
+    function isApprovedForAll(address owner, address operator) external view returns (bool);
+
     function balanceOf(address owner) external view returns (uint256);
 
     function burn(uint256 tokenId) external;
