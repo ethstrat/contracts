@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.0;
 
-interface IStratOptionMinter {
+interface IStratOption {
     function strikeAmount(uint256 tokenId) external view returns (uint256);
 
     function notionalUnderlyingAmount(uint256 tokenId) external view returns (uint256);

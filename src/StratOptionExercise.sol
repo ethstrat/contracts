@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {Permit} from "./lib/Permit.sol";
 
 /**
@@ -19,7 +19,7 @@ contract StratOptionExercise {
     // Immutable references to the CDT and STRAT tokens, and the STRAT option contract.
     IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
 
     // Custom errors to provide clear failure reasons.
     error NotOwnerOrApproved(address account, uint256 tokenId);
@@ -37,7 +37,7 @@ contract StratOptionExercise {
     constructor(address _cdtToken, address _stratToken, address _stratOption) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
     }
 
     /**

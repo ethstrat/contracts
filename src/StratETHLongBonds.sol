@@ -5,7 +5,7 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
 
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
@@ -16,7 +16,7 @@ import {ITreasury} from "./interfaces/ITreasury.sol";
 contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
     ITreasury public immutable treasury;
     address immutable treasuryVault;
 
@@ -66,7 +66,7 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
     ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20(_stratToken);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
         treasury = ITreasury(_treasury);
         treasuryVault = _treasuryVault;
 

@@ -3,7 +3,7 @@ pragma solidity 0.8.20;
 
 import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
 
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
@@ -16,7 +16,7 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     ITreasury public immutable treasury;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
@@ -36,7 +36,7 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
     {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         treasury = ITreasury(_treasury);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
     }
 
     /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid

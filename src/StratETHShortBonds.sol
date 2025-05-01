@@ -6,7 +6,7 @@ import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
 import {StratEthPriceFeedConsumer} from "./lib/StratEthPriceFeedConsumer.sol";
 
 import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {Permit} from "./lib/Permit.sol";
 
 /**
@@ -17,7 +17,7 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
     address public immutable bondConverter;
 
     uint256 public bcv;
@@ -48,7 +48,7 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
         address owner
     ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) StratEthPriceFeedConsumer(_stratEthOracle, _stratToken) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
         bondConverter = _bondConverter;
 
         bcv = _bcv;
