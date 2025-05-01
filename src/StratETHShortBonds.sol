@@ -27,6 +27,10 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
     event UpdateBCV(uint256 newBcv);
     event ShortBond(address indexed bonder, uint256 cdt, uint256 strat, uint256 expiry, uint256 timelock);
 
+    error ZeroAmount();
+    error TransactionStale(uint256 deadline);
+    error InsufficientOutput(uint256 minNotionalUnderlyingAmount, uint256 notionalUnderlyingAmount);
+
     /**
      * @param _cdtToken The CDT token
      * @param _stratToken The STRAT token
@@ -59,9 +63,21 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
         emit UpdateBCV(_newBcv);
     }
 
-    function bondWithPermit(address bonder, uint256 amount, Permit.IPermitApproval memory cdtPermitApproval) public {
-        require(amount > 0, "Amount must be greater than 0");
+    function bondWithPermit(
+        address bonder,
+        uint256 amount,
+        uint256 minNotionalUnderlyingAmount,
+        uint256 deadline,
+        Permit.IPermitApproval memory cdtPermitApproval
+    ) public {
+        if (deadline < block.timestamp) revert TransactionStale(deadline);
+        if (amount == 0) revert ZeroAmount();
+        if (deadline < block.timestamp) revert TransactionStale(deadline);
+
         uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
+        if (notionalUnderlyingAmount < minNotionalUnderlyingAmount) {
+            revert InsufficientOutput(minNotionalUnderlyingAmount, notionalUnderlyingAmount);
+        }
 
         stratOption.mint(
             bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
@@ -76,8 +92,8 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
         );
     }
 
-    function bond(address bonder, uint256 amount) external {
-        bondWithPermit(bonder, amount, Permit.getEmptyApproval());
+    function bond(address bonder, uint256 amount, uint256 minNotionalUnderlyingAmount, uint256 deadline) external {
+        bondWithPermit(bonder, amount, minNotionalUnderlyingAmount, deadline, Permit.getEmptyApproval());
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {

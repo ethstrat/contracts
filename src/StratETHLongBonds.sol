@@ -41,6 +41,8 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
     error NoEthSent();
     error ZeroAddress();
     error EthTransferFailed();
+    error TransactionStale(uint256 deadline);
+    error InsufficientOutput(uint256 minNotionalUnderlyingAmount, uint256 notionalUnderlyingAmount);
 
     /**
      * @param _cdtToken The CDT token
@@ -94,15 +96,21 @@ contract StratETHLongBonds is Ownable2Step, EthUsdPriceFeedConsumer {
         gcf = newVal;
     }
 
-    function bond(address bonder) external payable {
+    function bond(address bonder, uint256 minNotionalUnderlyingAmount, uint256 deadline) external payable {
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
+        if (deadline < block.timestamp) revert TransactionStale(deadline);
 
         // redemption
         uint256 notionalUSDAmount = msg.value * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
         uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
         uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // Scale: 18
             // decimals (since strikePrice is always 18 decimals)
+
+        // Check that the notional underlying amount is greater than the minimum
+        if (notionalUnderlyingAmount < minNotionalUnderlyingAmount) {
+            revert InsufficientOutput(minNotionalUnderlyingAmount, notionalUnderlyingAmount);
+        }
 
         stratOption.mint(
             bonder, // Option owner
