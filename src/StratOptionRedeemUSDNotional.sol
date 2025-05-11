@@ -71,8 +71,6 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
 
         // Burn CDT and STRAT option
         cdtToken.validatePermit(msg.sender, address(this), notionalUSDAmount, cdtPermitApproval);
-        cdtToken.burnFrom(msg.sender, notionalUSDAmount);
-        stratOption.burn(tokenId);
 
         uint256 ethAmount = 0;
         if (treasuryInUSD > cdtToken.totalSupply()) {
@@ -80,6 +78,10 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
         } else {
             ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
+
+        //@dev Moved this section to aftet the ethAmount calculation
+        cdtToken.burnFrom(msg.sender, notionalUSDAmount);
+        stratOption.burn(tokenId);
 
         treasury.withdraw(ethAmount, optionOwner);
         emit OptionRedeemed(optionOwner, tokenId, notionalUSDAmount, ethAmount);
