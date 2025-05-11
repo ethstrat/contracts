@@ -42,6 +42,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOption {
     error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
 
     event MinterUpdated(address indexed minter, bool canMint);
+    event RendererUpdated(address indexed renderer);
 
     constructor(address owner) ERC721("STRAT Option", "oSTRAT") Ownable(owner) {
         _tokenIdCounter = 1;
@@ -60,6 +61,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOption {
      */
     function managerRenderer(address renderer) external onlyOwner {
         tokenURIRenderer = renderer;
+        emit RendererUpdated(renderer);
     }
 
     function mint(

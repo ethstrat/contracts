@@ -17,6 +17,11 @@ contract StratTreasury is Ownable2Step {
     error WithdrawUnauthorizedAccount(address account);
     error WithdrawFailed(address account);
 
+    event Withdraw(address indexed caller, address indexed to, uint256 amount);
+    event WithdrawerUpdated(address who, bool status);
+    event TreasuryVaultUpdated(address vault);
+    event DeployedEthUpdated(uint256 amount);
+
     constructor(address vault, address owner) Ownable(owner) {
         treasuryVault = vault;
     }
@@ -26,6 +31,7 @@ contract StratTreasury is Ownable2Step {
      */
     function manageWithdrawer(address who, bool enabled) external onlyOwner {
         canWithdraw[who] = enabled;
+        emit WithdrawerUpdated(who, enabled);
     }
 
     /**
@@ -33,6 +39,7 @@ contract StratTreasury is Ownable2Step {
      */
     function setTreasuryVault(address vault) external onlyOwner {
         treasuryVault = vault;
+        emit TreasuryVaultUpdated(vault);
     }
 
     /**
@@ -40,6 +47,7 @@ contract StratTreasury is Ownable2Step {
      */
     function setDeployedEth(uint256 amount) external onlyOwner {
         totalDeployedEth = amount;
+        emit DeployedEthUpdated(amount);
     }
 
     function withdraw(uint256 amount, address to) external {
@@ -47,6 +55,8 @@ contract StratTreasury is Ownable2Step {
 
         (bool success,) = to.call{value: amount}("");
         if (!success) revert WithdrawFailed(msg.sender);
+
+        emit Withdraw(msg.sender, to, amount);
     }
 
     function total() external view returns (uint256) {
