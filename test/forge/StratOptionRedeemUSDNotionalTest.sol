@@ -89,8 +89,8 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator, EthUsdPriceO
     function testRedeemSuccessTreasuryLtDebt() public {
         // Move time beyond timelock and expiry
         vm.warp(block.timestamp + 3601);
-
-        ethUsdOracle.setBasePerQuote(0.5e18);
+        // Set price to 7.5.  This will pass if CDT is burnt after, fail if CDT is calculated before
+        ethUsdOracle.setBasePerQuote(7.5e18);
 
         vm.startPrank(user);
 
