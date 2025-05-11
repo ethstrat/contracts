@@ -10,6 +10,8 @@ contract StratPresaleTest is Test {
     StratOption private stratOption;
     address presaleMultisig = address(0x123);
     address internal owner = address(0x123);
+    address internal user1 = address(0x1111);
+    address internal user2 = address(0x2222);
 
     function setUp() public {
         vm.startPrank(owner);
@@ -20,27 +22,29 @@ contract StratPresaleTest is Test {
     }
 
     function testMintRevertsIfNoEthSent() public {
+        vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(StratPresale.NoEthSent.selector));
         presale.mint();
+        vm.stopPrank();
     }
 
     function testMintSuccessfully() public {
         uint256 valueToSend = 2 ether;
-        vm.deal(address(this), valueToSend);
+        vm.deal(user1, valueToSend);
+        vm.startPrank(user1);
+
         presale.mint{value: valueToSend}();
 
         assertEq(presaleMultisig.balance, valueToSend);
-        assertEq(address(this).balance, 0);
+        assertEq(user1.balance, 0);
 
         checkPresaleNFTInvariants(1, 20_000 ether);
-        assertEq(stratOption.balanceOf(address(this)), 1);
+        assertEq(stratOption.balanceOf(user1), 1);
         assertEq(presaleMultisig.balance, 2 ether);
+        vm.stopPrank();
     }
 
     function testMultiplePresalers() public {
-        address user1 = address(0x1111);
-        address user2 = address(0x2222);
-
         vm.deal(user1, 5 ether);
         vm.deal(user2, 5 ether);
 

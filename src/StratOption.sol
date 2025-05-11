@@ -78,7 +78,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOption {
         }
 
         uint256 tokenId = _tokenIdCounter++;
-        _mint(to, tokenId);
+        _safeMint(to, tokenId);
         strikeAmount[tokenId] = _strikeAmount;
         notionalUnderlyingAmount[tokenId] = _notionalUnderlyingAmount;
         notionalUSDAmount[tokenId] = _notionalUSDAmount;
