@@ -16,6 +16,7 @@ contract StratTreasury is Ownable2Step {
 
     error WithdrawUnauthorizedAccount(address account);
     error WithdrawFailed(address account);
+    error ZeroAddress();
 
     event Withdraw(address indexed caller, address indexed to, uint256 amount);
     event WithdrawerUpdated(address who, bool status);
@@ -52,6 +53,7 @@ contract StratTreasury is Ownable2Step {
 
     function withdraw(uint256 amount, address to) external {
         if (canWithdraw[msg.sender] == false) revert WithdrawUnauthorizedAccount(msg.sender);
+        if (to == address(0)) revert ZeroAddress();
 
         (bool success,) = to.call{value: amount}("");
         if (!success) revert WithdrawFailed(msg.sender);
