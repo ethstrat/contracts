@@ -45,7 +45,7 @@ contract StratPresale {
             msg.value * UNIT_BIAS, // Underlying amount
             0, // Underlying USD amount, cannot be redeemed
             block.timestamp + (420 * 365 days), // Expiry
-            block.timestamp + 120 days // Timelock
+            block.timestamp // no timelock for presale. Vest is handled seperately
         );
 
         // send ETH to presale multisig

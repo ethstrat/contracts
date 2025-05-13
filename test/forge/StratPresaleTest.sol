@@ -77,10 +77,10 @@ contract StratPresaleTest is Test {
         assertEq(stratOption.notionalUnderlyingAmount(tokenId), expectedNotionalUnderlyingAmount);
         assertEq(stratOption.notionalUSDAmount(tokenId), 0);
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days));
-        assertEq(stratOption.timelock(tokenId), block.timestamp + (120 days));
+        assertEq(stratOption.timelock(tokenId), block.timestamp); // no timelock for presale
 
         assertGt(stratOption.expiry(tokenId), stratOption.timelock(tokenId));
         assertGt(stratOption.expiry(tokenId), block.timestamp);
-        assertGt(stratOption.timelock(tokenId), block.timestamp);
+        assertGe(stratOption.timelock(tokenId), block.timestamp); // no timelock for presale
     }
 }
