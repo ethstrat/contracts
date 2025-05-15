@@ -149,10 +149,10 @@ contract PresaleTokenRenderer is ITokenURIRenderer {
                 "Presale STRAT locked up for 6 months",
                 ' <animate additive="sum" attributeName="startOffset" from="0%" to="100%" begin="0s" dur="30s" repeatCount="indefinite" /> </textPath>',
                 '<textPath startOffset="50%" fill="black" font-family="monospace" font-size="10px" xlink:href="#text-path-a">',
-                "STRAT vests for 3 months after presale",
+                "STRAT vests for 3 months after lockup",
                 ' <animate additive="sum" attributeName="startOffset" from="0%" to="100%" begin="0s" dur="30s"',
                 ' repeatCount="indefinite" /></textPath><textPath startOffset="-50%" fill="black" font-family="monospace" font-size="10px" xlink:href="#text-path-a">',
-                "STRAT vests for 3 months after presale",
+                "STRAT vests for 3 months after lockup",
                 ' <animate additive="sum" attributeName="startOffset" from="0%" to="100%" begin="0s" dur="30s" repeatCount="indefinite" /></textPath></text>'
             )
         );
