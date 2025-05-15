@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {ITokenURIRenderer} from "../interfaces/ITokenURIRenderer.sol";
+import {TokenURIRenderer} from "../interfaces/TokenURIRenderer.sol";
 
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {DecimalString} from "./DecimalString.sol";
@@ -10,7 +10,7 @@ import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 
 /// @title PresaleTokenRenderer
 /// @notice Renders the token URI for the presale token
-contract PresaleTokenRenderer is ITokenURIRenderer {
+contract PresaleTokenRenderer is TokenURIRenderer {
     function renderSvg(uint256, uint256, uint256 notionalUnderlyingAmount, uint256, uint256, uint256 timelock)
         public
         view

@@ -2,10 +2,10 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {ITokenURIRenderer} from "../../src/interfaces/ITokenURIRenderer.sol";
+import {TokenURIRenderer} from "../../src/interfaces/TokenURIRenderer.sol";
 import "../../src/StratOption.sol";
 
-contract MockRenderer is ITokenURIRenderer {
+contract MockRenderer is TokenURIRenderer {
     uint256 public tokenId;
     uint256 public strikeAmount;
     uint256 public notionalUnderlyingAmount;
