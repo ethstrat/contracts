@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 
 /**
  * @title StratPresale Contract
@@ -11,7 +11,7 @@ import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
  */
 contract StratPresale {
     /// @dev the option minter
-    IStratOptionMinter public stratOption;
+    IStratOption public stratOption;
 
     /// @dev The gnosis multisig dev that receives the funds collected during the presale.
     address public immutable presaleMultisig;
@@ -26,7 +26,7 @@ contract StratPresale {
     uint256 public constant UNIT_BIAS = 10_000;
 
     constructor(address _stratOption, address _presaleMultisig) {
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
         presaleMultisig = _presaleMultisig;
     }
 
@@ -45,7 +45,7 @@ contract StratPresale {
             msg.value * UNIT_BIAS, // Underlying amount
             0, // Underlying USD amount, cannot be redeemed
             block.timestamp + (420 * 365 days), // Expiry
-            block.timestamp + 120 days // Timelock
+            block.timestamp // no timelock for presale. Vest is handled seperately
         );
 
         // send ETH to presale multisig
