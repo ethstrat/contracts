@@ -22,10 +22,6 @@ contract PresaleTokenRenderer is TokenURIRenderer {
         uint256 daysUntilUnlock = timeUntilUnlock / 86400;
         uint256 hoursUntilUnlock = (timeUntilUnlock % 86400) / 3600;
 
-        string memory unlockText = timeUntilUnlock > 0
-            ? string.concat(Strings.toString(daysUntilUnlock), " days, ", Strings.toString(hoursUntilUnlock), " hours")
-            : "Unlocked";
-
         // Generate SVG
         string memory svg = string.concat(
             '<svg width="290" height="500" viewBox="0 0 290 500" fill="none" xmlns="http://www.w3.org/2000/svg">',
