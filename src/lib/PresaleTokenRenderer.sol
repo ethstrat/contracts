@@ -11,21 +11,11 @@ import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 /// @title PresaleTokenRenderer
 /// @notice Renders the token URI for the presale token
 contract PresaleTokenRenderer is TokenURIRenderer {
-    function renderSvg(uint256 tokenId, uint256, uint256 notionalUnderlyingAmount, uint256, uint256, uint256 timelock)
+    function renderSvg(uint256 tokenId, uint256, uint256 notionalUnderlyingAmount, uint256, uint256, uint256)
         public
-        view
+        pure
         returns (string memory)
     {
-        // Calculate time until unlock
-        uint256 currentTime = block.timestamp;
-        uint256 timeUntilUnlock = timelock > currentTime ? timelock - currentTime : 0;
-        uint256 daysUntilUnlock = timeUntilUnlock / 86400;
-        uint256 hoursUntilUnlock = (timeUntilUnlock % 86400) / 3600;
-
-        string memory unlockText = timeUntilUnlock > 0
-            ? string.concat(Strings.toString(daysUntilUnlock), " days, ", Strings.toString(hoursUntilUnlock), " hours")
-            : "Unlocked";
-
         // Generate SVG
         string memory svg = string.concat(
             // SVG defs & background
@@ -75,7 +65,7 @@ contract PresaleTokenRenderer is TokenURIRenderer {
         uint256 notionalUSDAmount,
         uint256 expiry,
         uint256 timelock
-    ) external view returns (string memory) {
+    ) external pure returns (string memory) {
         // If not a presale token, return nothing
         if (!(strikeAmount == 0 && notionalUSDAmount == 0)) {
             return "";
