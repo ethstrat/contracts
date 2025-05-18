@@ -72,7 +72,6 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
     ) public {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (amount == 0) revert ZeroAmount();
-        if (deadline < block.timestamp) revert TransactionStale(deadline);
 
         uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
         if (notionalUnderlyingAmount < minNotionalUnderlyingAmount) {
