@@ -3,7 +3,7 @@ pragma solidity 0.8.20;
 
 import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
 
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
@@ -16,7 +16,7 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     ITreasury public immutable treasury;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
@@ -36,7 +36,7 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
     {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         treasury = ITreasury(_treasury);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
     }
 
     /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid
@@ -64,10 +64,13 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
         uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         address optionOwner = stratOption.ownerOf(tokenId);
 
+        // Check the caller is either the option owner, or operator
+        if (msg.sender != optionOwner && !stratOption.isApprovedForAll(optionOwner, msg.sender)) {
+            revert NotOwnerOrApproved(msg.sender, tokenId);
+        }
+
         // Burn CDT and STRAT option
         cdtToken.validatePermit(msg.sender, address(this), notionalUSDAmount, cdtPermitApproval);
-        cdtToken.burnFrom(msg.sender, notionalUSDAmount);
-        stratOption.burn(tokenId);
 
         uint256 ethAmount = 0;
         if (treasuryInUSD > cdtToken.totalSupply()) {
@@ -75,6 +78,10 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
         } else {
             ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
+
+        //@dev Moved this section to aftet the ethAmount calculation
+        cdtToken.burnFrom(msg.sender, notionalUSDAmount);
+        stratOption.burn(tokenId);
 
         treasury.withdraw(ethAmount, optionOwner);
         emit OptionRedeemed(optionOwner, tokenId, notionalUSDAmount, ethAmount);

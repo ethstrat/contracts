@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {ITokenURIRenderer} from "../interfaces/ITokenURIRenderer.sol";
+import {TokenURIRenderer} from "../interfaces/TokenURIRenderer.sol";
 
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {DecimalString} from "./DecimalString.sol";
@@ -10,15 +10,12 @@ import {Base64} from "openzeppelin-contracts/contracts/utils/Base64.sol";
 
 /// @title PresaleTokenRenderer
 /// @notice Renders the token URI for the presale token
-contract PresaleTokenRenderer is ITokenURIRenderer {
-    function renderSvg(
-        uint256 tokenId,
-        uint256 strikeAmount,
-        uint256 notionalUnderlyingAmount,
-        uint256 notionalUSDAmount,
-        uint256 expiry,
-        uint256 timelock
-    ) public view returns (string memory) {
+contract PresaleTokenRenderer is TokenURIRenderer {
+    function renderSvg(uint256 tokenId, uint256, uint256 notionalUnderlyingAmount, uint256, uint256, uint256 timelock)
+        public
+        view
+        returns (string memory)
+    {
         // Calculate time until unlock
         uint256 currentTime = block.timestamp;
         uint256 timeUntilUnlock = timelock > currentTime ? timelock - currentTime : 0;
