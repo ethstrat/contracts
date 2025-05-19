@@ -89,14 +89,14 @@ contract StratETHLongBondsTest is Test {
     function testBondRevertIfNoETHSent() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.NoEthSent.selector));
-        bonds.bond(user); // Should revert because no ETH is sent
+        bonds.bond(user, 1 ether, block.timestamp + 1 hours);
     }
 
     function testBondRevertIfBonderAddressIsZero() public {
         vm.deal(user, 1 ether);
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.ZeroAddress.selector));
-        bonds.bond{value: 1 ether}(address(0));
+        bonds.bond{value: 1 ether}(address(0), 1 ether, block.timestamp + 1 hours);
     }
 
     function testStrikePrice() public view {
@@ -137,7 +137,7 @@ contract StratETHLongBondsTest is Test {
         vm.deal(user, 1 ether); // Give ETH to user
         vm.prank(user);
         // Run bond function
-        bonds.bond{value: 1 ether}(user);
+        bonds.bond{value: 1 ether}(user, 0.5 ether, block.timestamp + 1 hours);
 
         // Check treasury receives money
         assertEq(treasury.total(), 2 ether, "Treasury did not receive the correct ETH amount");
@@ -177,7 +177,7 @@ contract StratETHLongBondsTest is Test {
             // Bond 1 ETH
             vm.deal(user, 1 ether);
             vm.prank(user);
-            bonds.bond{value: 1 ether}(user);
+            bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
 
             if (i == 0) {
                 continue;
@@ -205,13 +205,13 @@ contract StratETHLongBondsTest is Test {
         // Bond 1 ETH
         vm.deal(user, 1 ether);
         vm.prank(user);
-        bonds.bond{value: 1 ether}(user);
+        bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
 
         // Bond 1 more ETH, after eth price goes up to $4000
         priceService.setEthUsdPrice(4000e18);
         vm.deal(user, 1 ether);
         vm.prank(user);
-        bonds.bond{value: 1 ether}(user);
+        bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
 
         // strike price should be different between the two (goes up)
         assertLt(
@@ -224,7 +224,7 @@ contract StratETHLongBondsTest is Test {
         priceService.setEthUsdPrice(3000e18);
         vm.deal(user, 1 ether);
         vm.prank(user);
-        bonds.bond{value: 1 ether}(user);
+        bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
         assertGt(
             stratOption.strikeAmount(2),
             stratOption.strikeAmount(3),

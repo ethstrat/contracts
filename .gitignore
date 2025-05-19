@@ -26,3 +26,5 @@ emv-*-certora*
 /artifacts
 
 .DS_Store
+
+tmp/

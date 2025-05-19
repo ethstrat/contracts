@@ -5,7 +5,7 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {IPriceService} from "./interfaces/IPriceService.sol";
 
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 
 /**
@@ -15,7 +15,7 @@ import {ITreasury} from "./interfaces/ITreasury.sol";
 contract StratETHLongBonds is Ownable2Step {
     IERC20MintableBurnable public immutable cdtToken;
     IERC20 public immutable stratToken;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
     ITreasury public immutable treasury;
     address immutable treasuryVault;
     IPriceService public priceService;
@@ -42,6 +42,8 @@ contract StratETHLongBonds is Ownable2Step {
     error NoEthSent();
     error ZeroAddress();
     error EthTransferFailed();
+    error TransactionStale(uint256 deadline);
+    error InsufficientOutput(uint256 minNotionalUnderlyingAmount, uint256 notionalUnderlyingAmount);
 
     /**
      * @param _cdtToken The CDT token
@@ -74,7 +76,7 @@ contract StratETHLongBonds is Ownable2Step {
 
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20(_stratToken);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
         treasury = ITreasury(_treasury);
         treasuryVault = _treasuryVault;
         priceService = IPriceService(_priceService);
@@ -112,9 +114,10 @@ contract StratETHLongBonds is Ownable2Step {
         emit PriceServiceUpdated(oldPriceService, _newPriceService);
     }
 
-    function bond(address bonder) external payable {
+    function bond(address bonder, uint256 minNotionalUnderlyingAmount, uint256 deadline) external payable {
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
+        if (deadline < block.timestamp) revert TransactionStale(deadline);
 
         // redemption
         (uint256 ethUsdPrice, uint256 ethUsdPriceScale) = priceService.getEthUsdPrice();
@@ -122,6 +125,11 @@ contract StratETHLongBonds is Ownable2Step {
         uint256 strikeAmount = notionalUSDAmount; // Scale: 18 decimals
         uint256 notionalUnderlyingAmount = notionalUSDAmount * SCALE / strikePrice(notionalUSDAmount); // Scale: 18
             // decimals (since strikePrice is always 18 decimals)
+
+        // Check that the notional underlying amount is greater than the minimum
+        if (notionalUnderlyingAmount < minNotionalUnderlyingAmount) {
+            revert InsufficientOutput(minNotionalUnderlyingAmount, notionalUnderlyingAmount);
+        }
 
         stratOption.mint(
             bonder, // Option owner

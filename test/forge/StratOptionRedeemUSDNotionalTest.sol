@@ -91,7 +91,8 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
         // Move time beyond timelock and expiry
         vm.warp(block.timestamp + 3601);
 
-        priceService.setEthUsdPrice(0.5e18);
+        // Set price to 7.5.  This will pass if CDT is burnt after, fail if CDT is calculated before
+        priceService.setEthUsdPrice(7.5e18);
 
         vm.startPrank(user);
 
@@ -401,7 +402,15 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
             newUser, newUserPk, address(optionRedeem), block.timestamp + 1 days, 500 ether, cdtToken.DOMAIN_SEPARATOR()
         );
 
-        // Redeem
+        // Redeem as newUser should fail, as they aren't an operator
+        vm.prank(newUser);
+        vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.NotOwnerOrApproved.selector, newUser, 2));
+        optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
+
+        // Exercise as new user only if the option owner has granted
+        // newUser as an operator
+        vm.prank(permitOwner);
+        stratOption.setApprovalForAll(newUser, true);
         vm.prank(newUser);
         optionRedeem.redeemCdtForUsdNotionalWithPermit(2, permitApproval);
 
@@ -431,6 +440,9 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
         // Give new user CDT
         vm.prank(owner);
         cdtToken.mint(newUser, 1000 ether);
+
+        vm.prank(permitOwner);
+        stratOption.setApprovalForAll(newUser, true);
 
         // Generate permit approval as the permit owner
         Permit.IPermitApproval memory permitApproval = _getPermitOwnerSignature(

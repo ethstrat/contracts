@@ -5,7 +5,7 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {IPriceService} from "./interfaces/IPriceService.sol";
 
 import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 import {Permit} from "./lib/Permit.sol";
 
 /**
@@ -17,7 +17,7 @@ contract StratETHShortBonds is Ownable2Step {
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
-    IStratOptionMinter public immutable stratOption;
+    IStratOption public immutable stratOption;
     address public immutable bondConverter;
     IPriceService public priceService;
 
@@ -30,6 +30,10 @@ contract StratETHShortBonds is Ownable2Step {
     event PriceServiceUpdated(address indexed oldPriceService, address indexed newPriceService);
 
     error ZeroAddress();
+
+    error ZeroAmount();
+    error TransactionStale(uint256 deadline);
+    error InsufficientOutput(uint256 minNotionalUnderlyingAmount, uint256 notionalUnderlyingAmount);
 
     /**
      * @param _cdtToken The CDT token
@@ -57,7 +61,7 @@ contract StratETHShortBonds is Ownable2Step {
 
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
-        stratOption = IStratOptionMinter(_stratOption);
+        stratOption = IStratOption(_stratOption);
         bondConverter = _bondConverter;
         priceService = IPriceService(_priceService);
 
@@ -78,9 +82,20 @@ contract StratETHShortBonds is Ownable2Step {
         emit PriceServiceUpdated(oldPriceService, _newPriceService);
     }
 
-    function bondWithPermit(address bonder, uint256 amount, Permit.IPermitApproval memory cdtPermitApproval) public {
-        require(amount > 0, "Amount must be greater than 0");
+    function bondWithPermit(
+        address bonder,
+        uint256 amount,
+        uint256 minNotionalUnderlyingAmount,
+        uint256 deadline,
+        Permit.IPermitApproval memory cdtPermitApproval
+    ) public {
+        if (deadline < block.timestamp) revert TransactionStale(deadline);
+        if (amount == 0) revert ZeroAmount();
+
         uint256 notionalUnderlyingAmount = amount * SCALE / strikePrice(amount);
+        if (notionalUnderlyingAmount < minNotionalUnderlyingAmount) {
+            revert InsufficientOutput(minNotionalUnderlyingAmount, notionalUnderlyingAmount);
+        }
 
         stratOption.mint(
             bonder, 0, notionalUnderlyingAmount, 0, block.timestamp + (420 * 365 days), block.timestamp + 6.9 days
@@ -95,8 +110,8 @@ contract StratETHShortBonds is Ownable2Step {
         );
     }
 
-    function bond(address bonder, uint256 amount) external {
-        bondWithPermit(bonder, amount, Permit.getEmptyApproval());
+    function bond(address bonder, uint256 amount, uint256 minNotionalUnderlyingAmount, uint256 deadline) external {
+        bondWithPermit(bonder, amount, minNotionalUnderlyingAmount, deadline, Permit.getEmptyApproval());
     }
 
     function strikePrice(uint256 notionalUSDAmount) public view returns (uint256) {

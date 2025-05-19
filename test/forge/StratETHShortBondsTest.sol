@@ -86,8 +86,33 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
 
     function testBondRevertIfNoCDTSent() public {
         vm.prank(user);
-        vm.expectRevert("Amount must be greater than 0");
-        bonds.bond(user, 0); // Should revert because no CDT is sent
+        vm.expectRevert(abi.encodeWithSelector(StratETHShortBonds.ZeroAmount.selector));
+        bonds.bond(user, 0, 0, block.timestamp + 1 hours); // Should revert because no CDT is sent
+    }
+
+    function testBondDeadlineInPastReverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        cdtToken.approve(address(bonds), cdtAmount);
+
+        vm.expectRevert(abi.encodeWithSelector(StratETHShortBonds.TransactionStale.selector, block.timestamp - 1));
+        bonds.bond(user, cdtAmount, 0, block.timestamp - 1); // Deadline in the past
+    }
+
+    function testBondInsufficientOutputReverts() public {
+        uint256 cdtAmount = 1000 ether;
+
+        cdtToken.approve(address(bonds), cdtAmount);
+
+        uint256 highMinNotionalUnderlyingAmount = 1e24; // Unrealistically high minimum output
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                StratETHShortBonds.InsufficientOutput.selector,
+                highMinNotionalUnderlyingAmount,
+                (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount)
+            )
+        );
+        bonds.bond(user, cdtAmount, highMinNotionalUnderlyingAmount, block.timestamp + 1 hours);
     }
 
     function testStrikePrice() public view {
@@ -130,7 +155,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         assertEq(expectedUnderlyingAmount, 222166666666666666, "Incorrect expected underlying amount");
 
         cdtToken.approve(address(bonds), cdtAmount);
-        bonds.bond(user, cdtAmount);
+        bonds.bond(user, cdtAmount, 0, block.timestamp + 1 hours);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 
@@ -157,7 +182,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
 
         for (uint256 i = 0; i < 10; i++) {
             // Bond 1000 cdt
-            bonds.bond(user, 1000 ether);
+            bonds.bond(user, 1000 ether, 0, block.timestamp + 1 hours);
 
             if (i == 0) {
                 continue;
@@ -170,27 +195,6 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
             );
         }
     }
-
-    // bondWithPermit
-    // given the deadline is 0
-    //  given the caller has not approved spending of CDT
-    //   [X] it reverts
-    //  [X] it uses the existing spending allowance
-    // given the deadline has passed
-    //  [X] it reverts
-    // given the signature is for another user
-    //  [X] it reverts
-    // given the caller is not the recipient
-    //  given the signature is for the recipient
-    //   [X] it reverts
-    //  [X] it does not require approval to spend the CDT
-    //  [X] it burns the CDT
-    // given the signature is for a different spender
-    //  [X] it reverts
-    // given the signature is invalid
-    //  [X] it reverts
-    // [X] it does not require approval to spend the CDT
-    // [X] it burns the CDT
 
     function test_bondWithPermit_deadlineIsZero_reverts() public {
         uint256 cdtAmount = 1000 ether;
@@ -208,7 +212,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+        bonds.bondWithPermit(user, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
     }
 
     function test_bondWithPermit_deadlineIsZero_spendingApprovalProvided() public {
@@ -228,7 +232,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
 
         // Bond with permit
         vm.prank(permitOwner);
-        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+        bonds.bondWithPermit(user, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 
@@ -247,7 +251,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         assertEq(stratOption.ownerOf(tokenId), user, "Incorrect owner");
     }
 
-    function test_bondWithPermit_deadlineHasPassed_reverts() public {
+    function test_bondWithPermit_permitDeadlineHasPassed_reverts() public {
         uint256 cdtAmount = 1000 ether;
 
         // Give permit owner CDT
@@ -258,10 +262,9 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
             permitOwner, permitPk, address(bonds), block.timestamp - 1, cdtAmount, cdtToken.DOMAIN_SEPARATOR()
         );
 
-        vm.expectRevert(abi.encodeWithSelector(ERC20Permit.ERC2612ExpiredSignature.selector, block.timestamp - 1));
-
         vm.prank(permitOwner);
-        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+        vm.expectRevert(abi.encodeWithSelector(ERC20Permit.ERC2612ExpiredSignature.selector, block.timestamp - 1));
+        bonds.bondWithPermit(user, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
     }
 
     function test_bondWithPermit_differentOwner_reverts() public {
@@ -285,7 +288,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+        bonds.bondWithPermit(permitOwner, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
     }
 
     function test_bondWithPermit_differentSpender_reverts() public {
@@ -313,7 +316,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+        bonds.bondWithPermit(permitOwner, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
     }
 
     function test_bondWithPermit_invalidSignature_reverts() public {
@@ -338,7 +341,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+        bonds.bondWithPermit(permitOwner, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
     }
 
     function test_bondWithPermit_callerNotReceipient() public {
@@ -354,7 +357,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(user, cdtAmount, permitApproval);
+        bonds.bondWithPermit(user, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 
@@ -393,7 +396,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(newOwner, cdtAmount, permitApproval);
+        bonds.bondWithPermit(newOwner, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
     }
 
     function test_bondWithPermit() public {
@@ -409,7 +412,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         );
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+        bonds.bondWithPermit(permitOwner, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 
@@ -446,7 +449,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator {
         uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
 
         vm.prank(permitOwner);
-        bonds.bondWithPermit(permitOwner, cdtAmount, permitApproval);
+        bonds.bondWithPermit(permitOwner, cdtAmount, 0, block.timestamp + 1 hours, permitApproval);
 
         assertEq(cdtToken.totalSupply() + cdtAmount, startingCdtSupply, "CDT not burned");
 

@@ -4,14 +4,14 @@ pragma solidity 0.8.20;
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
-import {IStratOptionMinter} from "./interfaces/IStratOptionMinter.sol";
+import {IStratOption} from "./interfaces/IStratOption.sol";
 
 /**
  * @title A call option over strat.
  * @dev Primarily used to represent the option part of issued convertible notes,
  * as well as during the presale and to bootstrap the DAO
  */
-contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
+contract StratOption is ERC721, Ownable2Step, IStratOption {
     uint256 public _tokenIdCounter;
 
     uint256 public constant SCALE = 1e18;
@@ -39,8 +39,10 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
     address public tokenURIRenderer;
 
     error MinterUnauthorizedAccount(address account);
+    error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
 
     event MinterUpdated(address indexed minter, bool canMint);
+    event RendererUpdated(address indexed renderer);
 
     constructor(address owner) ERC721("STRAT Option", "oSTRAT") Ownable(owner) {
         _tokenIdCounter = 1;
@@ -59,6 +61,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
      */
     function managerRenderer(address renderer) external onlyOwner {
         tokenURIRenderer = renderer;
+        emit RendererUpdated(renderer);
     }
 
     function mint(
@@ -69,8 +72,13 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
         uint256 _expiry,
         uint256 _timelock
     ) external onlyMinter {
+        // minimal checks (NOTE: it's the caller's responsibility to ensure the values are correct)
+        if (block.timestamp > _timelock || _timelock > _expiry) {
+            revert InvalidTimelockOrExpiry(_timelock, _expiry);
+        }
+
         uint256 tokenId = _tokenIdCounter++;
-        _mint(to, tokenId);
+        _safeMint(to, tokenId);
         strikeAmount[tokenId] = _strikeAmount;
         notionalUnderlyingAmount[tokenId] = _notionalUnderlyingAmount;
         notionalUSDAmount[tokenId] = _notionalUSDAmount;
@@ -90,7 +98,7 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
         _burn(tokenId);
     }
 
-    function tokenURI(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721, IStratOption) returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
             return TokenURIRenderer(tokenURIRenderer).render(
@@ -106,12 +114,21 @@ contract StratOption is ERC721, Ownable2Step, IStratOptionMinter {
         }
     }
 
-    function balanceOf(address owner) public view override(ERC721, IStratOptionMinter) returns (uint256) {
+    function balanceOf(address owner) public view override(ERC721, IStratOption) returns (uint256) {
         return super.balanceOf(owner);
     }
 
-    function ownerOf(uint256 tokenId) public view override(ERC721, IStratOptionMinter) returns (address) {
+    function ownerOf(uint256 tokenId) public view override(ERC721, IStratOption) returns (address) {
         return super.ownerOf(tokenId);
+    }
+
+    function isApprovedForAll(address owner, address operator)
+        public
+        view
+        override(ERC721, IStratOption)
+        returns (bool)
+    {
+        return super.isApprovedForAll(owner, operator);
     }
 
     /**
