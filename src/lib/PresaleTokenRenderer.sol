@@ -79,7 +79,6 @@ contract PresaleTokenRenderer is TokenURIRenderer {
         string memory json = string.concat(
             "{",
             string.concat('"name": "', "ETH Strategy Presale", '",'),
-            string.concat('"symbol": "', "oSTRAT", '",'),
             string.concat('"image": "', "data:image/svg+xml;base64,", base64Svg, '",'),
             '"attributes": [',
             string.concat("{", '"trait_type": "ID", "value": "', Strings.toString(tokenId), '"', "},"),
