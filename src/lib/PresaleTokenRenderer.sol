@@ -79,6 +79,11 @@ contract PresaleTokenRenderer is TokenURIRenderer {
         string memory json = string.concat(
             "{",
             string.concat('"name": "', "ETH Strategy Presale", '",'),
+            string.concat(
+                '"description": "',
+                "This NFT represents participation in the ETH Strategy presale. Proceeds are used to bootstrap the protocol's treasury, establish initial liquidity, and fund initial development. Presaylors acquire STRAT at face value with 6-month vesting (4-month lockup + 2-month linear unlock).",
+                '",'
+            ),
             string.concat('"image": "', "data:image/svg+xml;base64,", base64Svg, '",'),
             '"attributes": [',
             string.concat("{", '"trait_type": "ID", "value": "', Strings.toString(tokenId), '"', "},"),
