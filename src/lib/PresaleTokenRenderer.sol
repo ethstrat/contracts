@@ -77,7 +77,7 @@ contract PresaleTokenRenderer is TokenURIRenderer {
         // Encode SVG to base64
         string memory base64Svg = Base64.encode(bytes(svg));
 
-        return string.concat(
+        string memory json = string.concat(
             "{",
             string.concat('"name": "', "ETH Strategy Option Token", '",'),
             string.concat('"symbol": "', "oSTRAT", '",'),
@@ -118,6 +118,8 @@ contract PresaleTokenRenderer is TokenURIRenderer {
             "]",
             "}"
         );
+
+        return string.concat("data:application/json;base64,", Base64.encode(bytes(json)));
     }
 
     function generateSVGBorderText() private pure returns (string memory svg) {
