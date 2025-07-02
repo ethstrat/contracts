@@ -3,8 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
-import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
-import {StratEthPriceOracleProvider} from "../lib/StratEthPriceOracleProvider.sol";
+import {MockPriceService} from "../mocks/MockPriceService.sol";
 
 import "../../src/StratETHShortBonds.sol";
 import "../../src/CdtToken.sol";
@@ -13,11 +12,13 @@ import "../../src/StratOption.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvider, StratEthPriceOracleProvider {
+contract StratETHShortBondsTest is Test, PermitGenerator {
     StratETHShortBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
+
+    MockPriceService public priceService;
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
@@ -45,16 +46,14 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         stratOption = new StratOption(owner);
 
         // Deploy mock oracles
-        _setUpEthUsdOracle(_ETH_USD_INITIAL_PRICE);
-        _setUpStratEthOracle(_STRAT_ETH_INITIAL_PRICE, address(stratToken));
+        priceService = new MockPriceService(_ETH_USD_INITIAL_PRICE, 1e18, _STRAT_ETH_INITIAL_PRICE, 1e18);
 
         // Deploy the StratETHShortBonds contract
         bonds = new StratETHShortBonds(
             address(cdtToken),
             address(stratToken),
             address(stratOption),
-            address(ethUsdOracle),
-            address(stratEthOracle),
+            address(priceService),
             bondConverter,
             1e18, // BCV
             owner
@@ -134,7 +133,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         uint256 amount = 3000e18;
 
         // Adjust the STRAT-ETH price to be not 1:1
-        stratEthOracle.setBasePerQuote(2e18);
+        priceService.setStratEthPrice(2e18);
 
         uint256 stratPrice = (2e18 * _ETH_USD_INITIAL_PRICE) / 1e18; // 18 DP
 
@@ -283,7 +282,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0xF9Aad7df470d89159a46c8D6Ba8335B4d81DD288, // Expected signer address, given the parameters
+                0x4c6Ee140F86792F2d4bf98CBA7F6A34D2662D601, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -311,7 +310,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0xC23821808273bA077f3548d26699b83452EE9f7a, // Expected signer address, given the parameters
+                0xfCBa642Df33cC39906a34ddA7Ee59817Bef4a364, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -336,7 +335,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0x19341391b744a947E3709DBf0194B82C456526a9, // Expected signer address, given the parameters
+                0x540bc2913e207783821932DAfa30B1e09e0E43aE, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -391,7 +390,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         vm.expectRevert(
             abi.encodeWithSelector(
                 ERC20Permit.ERC2612InvalidSigner.selector,
-                0xF9Aad7df470d89159a46c8D6Ba8335B4d81DD288, // Expected signer address, given the parameters
+                0x4c6Ee140F86792F2d4bf98CBA7F6A34D2662D601, // Expected signer address, given the parameters
                 permitOwner
             )
         );
@@ -444,7 +443,7 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         );
 
         // Adjust the STRAT-ETH price to be not 1:1
-        stratEthOracle.setBasePerQuote(2e18);
+        priceService.setStratEthPrice(2e18);
 
         // Calculate the expected underlying amount
         uint256 expectedUnderlyingAmount = (cdtAmount * 1e18) / bonds.strikePrice(cdtAmount);
@@ -468,5 +467,36 @@ contract StratETHShortBondsTest is Test, PermitGenerator, EthUsdPriceOracleProvi
         );
         assertEq(stratOption.expiry(tokenId), block.timestamp + (420 * 365 days), "Incorrect expiry");
         assertEq(stratOption.timelock(tokenId), block.timestamp + 6.9 days, "Incorrect timelock");
+    }
+
+    // setPriceService
+    // given the caller is not the owner
+    //  [X] it reverts
+    // given the new price service is the zero address
+    //  [X] it reverts
+    // [X] it updates the price service
+
+    function testSetPriceService_notOwner_reverts() public {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(user)));
+
+        bonds.setPriceService(address(priceService));
+    }
+
+    function testSetPriceService_zeroAddress_reverts() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(StratETHShortBonds.ZeroAddress.selector));
+
+        bonds.setPriceService(address(0));
+    }
+
+    function testSetPriceService() public {
+        // Create a new price service
+        MockPriceService newPriceService = new MockPriceService(1e18, 1e18, 1e18, 1e18);
+
+        vm.prank(owner);
+        bonds.setPriceService(address(newPriceService));
+
+        assertEq(address(bonds.priceService()), address(newPriceService));
     }
 }

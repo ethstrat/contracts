@@ -8,9 +8,9 @@ import "../../src/StratToken.sol";
 import "../../src/StratOption.sol";
 import "../../src/interfaces/ITreasury.sol";
 import "../mocks/MockTreasury.sol";
-import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
+import {MockPriceService} from "../mocks/MockPriceService.sol";
 
-contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
+contract StratETHLongBondsTest is Test {
     StratETHLongBonds public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
@@ -18,6 +18,7 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
 
     // Mocks
     MockTreasury public treasury;
+    MockPriceService public priceService;
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
@@ -27,7 +28,7 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
 
     function setUp() public {
         // mocks
-        _setUpEthUsdOracle(_ETH_USD_INITIAL_PRICE);
+        priceService = new MockPriceService(_ETH_USD_INITIAL_PRICE, 1e18, 1e18, 1e18);
         treasury = new MockTreasury();
 
         // Deploy the real contracts
@@ -43,7 +44,7 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
             address(stratOption),
             address(treasury),
             address(treasury),
-            address(ethUsdOracle),
+            address(priceService),
             1e18, // PCF
             1e18, // GCF
             owner
@@ -207,7 +208,7 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
         bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
 
         // Bond 1 more ETH, after eth price goes up to $4000
-        ethUsdOracle.setBasePerQuote(4000e18);
+        priceService.setEthUsdPrice(4000e18);
         vm.deal(user, 1 ether);
         vm.prank(user);
         bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
@@ -220,7 +221,7 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
         );
 
         // Bond 1 more ETH, after ETH/USD price goes down to $3000
-        ethUsdOracle.setBasePerQuote(3000e18);
+        priceService.setEthUsdPrice(3000e18);
         vm.deal(user, 1 ether);
         vm.prank(user);
         bonds.bond{value: 1 ether}(user, 0, block.timestamp + 1 hours);
@@ -229,5 +230,36 @@ contract StratETHLongBondsTest is Test, EthUsdPriceOracleProvider {
             stratOption.strikeAmount(3),
             "ETH price decrease should decrease total strike amount"
         );
+    }
+
+    // setPriceService
+    // given the caller is not the owner
+    //  [X] it reverts
+    // given the new price service is the zero address
+    //  [X] it reverts
+    // [X] it updates the price service
+
+    function testSetPriceService_notOwner_reverts() public {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(user)));
+
+        bonds.setPriceService(address(priceService));
+    }
+
+    function testSetPriceService_zeroAddress_reverts() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(StratETHLongBonds.ZeroAddress.selector));
+
+        bonds.setPriceService(address(0));
+    }
+
+    function testSetPriceService() public {
+        // Create a new price service
+        MockPriceService newPriceService = new MockPriceService(1e18, 1e18, 1e18, 1e18);
+
+        vm.prank(owner);
+        bonds.setPriceService(address(newPriceService));
+
+        assertEq(address(bonds.priceService()), address(newPriceService));
     }
 }

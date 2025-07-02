@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
-import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
+import {MockPriceService} from "../mocks/MockPriceService.sol";
 
 import "../../src/StratOptionRedeemUSDNotional.sol";
 import "../../src/StratOption.sol";
@@ -14,13 +14,14 @@ import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IE
 
 import {MockTreasury} from "../mocks/MockTreasury.sol";
 
-contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator, EthUsdPriceOracleProvider {
+contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator {
     CdtToken public cdtToken;
     StratToken public stratToken;
     StratOption public stratOption;
     StratOptionRedeemUSDNotional public optionRedeem;
 
     MockTreasury public mockTreasury;
+    MockPriceService public priceService;
 
     address internal owner = address(0x123);
     address internal user = address(0x789);
@@ -40,11 +41,11 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator, EthUsdPriceO
         stratOption = new StratOption(owner);
         mockTreasury = new MockTreasury();
         mockTreasury.setWithdrawAllowed(true); // Allow withdrawals for testing
-        _setUpEthUsdOracle(_ETH_USD_INITIAL_PRICE);
+        priceService = new MockPriceService(_ETH_USD_INITIAL_PRICE, 1e18, 1e18, 1e18);
 
         // Deploy target contract
         optionRedeem = new StratOptionRedeemUSDNotional(
-            address(cdtToken), address(mockTreasury), address(ethUsdOracle), address(stratOption)
+            address(cdtToken), address(mockTreasury), address(priceService), address(stratOption), owner
         );
 
         // Enable minting
@@ -89,8 +90,9 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator, EthUsdPriceO
     function testRedeemSuccessTreasuryLtDebt() public {
         // Move time beyond timelock and expiry
         vm.warp(block.timestamp + 3601);
+
         // Set price to 7.5.  This will pass if CDT is burnt after, fail if CDT is calculated before
-        ethUsdOracle.setBasePerQuote(7.5e18);
+        priceService.setEthUsdPrice(7.5e18);
 
         vm.startPrank(user);
 
@@ -499,5 +501,36 @@ contract StratOptionRedeemUSDNotionalTest is Test, PermitGenerator, EthUsdPriceO
         assertEq(stratOption.balanceOf(permitOwner), 0, "Option should be burned");
         assertEq(cdtToken.balanceOf(permitOwner), 500 ether, "CDT should be partially burned");
         assertEq(address(permitOwner).balance, 0.25 ether, "should withdraw $500 of ETH (0.25 ETH)");
+    }
+
+    // setPriceService
+    // given the caller is not the owner
+    //  [X] it reverts
+    // given the new price service is the zero address
+    //  [X] it reverts
+    // [X] it updates the price service
+
+    function testSetPriceService_notOwner_reverts() public {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(user)));
+
+        optionRedeem.setPriceService(address(priceService));
+    }
+
+    function testSetPriceService_zeroAddress_reverts() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(StratOptionRedeemUSDNotional.ZeroAddress.selector));
+
+        optionRedeem.setPriceService(address(0));
+    }
+
+    function testSetPriceService() public {
+        // Create a new price service
+        MockPriceService newPriceService = new MockPriceService(1e18, 1e18, 1e18, 1e18);
+
+        vm.prank(owner);
+        optionRedeem.setPriceService(address(newPriceService));
+
+        assertEq(address(optionRedeem.priceService()), address(newPriceService));
     }
 }

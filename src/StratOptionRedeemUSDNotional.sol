@@ -1,42 +1,60 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.20;
 
-import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
+import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {IPriceService} from "./interfaces/IPriceService.sol";
 
 import {IStratOption} from "./interfaces/IStratOption.sol";
 import {IERC20, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
-import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITreasury} from "./interfaces/ITreasury.sol";
 import {Permit} from "./lib/Permit.sol";
 
 /// @title StratOptionRedeemUSDNotional
 /// @notice This contract allows a user to redeem their STRAT option for the underlying value of the option
-contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
+contract StratOptionRedeemUSDNotional is Ownable2Step {
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     ITreasury public immutable treasury;
     IStratOption public immutable stratOption;
+    IPriceService public priceService;
 
     error NotOwnerOrApproved(address account, uint256 tokenId);
     error TimelockActive(address account, uint256 tokenId);
     error OptionUnexpired(address account, uint256 tokenId);
+    error ZeroAddress();
 
     event OptionRedeemed(address indexed optionOwner, uint256 tokenId, uint256 notionalUSDAmount, uint256 ethAmount);
+    event PriceServiceUpdated(address indexed oldPriceService, address indexed newPriceService);
 
     /**
      * @param _cdtToken The CDT token
-     * @param _stratOption The STRAT option
      * @param _treasury STRAT treasury
-     * @param _ethUsdOracle The ETH/USD oracle
+     * @param _priceService The price service
      * @param _stratOption The STRAT option
+     * @param owner The owner
      */
-    constructor(address _cdtToken, address _treasury, address _ethUsdOracle, address _stratOption)
-        EthUsdPriceFeedConsumer(_ethUsdOracle)
+    constructor(address _cdtToken, address _treasury, address _priceService, address _stratOption, address owner)
+        Ownable(owner)
     {
+        if (_cdtToken == address(0)) revert ZeroAddress();
+        if (_treasury == address(0)) revert ZeroAddress();
+        if (_priceService == address(0)) revert ZeroAddress();
+        if (_stratOption == address(0)) revert ZeroAddress();
+
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         treasury = ITreasury(_treasury);
         stratOption = IStratOption(_stratOption);
+        priceService = IPriceService(_priceService);
+    }
+
+    function setPriceService(address _newPriceService) external onlyOwner {
+        if (_newPriceService == address(0)) revert ZeroAddress();
+
+        address oldPriceService = address(priceService);
+        priceService = IPriceService(_newPriceService);
+
+        emit PriceServiceUpdated(oldPriceService, _newPriceService);
     }
 
     /// @notice Redeem STRAT option and CDT tokens for the USD notional value post option expiry, paid
@@ -59,9 +77,9 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
 
         uint256 notionalUSDAmount = stratOption.notionalUSDAmount(tokenId);
         uint256 totalDebt = cdtToken.totalSupply();
-        uint256 ethPriceUSD = _getEthUsdPrice();
+        (uint256 ethUsdPrice, uint256 ethUsdPriceScale) = priceService.getEthUsdPrice();
         uint256 treasuryInETH = treasury.total();
-        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
+        uint256 treasuryInUSD = treasuryInETH * ethUsdPrice / ethUsdPriceScale;
         address optionOwner = stratOption.ownerOf(tokenId);
 
         // Check the caller is either the option owner, or operator
@@ -74,7 +92,7 @@ contract StratOptionRedeemUSDNotional is EthUsdPriceFeedConsumer {
 
         uint256 ethAmount = 0;
         if (treasuryInUSD > cdtToken.totalSupply()) {
-            ethAmount = notionalUSDAmount * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
+            ethAmount = notionalUSDAmount * ethUsdPriceScale / ethUsdPrice;
         } else {
             ethAmount = notionalUSDAmount * treasuryInETH / totalDebt;
         }
