@@ -24,8 +24,9 @@ test = "/dev/null"
 script = "/dev/null"
 
 
-# [profile.test]
-# via-ir = false
+[profile.test]
+cache = true
+optimizer_runs = 0
 
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/crates/config

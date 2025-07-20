@@ -6,7 +6,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import {MintableBurnableToken} from "./MintableBurnableToken.sol";
+import {VaultRedemptionToken} from "./VaultRedemptionToken.sol";
 
 contract GammaVault is ERC4626, Ownable2Step {
     address public immutable vaultTreasury;
@@ -45,7 +45,7 @@ contract GammaVault is ERC4626, Ownable2Step {
         }
         unclaimed -= unrealisedYield;
         lastUpdated = block.timestamp;
-        MintableBurnableToken(asset()).mint(address(this), unrealisedYield);
+        VaultRedemptionToken(asset()).mint(address(this), unrealisedYield);
     }
 
     function _unreleasedYield() internal view returns (uint256) {
@@ -91,7 +91,31 @@ contract GammaVault is ERC4626, Ownable2Step {
         SafeERC20.safeTransferFrom(yieldToken, caller, address(this), assets);
         yieldToken.transfer(vaultTreasury, yieldToken.balanceOf(address(this)));
         _mint(receiver, shares);
+        VaultRedemptionToken(asset()).mint(address(this), assets);
         emit Deposit(caller, receiver, assets, shares);
+    }
+
+    /**
+     * @dev Withdraw/redeem common workflow.
+     */
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        override
+    {
+        if (caller != owner) {
+            _spendAllowance(owner, caller, shares);
+        }
+
+        // If asset() is ERC-777, `transfer` can trigger a reentrancy AFTER the transfer happens through the
+        // `tokensReceived` hook. On the other hand, the `tokensToSend` hook, that is triggered before the transfer,
+        // calls the vault, which is assumed not malicious.
+        //
+        // Conclusion: we need to do the transfer after the burn so that any reentrancy would happen after the
+        // shares are burned and after the assets are transferred, which is a valid state.
+        _burn(owner, shares);
+        SafeERC20.safeTransfer(IERC20(asset()), receiver, assets);
+        VaultRedemptionToken(asset()).increaseClaimableSharesFor(receiver, assets);
+        emit Withdraw(caller, receiver, owner, assets, shares);
     }
 
     /**

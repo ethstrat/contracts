@@ -5,20 +5,25 @@ import {MintableBurnableToken} from "./MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "forge-std/console.sol";
+
 /**
  * @title STRAT perpetual debt receipt token
  */
-contract GammaVaultExitQueueToken is MintableBurnableToken {
-    mapping(address => uint256) public totalClaimedBy;
-    IERC20 public immutable withdrawableToken;
+contract VaultRedemptionToken is MintableBurnableToken {
+    mapping(address => uint256) public redeemOffsetOf;
+    uint256 public totalClaimableShares;
+    uint256 public accClaimPerShare;
 
-    constructor(address owner, IERC20 withdrawableToken_)
+    IERC20 public immutable redeemableToken;
+
+    constructor(address owner, IERC20 redeemableToken_)
         MintableBurnableToken("ETH Strategy Vault Redemption Share", "VRS", owner)
     {
-        withdrawableToken = withdrawableToken_;
+        redeemableToken = redeemableToken_;
     }
 
-    event Withdraw(address indexed receiver, address indexed owner, uint256 assets);
+    event Redeem(address indexed receiver, address indexed owner, uint256 assets);
     event ClaimedTransferred(
         address indexed from,
         address indexed to,
@@ -27,55 +32,79 @@ contract GammaVaultExitQueueToken is MintableBurnableToken {
         uint256 transferredAmount
     );
 
-    error InsufficientWithdrawableAssets(uint256 requested, uint256 available);
+    error ClaimableExceedsBalance();
 
-    function maxWithdrawableBy(address owner) public view returns (uint256) {
-        uint256 totalWithdrawableAssets = withdrawableToken.balanceOf(address(this)) * balanceOf(owner) / totalSupply();
-        return totalWithdrawableAssets - totalClaimedBy[owner];
+    /// @notice Returns the maximum amount of tokens that can be redeemed by a given owner.
+    /// @param owner The address of the token owner.
+    /// @return The maximum redeemable token amount for the specified owner.
+    function maxRedeemableBy(address owner) public view returns (uint256) {
+        if (totalClaimableShares == 0) {
+            return 0;
+        }
+
+        return (balanceOf(owner) * accClaimPerShare / 1e18) - redeemOffsetOf[owner];
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) public virtual returns (uint256) {
-        uint256 maxWithdrawable = maxWithdrawableBy(owner);
-
-        if (assets > maxWithdrawable) {
-            revert InsufficientWithdrawableAssets(assets, maxWithdrawable);
+    /**
+     * @notice Redeems the maximum amount of tokens available for the caller.
+     * @dev This function always withdraws the maximum possible amount for the caller (`owner`)
+     *      and sends the redeemed assets to the specified `receiver`.
+     * @param receiver The address to receive the redeemed assets.
+     * @param owner The address whose tokens will be redeemed.
+     * @return The amount of assets redeemed.
+     */
+    function redeem(address receiver, address owner) public virtual returns (uint256) {
+        uint256 amount = maxRedeemableBy(owner);
+        if (amount == 0) {
+            return 0;
         }
 
-        if (assets == 0) {
-            assets = maxWithdrawable;
+        console.log("user %s", owner);
+        console.log("accClaimPerShare %s", accClaimPerShare);
+        console.log("totalClaimableShares %s", totalClaimableShares);
+        console.log("balanceOf(owner) %s", balanceOf(owner));
+        console.log("Redeeming %s", amount);
+        console.log("");
+
+        if (amount > balanceOf(owner)) {
+            amount = balanceOf(owner);
         }
 
-        // If asset() is ERC-777, `transfer` can trigger a reentrancy AFTER the transfer happens through the
-        // `tokensReceived` hook. On the other hand, the `tokensToSend` hook, that is triggered before the transfer,
-        // calls the vault, which is assumed not malicious.
-        //
-        // Conclusion: we need to do the transfer after the burn so that any reentrancy would happen after the
-        // shares are burned and after the assets are transferred, which is a valid state.
-        _burn(owner, assets);
-        totalClaimedBy[owner] += assets;
-        SafeERC20.safeTransfer(withdrawableToken, receiver, assets);
-        emit Withdraw(receiver, owner, assets);
+        if (redeemableToken.balanceOf(address(this)) < amount) {
+            amount = redeemableToken.balanceOf(address(this));
+        }
 
-        return assets;
+        redeemOffsetOf[owner] += amount;
+        _burn(owner, amount);
+        totalClaimableShares -= amount;
+        SafeERC20.safeTransfer(redeemableToken, receiver, amount);
+        emit Redeem(receiver, owner, amount);
+
+        return amount;
+    }
+
+    function increaseClaimableSharesFor(address owner, uint256 amount) external onlyMinter {
+        if (amount > balanceOf(owner)) {
+            revert ClaimableExceedsBalance();
+        }
+
+        redeemOffsetOf[owner] += (amount * accClaimPerShare / 1e18);
+        totalClaimableShares += amount;
+    }
+
+    function increaseClaimableAmount(uint256 amount) external {
+        redeemableToken.transferFrom(msg.sender, address(this), amount);
+        accClaimPerShare += (amount * 1e18) / totalClaimableShares;
     }
 
     function _update(address from, address to, uint256 value) internal override {
-        if (from != address(0)) {
-            uint256 claimTransfer = totalClaimedBy[from] * value / balanceOf(from);
-            if (value == balanceOf(from)) {
-                claimTransfer = totalClaimedBy[from];
-            }
-
-            totalClaimedBy[to] += claimTransfer;
-            if (totalClaimedBy[from] < claimTransfer) {
-                totalClaimedBy[from] = 0;
-            } else {
-                totalClaimedBy[from] -= claimTransfer;
-            }
-
-            emit ClaimedTransferred(from, to, totalClaimedBy[from], totalClaimedBy[to], claimTransfer);
+        if (from != address(0) && balanceOf(from) > 0) {
+            // Transfer claimed proportionally to shares transferred
+            uint256 claimTransfer = redeemOffsetOf[from] * value / balanceOf(from);
+            redeemOffsetOf[to] += claimTransfer;
+            redeemOffsetOf[from] -= claimTransfer;
+            emit ClaimedTransferred(from, to, redeemOffsetOf[from], redeemOffsetOf[to], claimTransfer);
         }
-
         super._update(from, to, value);
     }
 }
