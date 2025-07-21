@@ -153,4 +153,13 @@ contract VaultRedemptionTokenTest is Test {
             "Claimed transferred not proportional"
         );
     }
+
+    function testRevertsClaimableExceedsBalance() public {
+        mintClaimableShares(user1, 100 ether);
+        vaultRedemptionToken.increaseClaimableAmount(50 ether);
+
+        // Try to increase claimable shares by 50
+        vm.expectRevert(VaultRedemptionToken.ClaimableExceedsBalance.selector);
+        vaultRedemptionToken.increaseClaimableSharesFor(user1, 50 ether);
+    }
 }
