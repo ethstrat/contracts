@@ -23,21 +23,24 @@ import {VaultRedemptionToken} from "./VaultRedemptionToken.sol";
  *
  * @custom:errors
  * - YieldManagerUnauthorizedAccount: Thrown when a non-yield manager attempts to add yield.
- *
- * @param vaultTreasury Address receiving deposited tokens.
- * @param depositToken ERC20 token accepted for deposits.
- * @param yieldManager Address authorized to add yield.
- * @param ratePerSecond Current yield release rate per second (scaled by 1e18).
- * @param lastUpdated Timestamp of last yield accounting update.
- * @param totalUnreleasedYield Total yield yet to be released.
  */
 contract GammaVault is ERC4626, Ownable2Step {
+    /// @notice Address receiving deposited tokens
     address public immutable vaultTreasury;
+
+    /// @notice ERC20 token accepted for deposits
     IERC20 public immutable depositToken;
+
+    /// @notice Address authorized to add yield
     address public yieldManager;
 
+    /// @notice Current yield release rate per second (scaled by 1e18)
     uint256 public ratePerSecond;
+
+    /// @notice Timestamp of last yield accounting update
     uint256 public lastUpdated;
+
+    /// @notice Total yield yet to be released
     uint256 public totalUnreleasedYield;
 
     error YieldManagerUnauthorizedAccount(address account);
