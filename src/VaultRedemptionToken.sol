@@ -21,6 +21,8 @@ contract VaultRedemptionToken is MintableBurnableToken {
         MintableBurnableToken("ETH Strategy Vault Redemption Share", "VRS", owner)
     {
         redeemableToken = redeemableToken_;
+
+        // Suggestion: check that redeemableToken has 18 decimals
     }
 
     event Redeem(address indexed receiver, address indexed owner, uint256 assets);
@@ -98,6 +100,7 @@ contract VaultRedemptionToken is MintableBurnableToken {
     }
 
     function _update(address from, address to, uint256 value) internal override {
+        // TODO needs some testing. What if from == to, to == 0?
         if (from != address(0) && balanceOf(from) > 0) {
             // Transfer claimed proportionally to shares transferred
             uint256 claimTransfer = redeemOffsetOf[from] * value / balanceOf(from);

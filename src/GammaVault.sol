@@ -27,10 +27,17 @@ contract GammaVault is ERC4626, Ownable2Step {
         vaultTreasury = vaultTreasury_;
         yieldToken = yieldToken_;
         yieldManager = owner_;
+
+        // Suggestion: check that asset_.supportsInterface() for the VaultRedemptionToken interface
+
+        // Suggestion: if owner_ is not the correct address, it will be a huge problem. Instead, default to deployer and
+        // propose owner_ to be the new owner (requiring acceptance)
     }
 
     function setYieldManager(address newYieldManager) external onlyOwner {
         yieldManager = newYieldManager;
+
+        // Suggestion: emit event
     }
 
     function addYield(uint256 amount, uint256 duration) external yieldManagerOnly {
