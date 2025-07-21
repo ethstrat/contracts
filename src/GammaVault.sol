@@ -43,6 +43,8 @@ contract GammaVault is ERC4626, Ownable2Step {
     /// @notice Total yield yet to be released
     uint256 public totalUnreleasedYield;
 
+    event YieldManagerSet(address indexed newYieldManager);
+
     error YieldManagerUnauthorizedAccount(address account);
 
     constructor(IERC20 asset_, IERC20 depositToken_, address vaultTreasury_, address owner_)
@@ -63,7 +65,7 @@ contract GammaVault is ERC4626, Ownable2Step {
     function setYieldManager(address newYieldManager) external onlyOwner {
         yieldManager = newYieldManager;
 
-        // Suggestion: emit event
+        emit YieldManagerSet(newYieldManager);
     }
 
     function addYield(uint256 amount, uint256 duration) external yieldManagerOnly {
