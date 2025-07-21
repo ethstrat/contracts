@@ -5,8 +5,6 @@ import {MintableBurnableToken} from "./MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "forge-std/console.sol";
-
 /**
  * @title STRAT perpetual debt receipt token
  */
@@ -58,13 +56,6 @@ contract VaultRedemptionToken is MintableBurnableToken {
         if (amount == 0) {
             return 0;
         }
-
-        console.log("user %s", owner);
-        console.log("accClaimPerShare %s", accClaimPerShare);
-        console.log("totalClaimableShares %s", totalClaimableShares);
-        console.log("balanceOf(owner) %s", balanceOf(owner));
-        console.log("Redeeming %s", amount);
-        console.log("");
 
         if (amount > balanceOf(owner)) {
             amount = balanceOf(owner);
