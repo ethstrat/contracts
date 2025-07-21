@@ -141,9 +141,9 @@ contract VaultRedemptionTokenTest is Test {
         vm.prank(user1);
         vaultRedemptionToken.redeem(user1, user1);
 
-        // Transfer 50 shares to user2
+        // Transfer 25 shares to user2
         vm.prank(user1);
-        vaultRedemptionToken.transfer(user2, 50 ether);
+        vaultRedemptionToken.transfer(user2, 25 ether);
 
         // user2 should inherit half of user1's claimed
         assertApproxEqRel(
