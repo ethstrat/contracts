@@ -127,4 +127,31 @@ contract GammaVaultTest is Test {
         assertEq(depositToken.balanceOf(treasury), 20 ether);
         assertEq(depositToken.balanceOf(address(vault)), 0);
     }
+
+    function testDifferentOwner() public {
+        address newOwner = makeAddr("newOwner");
+
+        vault = new GammaVault(redemptionToken, depositToken, treasury, newOwner);
+
+        // Owner should be the deployer
+        assertEq(vault.owner(), address(this), "Owner should be the deployer");
+
+        // Pending owner should be the new owner
+        assertEq(vault.pendingOwner(), newOwner);
+
+        // Accept ownership
+        vm.prank(newOwner);
+        vault.acceptOwnership();
+
+        // Owner should be the new owner
+        assertEq(vault.owner(), newOwner);
+
+        // Pending owner should be the zero address
+        assertEq(vault.pendingOwner(), address(0));
+    }
+
+    function testSameOwner() public view {
+        assertEq(vault.owner(), address(this), "Owner should be the deployer");
+        assertEq(vault.pendingOwner(), address(0), "Pending owner should be the zero address");
+    }
 }

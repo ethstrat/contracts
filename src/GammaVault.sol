@@ -48,7 +48,7 @@ contract GammaVault is ERC4626, Ownable2Step {
     error YieldManagerUnauthorizedAccount(address account);
 
     constructor(IERC20 asset_, IERC20 depositToken_, address vaultTreasury_, address owner_)
-        Ownable(owner_)
+        Ownable(msg.sender)
         ERC4626(asset_)
         ERC20("ETH Strategy Vault Yield Share", "VYS")
     {
@@ -58,8 +58,11 @@ contract GammaVault is ERC4626, Ownable2Step {
 
         // Suggestion: check that asset_.supportsInterface() for the VaultRedemptionToken interface
 
-        // Suggestion: if owner_ is not the correct address, it will be a huge problem. Instead, default to deployer and
-        // propose owner_ to be the new owner (requiring acceptance)
+        // Propose the new owner
+        // This avoids bricking the contract if owner_ is not the correct address
+        if (owner_ != msg.sender) {
+            transferOwnership(owner_);
+        }
     }
 
     function setYieldManager(address newYieldManager) external onlyOwner {
