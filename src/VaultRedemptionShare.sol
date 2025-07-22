@@ -8,7 +8,7 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 /**
  * @title STRAT perpetual debt receipt token
  */
-contract VaultRedemptionToken is MintableBurnableToken {
+contract VaultRedemptionShare is MintableBurnableToken {
     mapping(address => uint256) public redeemOffsetOf;
     uint256 public totalClaimableShares;
     uint256 public accClaimPerShare;
@@ -36,19 +36,23 @@ contract VaultRedemptionToken is MintableBurnableToken {
 
     /// @notice Returns the maximum amount of tokens that can be redeemed by a given owner.
     /// @param owner The address of the token owner.
-    /// @return The maximum redeemable token amount for the specified owner.
-    function maxRedeemableBy(address owner) public view returns (uint256) {
+    /// @return amount The maximum redeemable token amount for the specified owner.
+    function maxRedeemableBy(address owner) public view returns (uint256 amount) {
         if (totalClaimableShares == 0) {
             return 0;
         }
 
-        return (balanceOf(owner) * accClaimPerShare / 1e18) - redeemOffsetOf[owner];
+        amount = (balanceOf(owner) * accClaimPerShare / 1e18) - redeemOffsetOf[owner];
+        if (amount > balanceOf(owner)) {
+            amount = balanceOf(owner);
+        }
     }
 
     /**
      * @notice Redeems the maximum amount of tokens available for the caller.
      * @dev This function always withdraws the maximum possible amount for the caller (`owner`)
      *      and sends the redeemed assets to the specified `receiver`.
+     *      1 redemption share is always equal to 1 redeemable token
      * @param receiver The address to receive the redeemed assets.
      * @param owner The address whose tokens will be redeemed.
      * @return The amount of assets redeemed.

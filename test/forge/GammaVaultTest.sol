@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../../src/GammaVault.sol";
-import "../../src/VaultRedemptionToken.sol";
+import "../../src/VaultRedemptionShare.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 
 contract MockERC20 is MintableBurnableToken {
@@ -12,7 +12,7 @@ contract MockERC20 is MintableBurnableToken {
 
 contract GammaVaultTest is Test {
     GammaVault public vault;
-    VaultRedemptionToken public redemptionToken;
+    VaultRedemptionShare public redemptionToken;
     MockERC20 public asset;
     MockERC20 public depositToken;
     address treasury = address(0xdead);
@@ -23,7 +23,7 @@ contract GammaVaultTest is Test {
         asset = new MockERC20();
         depositToken = new MockERC20();
         depositToken.manageMinter(address(this), true);
-        redemptionToken = new VaultRedemptionToken(address(this), asset);
+        redemptionToken = new VaultRedemptionShare(address(this), asset);
 
         vault = new GammaVault(redemptionToken, depositToken, treasury, address(this));
         redemptionToken.manageMinter(address(vault), true);

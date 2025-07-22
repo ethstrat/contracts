@@ -6,14 +6,14 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import {VaultRedemptionToken} from "./VaultRedemptionToken.sol";
+import {VaultRedemptionShare} from "./VaultRedemptionShare.sol";
 
 /**
  * @title GammaVault
  * @dev ERC4626-compliant vault for with time-based yield distribution.
  *      - Allows deposits in a specified deposit token, forwarding them to a treasury.
  *      - Yield is added by a designated yield manager and released linearly over time.
- *      - Integrates with VaultRedemptionToken, for proportional withdrawals
+ *      - Integrates with VaultRedemptionShare, for proportional withdrawals
  *      - Owner can set the yield manager.
  *      - Reentrancy considerations are addressed in deposit and withdrawal flows.
  *
@@ -56,7 +56,7 @@ contract GammaVault is ERC4626, Ownable2Step {
         depositToken = depositToken_;
         yieldManager = owner_;
 
-        // Suggestion: check that asset_.supportsInterface() for the VaultRedemptionToken interface
+        // Suggestion: check that asset_.supportsInterface() for the VaultRedemptionShare interface
 
         // Propose the new owner
         // This avoids bricking the contract if owner_ is not the correct address
@@ -81,7 +81,7 @@ contract GammaVault is ERC4626, Ownable2Step {
         uint256 unrealisedYield = unreleasedYield();
         totalUnreleasedYield -= unrealisedYield;
         lastUpdated = block.timestamp;
-        VaultRedemptionToken(asset()).mint(address(this), unrealisedYield);
+        VaultRedemptionShare(asset()).mint(address(this), unrealisedYield);
     }
 
     function unreleasedYield() public view returns (uint256) {
@@ -127,7 +127,7 @@ contract GammaVault is ERC4626, Ownable2Step {
         SafeERC20.safeTransferFrom(depositToken, caller, address(this), assets);
         depositToken.transfer(vaultTreasury, depositToken.balanceOf(address(this)));
         _mint(receiver, shares);
-        VaultRedemptionToken(asset()).mint(address(this), assets);
+        VaultRedemptionShare(asset()).mint(address(this), assets);
         emit Deposit(caller, receiver, assets, shares);
     }
 
@@ -150,7 +150,7 @@ contract GammaVault is ERC4626, Ownable2Step {
         // shares are burned and after the assets are transferred, which is a valid state.
         _burn(owner, shares);
         SafeERC20.safeTransfer(IERC20(asset()), receiver, assets);
-        VaultRedemptionToken(asset()).increaseClaimableSharesFor(receiver, assets);
+        VaultRedemptionShare(asset()).increaseClaimableSharesFor(receiver, assets);
         emit Withdraw(caller, receiver, owner, assets, shares);
     }
 
