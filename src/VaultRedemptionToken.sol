@@ -81,7 +81,8 @@ contract VaultRedemptionToken is MintableBurnableToken {
             revert ClaimableExceedsBalance();
         }
 
-        redeemOffsetOf[owner] += (amount * accClaimPerShare / 1e18);
+        // round up in favor of the vault
+        redeemOffsetOf[owner] += ((amount * accClaimPerShare) + (1e18 - 1)) / 1e18;
         totalClaimableShares += amount;
     }
 
