@@ -41,7 +41,7 @@ contract GammaVault is ERC4626, Ownable2Step {
     uint256 public lastUpdated;
 
     /// @notice Total yield yet to be released
-    uint256 public totalUnreleasedYield;
+    uint256 public remainingUnreleasedYield;
 
     event YieldManagerSet(address indexed newYieldManager);
 
@@ -71,27 +71,34 @@ contract GammaVault is ERC4626, Ownable2Step {
         emit YieldManagerSet(newYieldManager);
     }
 
+    /// @notice Add yield.
+    /// @param amount Amount of yield to add.
+    /// @param duration Duration over which the yield will be released (in seconds).
+    /// @dev This function accrues any unreleased yield since the last update before adding new yield. Any
+    ///       unreleased yield is added to amount and spread over the new duration.
     function addYield(uint256 amount, uint256 duration) external yieldManagerOnly {
+        // Accrue unreleased yield since last update
         claimedUnreleasedYield();
-        ratePerSecond += (amount * 1e18) / duration;
-        totalUnreleasedYield += amount;
+
+        // Merge amounts, and spread over the new duration
+        remainingUnreleasedYield += amount;
+        ratePerSecond = (remainingUnreleasedYield * 1e18) / duration;
     }
 
     function claimedUnreleasedYield() public {
-        uint256 unrealisedYield = unreleasedYield();
-        totalUnreleasedYield -= unrealisedYield;
+        uint256 releasedYield = unreleasedYield();
+        remainingUnreleasedYield -= releasedYield;
         lastUpdated = block.timestamp;
-        VaultRedemptionShare(asset()).mint(address(this), unrealisedYield);
+
+        VaultRedemptionShare(asset()).mint(address(this), releasedYield);
     }
 
-    function unreleasedYield() public view returns (uint256) {
+    function unreleasedYield() public view returns (uint256 amount) {
         uint256 elapsed = block.timestamp > lastUpdated ? block.timestamp - lastUpdated : 0;
 
-        uint256 newAssets = elapsed * ratePerSecond / 1e18;
-        if (totalUnreleasedYield < newAssets) {
-            return totalUnreleasedYield;
-        } else {
-            return newAssets;
+        amount = elapsed * ratePerSecond / 1e18;
+        if (amount > remainingUnreleasedYield) {
+            amount = remainingUnreleasedYield;
         }
     }
 
