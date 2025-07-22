@@ -42,7 +42,16 @@ contract VaultRedemptionShare is MintableBurnableToken {
             return 0;
         }
 
-        amount = (balanceOf(owner) * accClaimPerShare / 1e18) - redeemOffsetOf[owner];
+        amount = (balanceOf(owner) * accClaimPerShare / 1e18);
+        if (amount < redeemOffsetOf[owner]) {
+            amount = 0;
+        } else {
+            amount -= redeemOffsetOf[owner];
+        }
+
+        /// NOTE: It's possible this contract has more redeemable tokens than totalClaimableShares,
+        ///       as increasing redeemable tokens is permisionless. This check ensures the invariant
+        ///       that one share is always equal to one redeemable token.
         if (amount > balanceOf(owner)) {
             amount = balanceOf(owner);
         }
@@ -90,6 +99,11 @@ contract VaultRedemptionShare is MintableBurnableToken {
         totalClaimableShares += amount;
     }
 
+    /// @notice Increases the claimable amount of redeemable tokens.
+    /// @param amount The amount of redeemable tokens to increase the claimable amount by.
+    /// @dev This function allows the contract to receive redeemable tokens and update the
+    ///      accumulated claim per share. It can only be called by anyone. It will fail if there
+    ///      are no claimable shares, however, given that code path will never be used, it is not a concern.
     function increaseClaimableAmount(uint256 amount) external {
         SafeERC20.safeTransferFrom(redeemableToken, msg.sender, address(this), amount);
         accClaimPerShare += (amount * 1e18) / totalClaimableShares;

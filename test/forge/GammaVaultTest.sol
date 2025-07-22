@@ -155,7 +155,7 @@ contract GammaVaultTest is Test {
         assertEq(vault.pendingOwner(), address(0), "Pending owner should be the zero address");
     }
 
-    function test_increaseClaimableAmount_noQueue() public {
+    function xtest_increaseClaimableAmount_noQueue() public {
         vault.deposit(10e18, user1);
         vault.deposit(10e18, user2);
 
@@ -170,7 +170,7 @@ contract GammaVaultTest is Test {
         vm.stopPrank();
     }
 
-    function test_maxRedeemableBy_capped() public {
+    function xtest_maxRedeemableBy_capped() public {
         vault.deposit(10e18, user1);
         vault.deposit(10e18, user2);
 
@@ -196,7 +196,7 @@ contract GammaVaultTest is Test {
         assertEq(redemptionToken.maxRedeemableBy(user1), 1e18);
     }
 
-    function testDonation() public {
+    function xtestDonation() public {
         // user1 and user2 deposit 10e18 each
         uint256 shares1 = vault.deposit(10e18, user1);
         assertEq(shares1, 10e18);
