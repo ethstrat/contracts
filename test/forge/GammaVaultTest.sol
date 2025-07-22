@@ -15,9 +15,9 @@ contract GammaVaultTest is Test {
     VaultRedemptionToken public redemptionToken;
     MockERC20 public asset;
     MockERC20 public depositToken;
-    address treasury = address(0xdead);
-    address user1 = address(0x1);
-    address user2 = address(0x2);
+    address treasury = makeAddr("treasury");
+    address user1 = makeAddr("user1");
+    address user2 = makeAddr("user2");
 
     function setUp() public {
         asset = new MockERC20();
@@ -153,5 +153,168 @@ contract GammaVaultTest is Test {
     function testSameOwner() public view {
         assertEq(vault.owner(), address(this), "Owner should be the deployer");
         assertEq(vault.pendingOwner(), address(0), "Pending owner should be the zero address");
+    }
+
+    function test_increaseClaimableAmount_noQueue() public {
+        vault.deposit(10e18, user1);
+        vault.deposit(10e18, user2);
+
+        // 50e18 made available for redemptions
+        deal(address(asset), treasury, 50e18);
+        vm.startPrank(treasury);
+        asset.approve(address(redemptionToken), 50e18);
+
+        // @audit fails with division or modulo by zero
+        // should it work ok though?
+        redemptionToken.increaseClaimableAmount(50e18);
+        vm.stopPrank();
+    }
+
+    function test_maxRedeemableBy_capped() public {
+        vault.deposit(10e18, user1);
+        vault.deposit(10e18, user2);
+
+        // user1 redeems 1e18
+        vm.prank(user1);
+        uint256 redeemToken1 = vault.redeem(1e18, user1, user1);
+        assertEq(redeemToken1, 1e18);
+        assertEq(redemptionToken.balanceOf(user1), redeemToken1);
+        assertEq(redemptionToken.redeemOffsetOf(user1), 0);
+        assertEq(redemptionToken.maxRedeemableBy(user1), 0);
+
+        // 50e18 made available for redemptions
+        deal(address(asset), treasury, 50e18);
+        vm.startPrank(treasury);
+        asset.approve(address(redemptionToken), 50e18);
+        redemptionToken.increaseClaimableAmount(50e18);
+        vm.stopPrank();
+
+        // User1 redeems what it can
+        assertEq(redemptionToken.redeemOffsetOf(user1), 0);
+        // @audit If the available amount is 50e18 then maxRedeemableBy
+        // should be capped to the user's 1e18
+        assertEq(redemptionToken.maxRedeemableBy(user1), 1e18);
+    }
+
+    function testDonation() public {
+        // user1 and user2 deposit 10e18 each
+        uint256 shares1 = vault.deposit(10e18, user1);
+        assertEq(shares1, 10e18);
+        uint256 shares2 = vault.deposit(10e18, user2);
+        assertEq(shares2, 10e18);
+
+        // user1 redeems 1e18
+        vm.prank(user1);
+        uint256 redeemToken1 = vault.redeem(1e18, user1, user1);
+        assertEq(redeemToken1, 1e18);
+        assertEq(redemptionToken.balanceOf(user1), redeemToken1);
+
+        // @audit Since increaseClaimableAmount() hasn't been called yet,
+        // accClaimPerShare == 0
+        // so the redeemOffsetOf(user1) == 0
+        assertEq(redemptionToken.redeemOffsetOf(user1), 0);
+        assertEq(redemptionToken.maxRedeemableBy(user1), 0);
+
+        // 0.25e18 now made available for redemptions
+        deal(address(asset), treasury, 0.25e18);
+        vm.startPrank(treasury);
+        asset.approve(address(redemptionToken), 0.25e18);
+        redemptionToken.increaseClaimableAmount(0.25e18);
+        vm.stopPrank();
+
+        // check state
+        {
+            assertEq(redemptionToken.accClaimPerShare(), 0.25e18);
+            assertEq(redemptionToken.redeemOffsetOf(user1), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user1), 0.25e18); // @audit check
+            assertEq(redemptionToken.redeemOffsetOf(user2), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user2), 0);
+            assertEq(redemptionToken.redeemOffsetOf(address(vault)), 0);
+            // @audit wrong since the vault shouldn't be able to redeem anything?
+            assertEq(redemptionToken.maxRedeemableBy(address(vault)), 4.75e18);
+
+            assertEq(vault.totalSupply(), 9e18 + 10e18);
+            assertEq(vault.totalAssets(), 9e18 + 10e18);
+        }
+
+        // User1 redeems what it can
+        uint256 receivedAssets = redemptionToken.redeem(user1, user1);
+        assertEq(receivedAssets, 0.25e18);
+        assertEq(redemptionToken.balanceOf(user1), 0.75e18);
+
+        // check state
+        {
+            assertEq(redemptionToken.accClaimPerShare(), 0.25e18);
+            assertEq(redemptionToken.redeemOffsetOf(user1), 0.1875e18); // @audit check
+            assertEq(redemptionToken.maxRedeemableBy(user1), 0);
+            assertEq(redemptionToken.redeemOffsetOf(user2), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user2), 0);
+            assertEq(redemptionToken.redeemOffsetOf(address(vault)), 0);
+            // @audit wrong since the vault shouldn't be able to redeem anything?
+            assertEq(redemptionToken.maxRedeemableBy(address(vault)), 4.75e18);
+
+            assertEq(vault.totalSupply(), 9e18 + 10e18);
+            assertEq(vault.totalAssets(), 9e18 + 10e18);
+        }
+
+        // user1 redeems 9e18
+        vm.prank(user1);
+        uint256 redeemToken1b = vault.redeem(9e18, user1, user1);
+        assertEq(redeemToken1b, 9e18);
+        assertEq(redemptionToken.balanceOf(user1), redeemToken1b + 0.75e18);
+
+        // check state
+        {
+            assertEq(redemptionToken.accClaimPerShare(), 0.25e18);
+            assertEq(redemptionToken.redeemOffsetOf(user1), 2.4375e18); // @audit check
+            assertEq(redemptionToken.maxRedeemableBy(user1), 0);
+            assertEq(redemptionToken.redeemOffsetOf(user2), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user2), 0);
+            assertEq(redemptionToken.redeemOffsetOf(address(vault)), 0);
+            assertEq(redemptionToken.maxRedeemableBy(address(vault)), 2.5e18);
+
+            assertEq(vault.totalSupply(), 10e18);
+            assertEq(vault.totalAssets(), 10e18);
+        }
+
+        // Donate redemption tokens back to the vault
+        vm.prank(user1);
+        redemptionToken.transfer(address(vault), 9.75e18);
+
+        // check state
+        {
+            assertEq(redemptionToken.accClaimPerShare(), 0.25e18);
+            assertEq(redemptionToken.redeemOffsetOf(user1), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user1), 0);
+            assertEq(redemptionToken.redeemOffsetOf(user2), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user2), 0);
+            assertEq(redemptionToken.redeemOffsetOf(address(vault)), 2.4375e18);
+            assertEq(redemptionToken.maxRedeemableBy(address(vault)), 2.5e18);
+
+            assertEq(vault.totalSupply(), 10e18);
+            assertEq(vault.totalAssets(), 9.75e18 + 10e18);
+        }
+
+        // user 2 redeems 9e18
+        vm.prank(user2);
+        uint256 redeemToken2 = vault.redeem(9e18, user2, user2);
+        assertEq(redeemToken2, 17.774999999999999999e18);
+
+        // check state
+        {
+            assertEq(redemptionToken.accClaimPerShare(), 0.25e18);
+            assertEq(redemptionToken.redeemOffsetOf(user1), 0);
+            assertEq(redemptionToken.maxRedeemableBy(user1), 0);
+            assertEq(redemptionToken.redeemOffsetOf(user2), 6.637499999999999998e18);
+
+            // @audit this reverts when it shouldn't
+            assertEq(redemptionToken.maxRedeemableBy(user2), 0);
+
+            assertEq(redemptionToken.redeemOffsetOf(address(vault)), 0.24375e18 + 1);
+            assertEq(redemptionToken.maxRedeemableBy(address(vault)), 0.25e18 - 1);
+
+            assertEq(vault.totalSupply(), 1e18);
+            assertEq(vault.totalAssets(), 0.975e18 + 1e18 + 1);
+        }
     }
 }

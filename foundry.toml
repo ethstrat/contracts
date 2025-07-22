@@ -9,6 +9,9 @@ ffi = true
 fs_permissions = [
     {access = "write", path = "./tmp/"},
 ]
+legacy_assertions = true
+assertions_revert = false
+verbosity = 3
 
 [profile.default.invariant]
 runs = 8
