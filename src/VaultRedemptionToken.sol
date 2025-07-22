@@ -87,7 +87,7 @@ contract VaultRedemptionToken is MintableBurnableToken {
     }
 
     function increaseClaimableAmount(uint256 amount) external {
-        redeemableToken.transferFrom(msg.sender, address(this), amount);
+        SafeERC20.safeTransferFrom(redeemableToken, msg.sender, address(this), amount);
         accClaimPerShare += (amount * 1e18) / totalClaimableShares;
     }
 
