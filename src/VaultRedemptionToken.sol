@@ -10,7 +10,13 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
  */
 contract VaultRedemptionToken is MintableBurnableToken {
     mapping(address => uint256) public redeemOffsetOf;
+
+    /// @notice The number of shares that can be claimed
+    /// @dev    Upon redemption, it is reduced by the amount of shares redeemed
+    /// @dev    Shares the same scale as this token (18 decimals)
     uint256 public totalClaimableShares;
+
+    /// @notice Accumulated claim per share
     uint256 public accClaimPerShare;
 
     IERC20 public immutable redeemableToken;
@@ -35,8 +41,8 @@ contract VaultRedemptionToken is MintableBurnableToken {
     error ClaimableExceedsBalance();
 
     /// @notice Returns the maximum amount of tokens that can be redeemed by a given owner.
-    /// @param owner The address of the token owner.
-    /// @return The maximum redeemable token amount for the specified owner.
+    /// @param  owner           The address of the token owner.
+    /// @return maxRedeemable   The maximum redeemable token amount for the specified owner.
     function maxRedeemableBy(address owner) public view returns (uint256) {
         if (totalClaimableShares == 0) {
             return 0;
