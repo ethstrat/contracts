@@ -48,7 +48,12 @@ contract VaultRedemptionToken is MintableBurnableToken {
             return 0;
         }
 
-        return (balanceOf(owner) * accClaimPerShare / 1e18) - redeemOffsetOf[owner];
+        uint256 redeemable = (balanceOf(owner) * accClaimPerShare / 1e18);
+        if (redeemOffsetOf[owner] > redeemable) {
+            return 0;
+        }
+
+        return redeemable - redeemOffsetOf[owner];
     }
 
     /**
