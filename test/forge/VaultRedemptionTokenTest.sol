@@ -5,6 +5,8 @@ import "forge-std/Test.sol";
 import "../../src/VaultRedemptionToken.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 
+import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
+
 contract MockERC20 is MintableBurnableToken {
     constructor() MintableBurnableToken("MockToken", "MTK", msg.sender) {}
 }
@@ -332,25 +334,177 @@ contract VaultRedemptionTokenTest is Test {
             // claimed
     }
 
-    function testClaimedTransferredOnTransfer() public {
+    function testClaimTransferredOnTransfer() public {
+        // totalClaimableShares = 100
+        // accClaimPerShare = 0
+        // redeemOffsetOf(user1) = 0
+        // redeemOffsetOf(user2) = 0
         mintClaimableShares(user1, 100 ether);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        // totalClaimableShares = 100
+        // accClaimPerShare = 50 / 100 = 0.5
+        // redeemOffsetOf(user1) = 0
+        // redeemOffsetOf(user2) = 0
         vaultRedemptionToken.increaseClaimableAmount(50 ether);
 
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
         // user1 redeems 50
+        // totalClaimableShares = 100 - 50 = 50
+        // accClaimPerShare = 50 / 100 = 0.5
+        // redeemOffsetOf(user1) = 50
+        // redeemOffsetOf(user2) = 0
         vm.prank(user1);
         vaultRedemptionToken.redeem(user1, user1);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        // Transfer 25 shares to user2
+        // claim transfer = 50 * 25 / 50 = 25
+        // totalClaimableShares = 50
+        // accClaimPerShare = 50 / 100 = 0.5
+        // redeemOffsetOf(user1) = 50 - 25 = 25
+        // redeemOffsetOf(user2) = 25
+        vm.prank(user1);
+        vaultRedemptionToken.transfer(user2, 25 ether);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        // Check user1
+        assertEq(vaultRedemptionToken.balanceOf(user1), 25 ether, "post-transfer balanceOf.user1");
+
+        // Check user2
+        assertEq(vaultRedemptionToken.balanceOf(user2), 25 ether, "post-transfer balanceOf.user2");
+
+        // user2 should inherit half of user1's claimed
+        assertEq(vaultRedemptionToken.redeemOffsetOf(user2), 25e18, "post-transfer redeemOffsetOf.user2");
+        assertEq(
+            vaultRedemptionToken.redeemOffsetOf(user2),
+            vaultRedemptionToken.redeemOffsetOf(user1),
+            "Claimed transferred not proportional"
+        );
+
+        assertEq(vaultRedemptionToken.totalClaimableShares(), 50 ether, "post-transfer totalClaimableShares"); // 100
+            // ether
+        assertEq(vaultRedemptionToken.accClaimPerShare(), 50e18 * 1e18 / 100e18, "post-transfer accClaimPerShare"); // 50
+            // ether / 100 ether = 0.5
+    }
+
+    function testClaimTransferredWithoutRedemption() public {
+        // totalClaimableShares = 100
+        // accClaimPerShare = 0
+        // redeemOffsetOf(user1) = 0
+        // redeemOffsetOf(user2) = 0
+        mintClaimableShares(user1, 100 ether);
+
+        // totalClaimableShares = 100
+        // accClaimPerShare = 50 / 100 = 0.5
+        // redeemOffsetOf(user1) = 0
+        // redeemOffsetOf(user2) = 0
+        vaultRedemptionToken.increaseClaimableAmount(50 ether);
 
         // Transfer 25 shares to user2
         vm.prank(user1);
         vaultRedemptionToken.transfer(user2, 25 ether);
 
-        // user2 should inherit half of user1's claimed
-        assertApproxEqRel(
-            vaultRedemptionToken.redeemOffsetOf(user2),
-            vaultRedemptionToken.redeemOffsetOf(user1),
-            ONE_PERCENT,
-            "Claimed transferred not proportional"
+        // Check user1
+        assertEq(vaultRedemptionToken.balanceOf(user1), 75 ether, "post-transfer balanceOf.user1");
+        assertEq(vaultRedemptionToken.redeemOffsetOf(user1), 0, "post-transfer redeemOffsetOf.user1");
+
+        // Check user2
+        assertEq(vaultRedemptionToken.balanceOf(user2), 25 ether, "post-transfer balanceOf.user2");
+        assertEq(vaultRedemptionToken.redeemOffsetOf(user2), 0, "post-transfer redeemOffsetOf.user2");
+
+        assertEq(vaultRedemptionToken.totalClaimableShares(), 100 ether, "post-transfer totalClaimableShares"); // 100
+            // ether
+        assertEq(vaultRedemptionToken.accClaimPerShare(), 50e18 * 1e18 / 100e18, "post-transfer accClaimPerShare"); // 50
+            // ether / 100 ether = 0.5
+    }
+
+    function testBurnAfterRedemption() public {
+        // totalClaimableShares = 100
+        // accClaimPerShare = 0
+        // redeemOffsetOf(user1) = 0
+        // redeemOffsetOf(user2) = 0
+        mintClaimableShares(user1, 100 ether);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        // totalClaimableShares = 100
+        // accClaimPerShare = 50 / 100 = 0.5
+        // redeemOffsetOf(user1) = 0
+        // redeemOffsetOf(user2) = 0
+        vaultRedemptionToken.increaseClaimableAmount(50 ether);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        // user1 redeems 50
+        // totalClaimableShares = 100 - 50 = 50
+        // accClaimPerShare = 50 / 100 = 0.5
+        // redeemOffsetOf(user1) = 50
+        // redeemOffsetOf(user2) = 0
+        vm.prank(user1);
+        vaultRedemptionToken.redeem(user1, user1);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        vm.prank(user1);
+        vaultRedemptionToken.burn(25 ether);
+
+        console2.log("redeemOffsetOf(user1)", vaultRedemptionToken.redeemOffsetOf(user1));
+
+        // Check user1
+        assertEq(vaultRedemptionToken.balanceOf(user1), 25 ether, "post-burn balanceOf.user1");
+        assertEq(vaultRedemptionToken.redeemOffsetOf(user1), 25e18, "post-burn redeemOffsetOf.user1");
+
+        // Check zero address
+        assertEq(vaultRedemptionToken.balanceOf(address(0)), 25 ether, "post-burn balanceOf.zeroAddress");
+        assertEq(vaultRedemptionToken.redeemOffsetOf(address(0)), 25e18, "post-burn redeemOffsetOf.zeroAddress");
+
+        // TODO decide if burning the tokens should increase what can be claimed by other users
+        assertEq(vaultRedemptionToken.totalClaimableShares(), 50 ether, "post-burn totalClaimableShares"); // 100 ether
+        assertEq(vaultRedemptionToken.accClaimPerShare(), 50e18 * 1e18 / 100e18, "post-burn accClaimPerShare"); // 50
+            // ether / 100 ether = 0.5
+    }
+
+    function testTransferWithInsufficientBalance() public {
+        mintClaimableShares(user1, 100 ether);
+        vaultRedemptionToken.increaseClaimableAmount(50 ether);
+
+        // Try to transfer more than the balance
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 100 ether, 101 ether)
         );
+
+        vm.prank(user1);
+        vaultRedemptionToken.transfer(user2, 101 ether);
+    }
+
+    function testTransferFromWithInsufficientBalance() public {
+        mintClaimableShares(user1, 100 ether);
+        vaultRedemptionToken.increaseClaimableAmount(50 ether);
+
+        // Approve spending
+        vm.prank(user1);
+        vaultRedemptionToken.approve(user2, 101 ether);
+
+        // Try to transfer more than the balance
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 100 ether, 101 ether)
+        );
+
+        vm.prank(user2);
+        vaultRedemptionToken.transferFrom(user1, user2, 101 ether);
+    }
+
+    function testTransferFromWithInsufficientAllowance() public {
+        // TODO
+    }
+
+    function testMintAfterRedemption() public {
+        // TODO
     }
 
     function testRevertsClaimableExceedsBalance() public {
