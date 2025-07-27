@@ -10,6 +10,9 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
  */
 contract VaultRedemptionShare is MintableBurnableToken {
     mapping(address => uint256) public redeemOffsetOf;
+    mapping(address => uint256) public redeemedBy;
+    mapping(address => uint256) public accClaimPerShareOnMint;
+
     uint256 public totalClaimableShares;
     uint256 public accClaimPerShare;
 
@@ -24,12 +27,15 @@ contract VaultRedemptionShare is MintableBurnableToken {
     }
 
     event Redeem(address indexed receiver, address indexed owner, uint256 assets);
-    event ClaimedTransferred(
+    event ClaimTransferred(
         address indexed from,
         address indexed to,
-        uint256 fromClaimedTotal,
-        uint256 toClaimedTotal,
-        uint256 transferredAmount
+        uint256 fromRedeemOffset,
+        uint256 toRedeemOffset,
+        uint256 redeemOffsetTransfer,
+        uint256 fromRedeemedBy,
+        uint256 toRedeemedBy,
+        uint256 redeemedByTransfer
     );
 
     error ClaimableExceedsBalance();
@@ -81,6 +87,7 @@ contract VaultRedemptionShare is MintableBurnableToken {
         }
 
         redeemOffsetOf[owner] += amount;
+        redeemedBy[owner] += amount;
         _burn(owner, amount);
         totalClaimableShares -= amount;
         SafeERC20.safeTransfer(redeemableToken, receiver, amount);
@@ -95,7 +102,11 @@ contract VaultRedemptionShare is MintableBurnableToken {
         }
 
         // round up in favor of the vault
-        redeemOffsetOf[owner] += ((amount * accClaimPerShare) + (1e18 - 1)) / 1e18;
+        uint256 grossOffset = ((amount * accClaimPerShare) + (1e18 - 1)) / 1e18;
+        if (grossOffset < redeemedBy[owner]) {
+            grossOffset = redeemedBy[owner];
+        }
+        redeemOffsetOf[owner] += grossOffset - redeemedBy[owner];
         totalClaimableShares += amount;
     }
 
@@ -111,12 +122,27 @@ contract VaultRedemptionShare is MintableBurnableToken {
 
     function _update(address from, address to, uint256 value) internal override {
         // TODO needs some testing. What if from == to, to == 0?
-        if (from != address(0) && balanceOf(from) > 0) {
+        if (from != address(0) && to != address(0) && balanceOf(from) > 0) {
             // Transfer claimed proportionally to shares transferred
-            uint256 claimTransfer = redeemOffsetOf[from] * value / balanceOf(from);
-            redeemOffsetOf[to] += claimTransfer;
-            redeemOffsetOf[from] -= claimTransfer;
-            emit ClaimedTransferred(from, to, redeemOffsetOf[from], redeemOffsetOf[to], claimTransfer);
+            // XXX: if balance is split on multiple accouts (2 - inf) is there leakage?
+            uint256 redeemOffsetTransfer = redeemOffsetOf[from] * value / balanceOf(from);
+            uint256 redeemedByTransfer = redeemedBy[from] * value / balanceOf(from);
+
+            redeemOffsetOf[to] += redeemOffsetTransfer;
+            redeemOffsetOf[from] -= redeemOffsetTransfer;
+            redeemedBy[to] += redeemedByTransfer;
+            redeemedBy[from] -= redeemedByTransfer;
+
+            emit ClaimTransferred(
+                from,
+                to,
+                redeemOffsetOf[from],
+                redeemOffsetOf[to],
+                redeemOffsetTransfer,
+                redeemedBy[from],
+                redeemedBy[to],
+                redeemedByTransfer
+            );
         }
         super._update(from, to, value);
     }
