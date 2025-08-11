@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {ERC4626} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
+import {IERC20, ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
+import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
+
+/**
+ * @title Strat Perpetual LP Vault 
+ * @dev Vault where PBS/STABLE LP Tokens can be staked to earn more LP tokens
+ */
+contract StakedStratPerpetualBondLP is ERC4626 {
+    /**
+     * @dev Constructor for the vault
+     * @param _asset The underlying ERC20 LP token for a STABLE/PBS pair
+     */
+    constructor(
+        IERC20 _asset
+    ) ERC4626(_asset) ERC20("Staked STRAT Perpetual Bond LP", "sPBS-LP") {
+    }
+} 
