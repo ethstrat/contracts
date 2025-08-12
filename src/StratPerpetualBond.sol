@@ -98,6 +98,19 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
     }
 
     /**
+     * @dev Destroys a `value` amount of tokens from `account`, lowering the total supply.
+     * Emits a {Transfer} event with `to` set to the zero address.
+     *
+     * intentended to be used by the STRAT protocol if it needs to burn any SPB it holds to
+     * boost yield for external holders.
+     * 
+     * @param value The amount of tokens to burn
+     */
+    function burn(uint256 value) external {
+        _burn(msg.sender, value);
+    }
+
+    /**
      * @dev Override of _deposit to 
      *   1. track totalAssets explicitly 
      *   2. transfer funds to the manager

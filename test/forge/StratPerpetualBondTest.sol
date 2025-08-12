@@ -416,16 +416,15 @@ contract StratPerpetualBondTest is Test {
         assertEq(pb.maxRedeem(user2), 1000 * 10**18);
     }
 
-    function xtest_BurnShares_DecreasesTotalSupply() public {
+    function test_BurnShares_DecreasesTotalSupply() public {
         // Mint 1000 shares to user1
         uint256 mintedShares = pb.deposit(1000 * 10**18, user1);
         assertEq(mintedShares, 1000 * 10**18);
         assertEq(pb.totalSupply(), 1000 * 10**18);
 
         // Burn 500 shares by sending to burn address (address(0))
-        vm.startPrank(user1);
-        pb.transfer(address(0), 500 * 10**18);
-        vm.stopPrank();
+        vm.prank(user1);
+        pb.burn(500 * 10**18);
 
         // Now totalSupply should be 500
         assertEq(pb.totalSupply(), 500 * 10**18);
