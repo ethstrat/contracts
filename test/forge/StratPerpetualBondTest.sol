@@ -53,7 +53,7 @@ contract StratPerpetualBondTest is Test {
         assertEq(pb.owner(), owner);
         assertEq(address(pb.asset()), address(usds));
         assertEq(pb.name(), "STRAT Perpetual Bond");
-        assertEq(pb.symbol(), "PBS");
+        assertEq(pb.symbol(), "SPB");
         assertEq(pb.decimals(), 18);
         assertEq(pb.manager(), manager);
         assertEq(pb.totalAssets(), 0);
