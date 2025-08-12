@@ -20,8 +20,8 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
     address public manager;
     
     uint256 private _totalAssets;
-    
-    /// @dev Maximum total assets that can be deposited (0 = no cap)
+
+    /// @dev Maximum total assets that can be deposited (uint256 max = no cap)
     uint256 public depositCap;
 
     /// @dev Withdrawals are disabled by default. Exit is via LP

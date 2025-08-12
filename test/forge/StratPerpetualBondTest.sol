@@ -26,7 +26,9 @@ contract StratPerpetualBondTest is Test {
     uint256 public constant DEPOSIT_AMOUNT = 1000 * 10**18; // 1K tokens
     uint256 public constant ADD_ASSETS_AMOUNT = 500 * 10**18; // 500 tokens
     uint256 public constant INITIAL_DEPOSIT_CAP = DEPOSIT_AMOUNT * 10; // 10K tokens
-    
+
+    uint256 public constant NO_DEPOSIT_CAP = type(uint256).max;
+
     function setUp() public {
         // Deploy mock ERC20 token
         usds = IERC20(address(new MockUSDS()));
