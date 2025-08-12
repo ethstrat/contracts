@@ -58,6 +58,41 @@ contract StratPerpetualBond is ERC4626, Ownable2Step {
         _totalAssets += assets;
     }
 
+    function maxDeposit(address) public view virtual override returns (uint256) {
+        return depositCap > _totalAssets ? depositCap - _totalAssets : 0;
+    }
+
+    function maxMint(address) public view virtual override returns (uint256) {
+        return previewDeposit(maxDeposit(address(0)));
+    }
+
+    function maxWithdraw(address owner) public view virtual override returns (uint256) {
+        if (withdrawalsDisabled) {
+            return 0;
+        }
+
+        // The withdrawable amount is the minimum of:
+        // - the owner's share of assets (converted from their shares)
+        // - the actual asset balance held by the contract
+        uint256 ownerAssets = super.maxWithdraw(owner);
+        uint256 contractBalance = IERC20(asset()).balanceOf(address(this));
+        return ownerAssets < contractBalance ? ownerAssets : contractBalance;
+    }
+
+    function maxRedeem(address owner) public view virtual override returns (uint256) {
+        if (withdrawalsDisabled) {
+            return 0;
+        }
+
+        // The maximum shares redeemable is the minimum of:
+        // - the owner's share balance
+        // - the number of shares that can be redeemed given the contract's asset balance
+        uint256 contractBalance = IERC20(asset()).balanceOf(address(this));
+        uint256 maxSharesForContractBalance = convertToShares(contractBalance);
+        uint256 ownerShares = balanceOf(owner);
+        return ownerShares < maxSharesForContractBalance ? ownerShares : maxSharesForContractBalance;
+    }
+
     /**
      * @dev Override of _deposit to 
      *   1. track totalAssets explicitly 
