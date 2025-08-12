@@ -6,6 +6,7 @@ import {IERC20, ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title Strat Perpetual Bond 
@@ -13,7 +14,7 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
  *      The vault is designed to allow flexibility w.r.t the underlying strategy
  *      (owners can set the manager)
  */
-contract StratPerpetualBond is ERC4626, Ownable2Step {
+contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
     using Math for uint256;
 
     address public manager;
@@ -34,7 +35,6 @@ contract StratPerpetualBond is ERC4626, Ownable2Step {
     /// @dev Errors
     error InvalidManager();
     error WithdrawalsDisabled();
-    error DepositCapExceeded();
 
     /**
      * @dev Constructor for the vault
@@ -111,7 +111,7 @@ contract StratPerpetualBond is ERC4626, Ownable2Step {
     ) internal virtual override {
         uint256 newTotal = _totalAssets + assets;
         if (newTotal > depositCap) {
-            revert DepositCapExceeded();
+            revert ERC4626ExceededMaxDeposit(receiver, assets, maxDeposit(receiver));
         }
 
         super._deposit(caller, receiver, assets, shares);
@@ -133,11 +133,11 @@ contract StratPerpetualBond is ERC4626, Ownable2Step {
         address owner,
         uint256 assets,
         uint256 shares
-    ) internal virtual override {
+    ) internal virtual override nonReentrant {
         if (withdrawalsDisabled) revert WithdrawalsDisabled();
 
-        _totalAssets -= assets;
         super._withdraw(caller, receiver, owner, assets, shares);
+        _totalAssets -= assets;
     }
 
     /**

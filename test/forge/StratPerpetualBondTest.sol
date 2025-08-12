@@ -60,7 +60,7 @@ contract StratPerpetualBondTest is Test {
         assertEq(pb.withdrawalsDisabled(), true);
     }
 
-    //// Test 1: Only my own totalAsset calc is used to convert between shares/assets
+    //// Only my own totalAsset calc is used to convert between shares/assets
     //// (sending _asset to the contract has no effect)
     
     function test_AssetTransferToContractHasNoEffectOnTotalAssets() public {
@@ -204,11 +204,7 @@ contract StratPerpetualBondTest is Test {
     
     function test_WithdrawUpdatesTotalAssets() public {
         // First deposit and add assets
-        vm.startPrank(user1);
-        usds.approve(address(pb), DEPOSIT_AMOUNT);
         pb.deposit(DEPOSIT_AMOUNT, user1);
-        vm.stopPrank();
-        
         pb.increaseAssetsPerShare(ADD_ASSETS_AMOUNT);
         
         // Enable withdrawals
@@ -267,7 +263,7 @@ contract StratPerpetualBondTest is Test {
         
         // Third deposit should fail (would exceed cap)
         uint256 thirdDeposit = 500 * 10**18; // 500 tokens
-        vm.expectRevert("DepositCapExceeded()");
+        vm.expectRevert(abi.encodeWithSignature("ERC4626ExceededMaxDeposit(address,uint256,uint256)", randomUser, thirdDeposit, 200 * 10**18));
         pb.deposit(thirdDeposit, randomUser);
         
         // Total assets should remain unchanged
@@ -285,7 +281,7 @@ contract StratPerpetualBondTest is Test {
         assertEq(pb.totalAssets(), cap);
 
         // deposit should fail
-        vm.expectRevert("DepositCapExceeded()");
+        vm.expectRevert(abi.encodeWithSignature("ERC4626ExceededMaxDeposit(address,uint256,uint256)", user2, cap, 0));
         pb.deposit(cap, user2);
         
         // Enable withdrawals
@@ -304,5 +300,134 @@ contract StratPerpetualBondTest is Test {
         // Should be able to deposit again up to the restored capacity
         pb.deposit(withdrawal, user2);
         assertEq(pb.totalAssets(), cap);
+    }
+
+    function test_MaxDeposit_RespectsDepositCap() public {
+        // Set deposit cap to 2000 tokens
+        uint256 cap = 2000 * 10**18;
+        vm.prank(owner);
+        pb.setDepositCap(cap);
+
+        // No deposits yet, maxDeposit should be cap
+        assertEq(pb.maxDeposit(user1), cap);
+
+        // Deposit 1500 tokens
+        pb.deposit(1500 * 10**18, user1);
+
+        // maxDeposit should be cap - deposited
+        assertEq(pb.maxDeposit(user1), 500 * 10**18);
+
+        // Deposit up to cap
+        pb.deposit(500 * 10**18, user2);
+
+        // maxDeposit should now be 0
+        assertEq(pb.maxDeposit(user1), 0);
+    }
+
+    function test_MaxMint_RespectsDepositCap() public {
+        // Set deposit cap to 1000 tokens
+        uint256 cap = 1000 * 10**18;
+        vm.prank(owner);
+        pb.setDepositCap(cap);
+
+        // maxMint should be previewDeposit(maxDeposit)
+        uint256 maxDepositAmount = pb.maxDeposit(user1);
+        uint256 maxMintAmount = pb.maxMint(user1);
+        // For a fresh vault, 1:1, so should be equal
+        assertEq(maxMintAmount, maxDepositAmount);
+
+        // Deposit 600 tokens
+        pb.deposit(600 * 10**18, user1);
+
+        // maxMint should now be previewDeposit(400 tokens)
+        uint256 expectedMint = pb.previewDeposit(400 * 10**18);
+        assertEq(pb.maxMint(user1), expectedMint);
+
+        // Deposit up to cap
+        pb.deposit(400 * 10**18, user2);
+
+        // maxMint should now be 0
+        assertEq(pb.maxMint(user1), 0);
+    }
+
+    function test_MaxWithdraw_WithdrawalsDisabled() public {
+        // Deposit for user1
+        pb.deposit(1000 * 10**18, user1);
+
+        // Withdrawals are disabled by default
+        assertEq(pb.maxWithdraw(user1), 0);
+    }
+
+    function test_MaxRedeem_WithdrawalsDisabled() public {
+        // Deposit for user1
+        pb.deposit(1000 * 10**18, user1);
+
+        // Withdrawals are disabled by default
+        assertEq(pb.maxRedeem(user1), 0);
+    }
+
+    function test_MaxWithdraw_RespectsContractBalance() public {
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Deposit for user1 and user2
+        pb.deposit(1000 * 10**18, user1);
+        pb.deposit(1000 * 10**18, user2);
+
+        // Send only 500 tokens to contract
+        usds.transfer(address(pb), 500 * 10**18);
+
+        // Each user has 1000 shares, but only 500 tokens in contract
+        // maxWithdraw for each should be at most 500
+        assertEq(pb.maxWithdraw(user1), 500 * 10**18);
+        assertEq(pb.maxWithdraw(user2), 500 * 10**18);
+
+        // Send more tokens to contract
+        usds.transfer(address(pb), 1500 * 10**18);
+
+        // Now contract has 2000 tokens, so each can withdraw up to their share
+        assertEq(pb.maxWithdraw(user1), 1000 * 10**18);
+        assertEq(pb.maxWithdraw(user2), 1000 * 10**18);
+    }
+
+    function test_MaxRedeem_RespectsContractBalance() public {
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Deposit for user1 and user2
+        pb.deposit(1000 * 10**18, user1);
+        pb.deposit(1000 * 10**18, user2);
+
+        // Only 500 tokens in contract
+        usds.transfer(address(pb), 500 * 10**18);
+
+        // Each user has 1000 shares, but only 500 tokens in contract
+        // maxRedeem for each should be 500 shares (since 1:1)
+        assertEq(pb.maxRedeem(user1), 500 * 10**18);
+        assertEq(pb.maxRedeem(user2), 500 * 10**18);
+
+        // Send more tokens to contract
+        usds.transfer(address(pb), 1500 * 10**18);
+
+        // Now contract has 2000 tokens, so each can redeem up to their share
+        assertEq(pb.maxRedeem(user1), 1000 * 10**18);
+        assertEq(pb.maxRedeem(user2), 1000 * 10**18);
+    }
+
+    function xtest_BurnShares_DecreasesTotalSupply() public {
+        // Mint 1000 shares to user1
+        uint256 mintedShares = pb.deposit(1000 * 10**18, user1);
+        assertEq(mintedShares, 1000 * 10**18);
+        assertEq(pb.totalSupply(), 1000 * 10**18);
+
+        // Burn 500 shares by sending to burn address (address(0))
+        vm.startPrank(user1);
+        pb.transfer(address(0), 500 * 10**18);
+        vm.stopPrank();
+
+        // Now totalSupply should be 500
+        assertEq(pb.totalSupply(), 500 * 10**18);
     }
 }
