@@ -247,6 +247,17 @@ contract StratPerpetualBondTest is Test {
         assertEq(pb.depositCap(), INITIAL_DEPOSIT_CAP);
     }
 
+    function test_DepositSucceedsWithNoDepositCap() public {
+        // Set no deposit cap
+        vm.prank(owner);
+        pb.setDepositCap(NO_DEPOSIT_CAP);
+
+        // Deposit should succeed
+        uint256 firstDeposit = 1000 * 10 ** 18; // 1K tokens
+        pb.deposit(firstDeposit, user1);
+        assertEq(pb.totalAssets(), firstDeposit);
+    }
+
     function test_DepositFailsWhenCapExceeded() public {
         // Set a deposit cap
         uint256 cap = 2000 * 10**18; // 2K tokens
@@ -305,6 +316,13 @@ contract StratPerpetualBondTest is Test {
     }
 
     function test_MaxDeposit_RespectsDepositCap() public {
+        // Set no deposit cap
+        vm.prank(owner);
+        pb.setDepositCap(NO_DEPOSIT_CAP);
+
+        // maxDeposit should be uint256 max since there is no cap
+        assertEq(pb.maxDeposit(user1), type(uint256).max, "maxDeposit with no cap");
+
         // Set deposit cap to 2000 tokens
         uint256 cap = 2000 * 10**18;
         vm.prank(owner);
@@ -327,6 +345,13 @@ contract StratPerpetualBondTest is Test {
     }
 
     function test_MaxMint_RespectsDepositCap() public {
+        // Set no deposit cap
+        vm.prank(owner);
+        pb.setDepositCap(NO_DEPOSIT_CAP);
+
+        // maxMint should be uint256 max since there is no cap
+        assertEq(pb.maxMint(user1), type(uint256).max, "maxMint with no cap");
+
         // Set deposit cap to 1000 tokens
         uint256 cap = 1000 * 10**18;
         vm.prank(owner);
