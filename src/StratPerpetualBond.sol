@@ -58,14 +58,17 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
         _totalAssets += assets;
     }
 
+    /** @dev See {IERC4626-maxDeposit}. */
     function maxDeposit(address) public view virtual override returns (uint256) {
         return depositCap > _totalAssets ? depositCap - _totalAssets : 0;
     }
 
+    /** @dev See {IERC4626-maxMint}. */
     function maxMint(address) public view virtual override returns (uint256) {
         return previewDeposit(maxDeposit(address(0)));
     }
 
+    /** @dev See {IERC4626-maxWithdraw}. */
     function maxWithdraw(address owner) public view virtual override returns (uint256) {
         if (withdrawalsDisabled) {
             return 0;
@@ -79,6 +82,7 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
         return ownerAssets < contractBalance ? ownerAssets : contractBalance;
     }
 
+    /** @dev See {IERC4626-maxRedeem}. */
     function maxRedeem(address owner) public view virtual override returns (uint256) {
         if (withdrawalsDisabled) {
             return 0;
