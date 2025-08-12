@@ -74,12 +74,13 @@ contract StratPerpetualBond is ERC4626, Ownable2Step {
         uint256 assets,
         uint256 shares
     ) internal virtual override {
-        if (_totalAssets + assets > depositCap) {
+        uint256 newTotal = _totalAssets + assets;
+        if (newTotal > depositCap) {
             revert DepositCapExceeded();
         }
 
         super._deposit(caller, receiver, assets, shares);
-        _totalAssets += assets;
+        _totalAssets = newTotal;
         SafeERC20.safeTransfer(IERC20(asset()), manager, assets);
     }
 
