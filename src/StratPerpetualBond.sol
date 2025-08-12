@@ -44,7 +44,7 @@ contract StratPerpetualBond is ERC4626, Ownable2Step {
     constructor(
         IERC20 _asset,
         address _owner
-    ) ERC4626(_asset) ERC20("STRAT Perpetual Bond", "PBS") Ownable(_owner) {
+    ) ERC4626(_asset) ERC20("STRAT Perpetual Bond", "SPB") Ownable(_owner) {
     }
 
     /** @dev See {IERC4626-totalAssets}. */

@@ -9,7 +9,7 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 /**
  * @title Strat Perpetual LP Vault 
- * @dev Vault where PBS/STABLE LP Tokens can be staked to earn more LP tokens
+ * @dev Vault where SPB/STABLE LP Tokens can be staked to earn more LP tokens
  */
 contract StakedStratPerpetualBondLP is ERC4626 {
     /**
