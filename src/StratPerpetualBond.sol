@@ -9,7 +9,7 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 /**
  * @title Strat Perpetual Bond 
- * @dev Eth Strategy perpetual bond. A defi version of MSTR's preffered stock
+ * @dev Eth Strategy perpetual bond. A defi version of MSTR's preferred stock
  *      The vault is designed to allow flexibility w.r.t the underlying strategy
  *      (owners can set the manager)
  */
