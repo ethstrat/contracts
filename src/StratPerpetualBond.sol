@@ -35,7 +35,6 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
 
     /// @dev Errors
     error InvalidManager();
-    error WithdrawalsDisabled();
 
     /**
      * @dev Constructor for the vault
@@ -147,14 +146,13 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
      * @param assets The amount of assets being withdrawn
      * @param shares The amount of shares being burned
      */
-    function _withdraw(
-        address caller,
-        address receiver,
-        address owner,
-        uint256 assets,
-        uint256 shares
-    ) internal virtual override nonReentrant {
-        if (withdrawalsDisabled) revert WithdrawalsDisabled();
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        virtual
+        override
+        nonReentrant
+    {
+        if (withdrawalsDisabled) revert ERC4626ExceededMaxWithdraw(owner, assets, 0);
 
         super._withdraw(caller, receiver, owner, assets, shares);
         _totalAssets -= assets;
