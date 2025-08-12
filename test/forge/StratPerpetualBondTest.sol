@@ -200,7 +200,9 @@ contract StratPerpetualBondTest is Test {
         // Try to withdraw, expect revert
         usds.transfer(address(pb), DEPOSIT_AMOUNT);
         vm.prank(user1);
-        vm.expectRevert("WithdrawalsDisabled()");
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC4626ExceededMaxWithdraw(address,uint256,uint256)", user1, DEPOSIT_AMOUNT, 0)
+        );
         pb.withdraw(DEPOSIT_AMOUNT, user1, user1);
     }
     
