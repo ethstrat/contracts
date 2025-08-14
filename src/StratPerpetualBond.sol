@@ -31,6 +31,7 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
     event ManagerUpdated(address indexed newManager);
     event WithdrawalsDisabledUpdated(bool isWithdrawalsDisabled);
     event DepositCapUpdated(uint256 newCap);
+    event AssetsPerShareIncreased(address indexed caller, uint256 newAssetsPerShare, uint256 delta);
 
     /// @dev Errors
     error InvalidManager();
@@ -56,6 +57,8 @@ contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
         SafeERC20.safeTransferFrom(IERC20(asset()), msg.sender, address(this), assets);
         SafeERC20.safeTransfer(IERC20(asset()), manager, assets);
         _totalAssets += assets;
+
+        emit AssetsPerShareIncreased(msg.sender, _totalAssets, assets);
     }
 
     /** @dev See {IERC4626-maxDeposit}. */
