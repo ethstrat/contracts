@@ -15,6 +15,6 @@ contract StakedStratPerpetualBondLP is ERC4626 {
      */
     constructor(
         IERC20 _asset
-    ) ERC4626(_asset) ERC20("Staked STRAT Perpetual Bond LP", "sPBS-LP") {
+    ) ERC4626(_asset) ERC20("Staked ETH Strategy Perpetual Note LP", "sESPN-LP") {
     }
 } 

@@ -54,8 +54,8 @@ contract StratPerpetualBondTest is Test {
     function test_Constructor() external view {
         assertEq(pb.owner(), owner);
         assertEq(address(pb.asset()), address(usds));
-        assertEq(pb.name(), "STRAT Perpetual Bond");
-        assertEq(pb.symbol(), "SPB");
+        assertEq(pb.name(), "ETH Strategy Perpetual Note");
+        assertEq(pb.symbol(), "ESPN");
         assertEq(pb.decimals(), 18);
         assertEq(pb.manager(), manager);
         assertEq(pb.totalAssets(), 0);
