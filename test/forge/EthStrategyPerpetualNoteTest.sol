@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {StratPerpetualBond} from "../../src/StratPerpetualBond.sol";
+import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
@@ -13,8 +13,8 @@ contract MockUSDS is MockERC20 {
     }
 }
 
-contract StratPerpetualBondTest is Test {
-    StratPerpetualBond public pb;
+contract EthStrategyPerpetualNoteTest is Test {
+    EthStrategyPerpetualNote public pb;
     IERC20 public usds;
     
     address public owner = address(0x1);
@@ -34,7 +34,7 @@ contract StratPerpetualBondTest is Test {
         usds = IERC20(address(new MockUSDS()));
         
         // Deploy pb
-        pb = new StratPerpetualBond(usds, owner);
+        pb = new EthStrategyPerpetualNote(usds, owner);
         
         // Set manager
         vm.prank(owner);

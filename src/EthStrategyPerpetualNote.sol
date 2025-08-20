@@ -9,12 +9,12 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
- * @title Strat Perpetual Bond 
- * @dev Eth Strategy perpetual bond. A defi version of MSTR's preferred stock
+ * @title ETH Strategy Perpetual Note
+ * @dev Eth Strategy perpetual note. A defi version of MSTR's preferred stock
  *      The vault is designed to allow flexibility w.r.t the underlying strategy
  *      (owners can set the manager)
  */
-contract StratPerpetualBond is ERC4626, Ownable2Step, ReentrancyGuard {
+contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
     using Math for uint256;
 
     address public manager;
