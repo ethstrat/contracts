@@ -8,7 +8,7 @@ import {IERC20, ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.
  * @title Strat Perpetual LP Vault 
  * @dev Vault where SPB/STABLE LP Tokens can be staked to earn more LP tokens
  */
-contract StakedStratPerpetualBondLP is ERC4626 {
+contract StakedEthStrategyPerpetualNoteLP is ERC4626 {
     /**
      * @dev Constructor for the vault
      * @param _asset The underlying ERC20 LP token for a STABLE/PBS pair
