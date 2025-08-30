@@ -45,6 +45,8 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
         IERC20 _asset,
         address _owner
     ) ERC4626(_asset) ERC20("ETH Strategy Perpetual Note", "ESPN") Ownable(_owner) {
+        _totalAssets = 100e18;
+        _mint(address(this), 1e18);
     }
 
     /** @dev See {IERC4626-totalAssets}. */
@@ -97,16 +99,6 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
         uint256 maxSharesForContractBalance = convertToShares(contractBalance);
         uint256 ownerShares = balanceOf(owner);
         return ownerShares < maxSharesForContractBalance ? ownerShares : maxSharesForContractBalance;
-    }
-
-    /** @dev See {IERC4626-_convertToShares}. */
-    function _convertToShares(uint256 assets, Math.Rounding rounding) internal view virtual override returns (uint256) {
-        return super._convertToShares(assets, rounding) / 100;
-    }
-
-    /** @dev See {IERC4626-_convertToAssets}. */
-    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view virtual override returns (uint256) {
-        return super._convertToAssets(shares, rounding) * 100;
     }
 
     /**
