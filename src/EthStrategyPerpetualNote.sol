@@ -99,6 +99,16 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
         return ownerShares < maxSharesForContractBalance ? ownerShares : maxSharesForContractBalance;
     }
 
+    /** @dev See {IERC4626-_convertToShares}. */
+    function _convertToShares(uint256 assets, Math.Rounding rounding) internal view virtual override returns (uint256) {
+        return super._convertToShares(assets, rounding) / 100;
+    }
+
+    /** @dev See {IERC4626-_convertToAssets}. */
+    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view virtual override returns (uint256) {
+        return super._convertToAssets(shares, rounding) * 100;
+    }
+
     /**
      * @dev Destroys a `value` amount of tokens from `account`, lowering the total supply.
      * Emits a {Transfer} event with `to` set to the zero address.
