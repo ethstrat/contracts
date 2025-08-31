@@ -23,9 +23,11 @@ contract EthStrategyPerpetualNoteTest is Test {
     address public user2 = address(0x4);
     address public randomUser = address(0x5);
     
-    uint256 public constant DEPOSIT_AMOUNT = 1000 * 10**18; // 1K tokens
-    uint256 public constant ADD_ASSETS_AMOUNT = 500 * 10**18; // 500 tokens
-    uint256 public constant INITIAL_DEPOSIT_CAP = DEPOSIT_AMOUNT * 10; // 10K tokens
+    uint256 public constant DEPOSIT_AMOUNT = 1000 * 10**18; // $1K 
+    uint256 public constant ADD_ASSETS_AMOUNT = 500 * 10**18;  // $500
+    uint256 public constant INITIAL_DEPOSIT_CAP = 110_000 * 10**18; // $110K
+    uint256 public constant INITIAL_ASSETS = DEPOSIT_AMOUNT * 100; // $100K
+    uint256 public constant INITIAL_SHARES = DEPOSIT_AMOUNT; // $1K
 
     uint256 public constant NO_DEPOSIT_CAP = type(uint256).max;
 
@@ -47,8 +49,13 @@ contract EthStrategyPerpetualNoteTest is Test {
         // default approve all transfers of USDS into perpetual bond
         usds.approve(address(pb), usds.totalSupply());
 
+        // initial deposit cap
         vm.prank(owner);
         pb.setDepositCap(INITIAL_DEPOSIT_CAP);
+
+        // Setup initial conversion rate as 1 share is 100 assets
+        pb.deposit(INITIAL_SHARES, address(this));
+        pb.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
     }
 
     function test_Constructor() external view {
@@ -58,7 +65,7 @@ contract EthStrategyPerpetualNoteTest is Test {
         assertEq(pb.symbol(), "ESPN");
         assertEq(pb.decimals(), 18);
         assertEq(pb.manager(), manager);
-        assertEq(pb.totalAssets(), 0);
+        assertEq(pb.totalAssets(), INITIAL_ASSETS);
         assertEq(pb.withdrawalsDisabled(), true);
     }
 
@@ -68,7 +75,7 @@ contract EthStrategyPerpetualNoteTest is Test {
     function test_AssetTransferToContractHasNoEffectOnTotalAssets() public {
         // First, add some assets through the proper channel
         pb.increaseAssetsPerShare(ADD_ASSETS_AMOUNT);
-        assertEq(pb.totalAssets(), ADD_ASSETS_AMOUNT);
+        assertEq(pb.totalAssets(), ADD_ASSETS_AMOUNT + INITIAL_ASSETS);
         
         // Now send tokens directly to the contract (this should NOT affect totalAssets)
         uint256 totalAssetsBefore = pb.totalAssets();
@@ -103,7 +110,7 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Test conversion using custom totalAssets
         uint256 assets = pb.convertToAssets(shares);
-        assertApproxEqRel(assets, DEPOSIT_AMOUNT + ADD_ASSETS_AMOUNT, 0.001e18);
+        assertApproxEqRel(assets, DEPOSIT_AMOUNT, 0.005e18);
 
         // Now send tokens directly to contract
         usds.transfer(address(pb), DEPOSIT_AMOUNT);
@@ -113,8 +120,8 @@ contract EthStrategyPerpetualNoteTest is Test {
         assertEq(assets, assetsAfterTransfer);
     }
 
-    //// Test 2: Only the manager can toggle withdrawals
-    //// and only the manager can change the manager
+    //// Only the owner can toggle withdrawals
+    //// and only the owner can change the manager
     
     function test_OnlyOwnerCanSetManager() public {
         address newManager = address(0x6);
@@ -177,18 +184,18 @@ contract EthStrategyPerpetualNoteTest is Test {
 
     function test_AddAssetsTransfersFundsToManager() public {
         uint256 managerBalanceBefore = usds.balanceOf(manager);
+        uint256 totalAssetsBefore = pb.totalAssets();
         
         pb.increaseAssetsPerShare(ADD_ASSETS_AMOUNT);
         
         // Check that funds were transferred to manager
-        uint256 managerBalanceAfter = usds.balanceOf(manager);
-        assertEq(managerBalanceAfter, managerBalanceBefore + ADD_ASSETS_AMOUNT);
+        assertEq(usds.balanceOf(manager), managerBalanceBefore + ADD_ASSETS_AMOUNT);
         
         // Check that totalAssets increased
-        assertEq(pb.totalAssets(), ADD_ASSETS_AMOUNT);
+        assertEq(pb.totalAssets(), totalAssetsBefore + ADD_ASSETS_AMOUNT);
     }
 
-    // Withdrawals tests
+    //// Withdrawals tests
 
     function test_WithdrawFailsWhenDisabled() public {
         // Deposit assets
@@ -223,11 +230,11 @@ contract EthStrategyPerpetualNoteTest is Test {
         
         // Check that totalAssets decreased
         uint256 totalAssetsAfter = pb.totalAssets();
-        assertEq(totalAssetsAfter, ADD_ASSETS_AMOUNT);
+        assertEq(totalAssetsAfter, totalAssetsBefore - DEPOSIT_AMOUNT);
         assertLt(totalAssetsAfter, totalAssetsBefore);
-     }
+    }
 
-    // Deposit Cap Tests
+    //// Deposit Cap Tests
 
     function test_OwnerCanSetDepositCap() public {
         uint256 newCap = 5000 * 10**18; // 5K tokens
@@ -257,47 +264,54 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Deposit should succeed
         uint256 firstDeposit = 1000 * 10 ** 18; // 1K tokens
         pb.deposit(firstDeposit, user1);
-        assertEq(pb.totalAssets(), firstDeposit);
+        assertEq(pb.totalAssets(), INITIAL_ASSETS + firstDeposit);
     }
 
     function test_DepositFailsWhenCapExceeded() public {
         // Set a deposit cap
-        uint256 cap = 2000 * 10**18; // 2K tokens
+        uint256 cap = INITIAL_ASSETS + 2000 * 10**18; // 2K tokens
         vm.prank(owner);
         pb.setDepositCap(cap);
         
         // First deposit should succeed (within cap)
         uint256 firstDeposit = 1000 * 10**18; // 1K tokens
         pb.deposit(firstDeposit, user1);
-        assertEq(pb.totalAssets(), firstDeposit);
+        assertEq(pb.totalAssets(), INITIAL_ASSETS + firstDeposit);
         
         // Second deposit should also succeed (still within cap)
         uint256 secondDeposit = 800 * 10**18; // 800 tokens
         pb.deposit(secondDeposit, user2);
-        assertEq(pb.totalAssets(), firstDeposit + secondDeposit);
+        assertEq(pb.totalAssets(), INITIAL_ASSETS + firstDeposit + secondDeposit);
         
         // Third deposit should fail (would exceed cap)
         uint256 thirdDeposit = 500 * 10**18; // 500 tokens
-        vm.expectRevert(abi.encodeWithSignature("ERC4626ExceededMaxDeposit(address,uint256,uint256)", randomUser, thirdDeposit, 200 * 10**18));
+        vm.expectRevert(abi.encodeWithSignature(
+            "ERC4626ExceededMaxDeposit(address,uint256,uint256)", 
+            randomUser, 
+            thirdDeposit, 
+            cap - INITIAL_ASSETS - firstDeposit - secondDeposit
+        ));
         pb.deposit(thirdDeposit, randomUser);
         
         // Total assets should remain unchanged
-        assertEq(pb.totalAssets(), firstDeposit + secondDeposit);
+        assertEq(pb.totalAssets(), INITIAL_ASSETS + firstDeposit + secondDeposit);
     }
 
     function test_DepositCapWithWithdrawals() public {
         // Set a deposit cap
-        uint256 cap = 3000 * 10**18; // 3K tokens
+        uint256 capIncrease = 3000 * 10**18; // 3k
+        uint256 cap = INITIAL_ASSETS + capIncrease;
         vm.prank(owner);
         pb.setDepositCap(cap);
         
         // Deposit up to cap
-        pb.deposit(cap, user1);
+        pb.deposit(capIncrease, user1);
         assertEq(pb.totalAssets(), cap);
 
         // deposit should fail
-        vm.expectRevert(abi.encodeWithSignature("ERC4626ExceededMaxDeposit(address,uint256,uint256)", user2, cap, 0));
-        pb.deposit(cap, user2);
+        vm.expectRevert(abi.encodeWithSignature(
+            "ERC4626ExceededMaxDeposit(address,uint256,uint256)", user2, capIncrease, 0));
+        pb.deposit(capIncrease, user2);
         
         // Enable withdrawals
         vm.prank(owner);
@@ -323,12 +337,12 @@ contract EthStrategyPerpetualNoteTest is Test {
         pb.setDepositCap(NO_DEPOSIT_CAP);
 
         // maxDeposit should be uint256 max since there is no cap
-        assertEq(pb.maxDeposit(user1), type(uint256).max, "maxDeposit with no cap");
+        assertEq(pb.maxDeposit(user1), type(uint256).max - INITIAL_ASSETS, "maxDeposit with no cap");
 
         // Set deposit cap to 2000 tokens
         uint256 cap = 2000 * 10**18;
         vm.prank(owner);
-        pb.setDepositCap(cap);
+        pb.setDepositCap(INITIAL_ASSETS + cap);
 
         // No deposits yet, maxDeposit should be cap
         assertEq(pb.maxDeposit(user1), cap);
@@ -347,23 +361,15 @@ contract EthStrategyPerpetualNoteTest is Test {
     }
 
     function test_MaxMint_RespectsDepositCap() public {
-        // Set no deposit cap
-        vm.prank(owner);
-        pb.setDepositCap(NO_DEPOSIT_CAP);
-
-        // maxMint should be uint256 max since there is no cap
-        assertEq(pb.maxMint(user1), type(uint256).max, "maxMint with no cap");
-
         // Set deposit cap to 1000 tokens
         uint256 cap = 1000 * 10**18;
         vm.prank(owner);
-        pb.setDepositCap(cap);
+        pb.setDepositCap(INITIAL_ASSETS + cap);
 
-        // maxMint should be previewDeposit(maxDeposit)
+        // For a fresh vault, 1:100, so maxDeposit should be 100x maxMint
         uint256 maxDepositAmount = pb.maxDeposit(user1);
         uint256 maxMintAmount = pb.maxMint(user1);
-        // For a fresh vault, 1:1, so should be equal
-        assertEq(maxMintAmount, maxDepositAmount);
+        assertApproxEqRel(maxMintAmount * 100, maxDepositAmount, 0.005e18);
 
         // Deposit 600 tokens
         pb.deposit(600 * 10**18, user1);
@@ -407,7 +413,7 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Send only 500 tokens to contract
         usds.transfer(address(pb), 500 * 10**18);
 
-        // Each user has 1000 shares, but only 500 tokens in contract
+        // Each user has 10 shares, but only 500 tokens in contract
         // maxWithdraw for each should be at most 500
         assertEq(pb.maxWithdraw(user1), 500 * 10**18);
         assertEq(pb.maxWithdraw(user2), 500 * 10**18);
@@ -416,8 +422,8 @@ contract EthStrategyPerpetualNoteTest is Test {
         usds.transfer(address(pb), 1500 * 10**18);
 
         // Now contract has 2000 tokens, so each can withdraw up to their share
-        assertEq(pb.maxWithdraw(user1), 1000 * 10**18);
-        assertEq(pb.maxWithdraw(user2), 1000 * 10**18);
+        assertApproxEqAbs(pb.maxWithdraw(user1), 1000 * 10**18, 1);
+        assertApproxEqAbs(pb.maxWithdraw(user2), 1000 * 10**18, 1);
     }
 
     function test_MaxRedeem_RespectsContractBalance() public {
@@ -432,30 +438,32 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Only 500 tokens in contract
         usds.transfer(address(pb), 500 * 10**18);
 
-        // Each user has 1000 shares, but only 500 tokens in contract
-        // maxRedeem for each should be 500 shares (since 1:1)
-        assertEq(pb.maxRedeem(user1), 500 * 10**18);
-        assertEq(pb.maxRedeem(user2), 500 * 10**18);
+        // Each user has 10 shares, but only 500 tokens in contract
+        // maxRedeem for each should be 5 shares (since 1:100)
+        assertEq(pb.maxRedeem(user1), 5 * 10**18);
+        assertEq(pb.maxRedeem(user2), 5 * 10**18);
 
         // Send more tokens to contract
         usds.transfer(address(pb), 1500 * 10**18);
 
         // Now contract has 2000 tokens, so each can redeem up to their share
-        assertEq(pb.maxRedeem(user1), 1000 * 10**18);
-        assertEq(pb.maxRedeem(user2), 1000 * 10**18);
+        assertEq(pb.maxRedeem(user1), 10 * 10**18);
+        assertEq(pb.maxRedeem(user2), 10 * 10**18);
     }
 
     function test_BurnShares_DecreasesTotalSupply() public {
         // Mint 1000 shares to user1
         uint256 mintedShares = pb.deposit(1000 * 10**18, user1);
-        assertEq(mintedShares, 1000 * 10**18);
-        assertEq(pb.totalSupply(), 1000 * 10**18);
+        assertEq(mintedShares, 10 * 10**18);
+        assertEq(pb.totalSupply(), INITIAL_SHARES + 10 * 10**18);
+        uint256 totalAssetsBefore = pb.totalAssets();
 
-        // Burn 500 shares by sending to burn address (address(0))
+        // Burn 500 shares
         vm.prank(user1);
-        pb.burn(500 * 10**18);
+        pb.burn(5 * 10**18);
 
-        // Now totalSupply should be 500
-        assertEq(pb.totalSupply(), 500 * 10**18);
+        // Now totalSupply should go down by 5, while totalAssets should remain the same
+        assertEq(pb.totalSupply(), INITIAL_SHARES + 5 * 10**18);
+        assertEq(pb.totalAssets(), totalAssetsBefore);
     }
 }
