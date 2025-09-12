@@ -117,7 +117,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         // Set yield for next operation
         yieldManager.setAccruedYield(YIELD_AMOUNT);
 
-        uint256 totalAssetsAfter = vault.totalAssets();
         assertEq(vault.totalAssets(), DEPOSIT_AMOUNT + YIELD_AMOUNT);
         assertGt(vault.totalAssets(), totalAssetsBefore);
     }
@@ -133,8 +132,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         uint256 vaultBalanceBefore = vault.totalAssets();
         
         // Mint shares
-        vm.prank(user1);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 assetsRequired = vault.previewMint(mintAmount);
         vault.mint(mintAmount, user1);
         
@@ -155,8 +152,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         uint256 vaultBalanceBefore = vault.totalAssets();
         
         // Deposit assets
-        vm.prank(user1);
-        lpToken.approve(address(vault), depositAmount);
         uint256 sharesReceived = vault.deposit(depositAmount, user1);
         
         // Check that vault only received the deposit, no yield
@@ -174,8 +169,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // First deposit to get some shares
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user1);
         
         uint256 withdrawAmount = 500 * 10**18; // 500 assets
@@ -200,8 +193,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // First deposit to get some shares
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         uint256 initialShares = vault.deposit(DEPOSIT_AMOUNT, user1);
         
         uint256 redeemAmount = initialShares / 2; // Redeem half the shares
@@ -227,20 +218,14 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // User 1 deposits 1000 tokens
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         uint256 user1Shares = vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // User 2 deposits 500 tokens
         uint256 user2Deposit = 500 * 10**18;
-        vm.prank(user2);
-        lpToken.approve(address(vault), user2Deposit);
         uint256 user2Shares = vault.deposit(user2Deposit, user2);
         
         // User 3 deposits 2000 tokens
         uint256 user3Deposit = 2000 * 10**18;
-        vm.prank(randomUser);
-        lpToken.approve(address(vault), user3Deposit);
         uint256 user3Shares = vault.deposit(user3Deposit, randomUser);
         
         // Verify total assets and shares
@@ -286,20 +271,14 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         
         // User 1 mints 100 shares
         uint256 user1MintShares = 100 * 10**18;
-        vm.prank(user1);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 user1AssetsRequired = vault.mint(user1MintShares, user1);
         
         // User 2 mints 200 shares
         uint256 user2MintShares = 200 * 10**18;
-        vm.prank(user2);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 user2AssetsRequired = vault.mint(user2MintShares, user2);
         
         // User 3 mints 50 shares
         uint256 user3MintShares = 50 * 10**18;
-        vm.prank(randomUser);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 user3AssetsRequired = vault.mint(user3MintShares, randomUser);
         
         // Verify total assets and shares
@@ -343,8 +322,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // User 1 deposits 1000 tokens
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         uint256 user1Shares = vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // Calculate share price after first deposit
@@ -352,8 +329,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         
         // User 2 deposits 2000 tokens
         uint256 user2Deposit = 2000 * 10**18;
-        vm.prank(user2);
-        lpToken.approve(address(vault), user2Deposit);
         uint256 user2Shares = vault.deposit(user2Deposit, user2);
         
         // Calculate share price after second deposit (should be same)
@@ -367,8 +342,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         
         // User 3 mints 500 shares
         uint256 user3MintShares = 500 * 10**18;
-        vm.prank(randomUser);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 user3AssetsRequired = vault.mint(user3MintShares, randomUser);
         
         // Verify mint required correct assets (500 tokens for 500 shares)
@@ -386,14 +359,10 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // User 1 deposits 1000 tokens
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         uint256 user1Shares = vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // User 2 deposits 333 tokens (odd number to test precision)
         uint256 user2Deposit = 333 * 10**18;
-        vm.prank(user2);
-        lpToken.approve(address(vault), user2Deposit);
         uint256 user2Shares = vault.deposit(user2Deposit, user2);
         
         // User 1 withdraws 100 tokens
@@ -434,14 +403,10 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // User 1 deposits 1000 tokens
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // User 2 deposits 500 tokens
         uint256 user2Deposit = 500 * 10**18;
-        vm.prank(user2);
-        lpToken.approve(address(vault), user2Deposit);
         uint256 user2Shares = vault.deposit(user2Deposit, user2);
         
         // User 1 withdraws all their assets
@@ -468,8 +433,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
     // Tests for preview functions with unremitted yield
     function test_PreviewDepositWithUnremittedYield() public {
         // Initial deposit to establish baseline
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user1);
         
         uint256 depositAmount = 500 * 10**18; // 500 assets
@@ -490,8 +453,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
 
     function test_PreviewMintWithUnremittedYield() public {
         // Initial deposit to establish baseline
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user1);
         
         uint256 mintShares = 200 * 10**18; // 200 shares
@@ -512,14 +473,10 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
 
     function test_PreviewWithdrawWithUnremittedYield() public {
         // Initial deposit to establish baseline
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // Second deposit to trigger yield remittance
         yieldManager.setAccruedYield(YIELD_AMOUNT);
-        vm.prank(user2);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user2);
         
         uint256 withdrawAmount = 300 * 10**18; // 300 assets
@@ -540,14 +497,10 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
 
     function test_PreviewRedeemWithUnremittedYield() public {
         // Initial deposit to establish baseline
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         uint256 user1Shares = vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // Second deposit to trigger yield remittance
         yieldManager.setAccruedYield(YIELD_AMOUNT);
-        vm.prank(user2);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user2);
         
         uint256 redeemShares = user1Shares / 4; // Redeem quarter of user1's shares
@@ -573,8 +526,6 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault.setYieldManager(address(0));
         
         // Initial deposit to establish baseline
-        vm.prank(user1);
-        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
         vault.deposit(DEPOSIT_AMOUNT, user1);
         
         uint256 depositAmount = 500 * 10**18;
@@ -589,12 +540,8 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         uint256 previewRedeemAssets = vault.previewRedeem(redeemShares);
         
         // Perform actual operations
-        vm.prank(user2);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 actualDepositShares = vault.deposit(depositAmount, user2);
         
-        vm.prank(randomUser);
-        lpToken.approve(address(vault), lpToken.totalSupply());
         uint256 actualMintAssets = vault.mint(mintShares, randomUser);
         
         vm.prank(user1);
