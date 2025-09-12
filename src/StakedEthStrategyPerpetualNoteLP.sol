@@ -8,24 +8,20 @@ import {IYieldManager} from "./interfaces/IYieldManager.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 /**
- * @title Strat Perpetual LP Vault 
+ * @title Strat Perpetual LP Vault
  * @dev Vault where SPB/STABLE LP Tokens can be staked to earn more LP tokens
  */
 contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
-
     address public yieldManager;
 
     /**
      * @dev Constructor for the vault
      * @param _asset The underlying ERC20 LP token for a STABLE/PBS pair
      */
-    constructor(
-        IERC20 _asset,
-        address _yieldManager,
-        address _owner
-    ) ERC4626(_asset) 
-      ERC20("Staked ETH Strategy Perpetual Note LP", "sESPN-LP") 
-      Ownable(_owner)
+    constructor(IERC20 _asset, address _yieldManager, address _owner)
+        ERC4626(_asset)
+        ERC20("Staked ETH Strategy Perpetual Note LP", "sESPN-LP")
+        Ownable(_owner)
     {
         yieldManager = _yieldManager;
     }
@@ -39,7 +35,9 @@ contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
         yieldManager = _yieldManager;
     }
 
-    /** @dev See {IERC4626-totalAssets}. */
+    /**
+     * @dev See {IERC4626-totalAssets}.
+     */
     function totalAssets() public view virtual override returns (uint256) {
         if (address(yieldManager) != address(0)) {
             return super.totalAssets() + IYieldManager(yieldManager).accrued();
@@ -47,12 +45,18 @@ contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
         return super.totalAssets();
     }
 
-    /** dev see {IERC4626-_withdraw}. */
-    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares) internal virtual override {
+    /**
+     * dev see {IERC4626-_withdraw}.
+     */
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        virtual
+        override
+    {
         // only need to pull in yield on withdraw - as it's accounted for in totalAssets
         if (address(yieldManager) != address(0)) {
             IYieldManager(yieldManager).remit();
         }
         return super._withdraw(caller, receiver, owner, assets, shares);
     }
-} 
+}
