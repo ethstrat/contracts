@@ -17,8 +17,7 @@
     "test:halmos": "FOUNDRY_PROFILE=test halmos",
     "lint": "yarn lint:forge",
     "lint:forge": "forge fmt --check",
-    "lint:fix": "yarn lint:forge:fix",
-    "lint:forge:fix": "forge fmt",
+    "lint:fix": "forge fmt",
     "clean": "forge clean"
   },
   "devDependencies": {
