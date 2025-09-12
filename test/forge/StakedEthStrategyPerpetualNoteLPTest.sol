@@ -108,53 +108,19 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         assertEq(vault.yieldManager(), newYieldManager);
     }
 
-    //function test_YieldIncreasesTotalAssets() public {
-    //    // Initial deposit
-    //    vm.prank(user1);
-    //    lpToken.approve(address(vault), DEPOSIT_AMOUNT);
-    //    vault.deposit(DEPOSIT_AMOUNT, user1);
-    //    
-    //    uint256 totalAssetsBefore = vault.totalAssets();
-    //    
-    //    // Set yield for next operation
-    //    yieldManager.setAccruedYield(YIELD_AMOUNT);
-    //    
-    //    // Second deposit should trigger yield and increase total assets
-    //    vm.prank(user2);
-    //    lpToken.approve(address(vault), DEPOSIT_AMOUNT);
-    //    vault.deposit(DEPOSIT_AMOUNT, user2);
-    //    
-    //    uint256 totalAssetsAfter = vault.totalAssets();
-    //    
-    //    // Total assets should increase by deposit + yield
-    //    assertEq(totalAssetsAfter - totalAssetsBefore, DEPOSIT_AMOUNT + YIELD_AMOUNT);
-    //}
+    function test_YieldIncreasesTotalAssets() public {
+        // Initial deposit
+        vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        uint256 totalAssetsBefore = vault.totalAssets();
+        
+        // Set yield for next operation
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
 
-    //function test_YieldManagerCanBeChanged() public {
-    //    // Create new yield manager
-    //    MockYieldManager newYieldManager = new MockYieldManager(lpToken);
-    //    
-    //    // Fund the new yield manager
-    //    lpToken.transfer(address(newYieldManager), 100000 * 10**18);
-    //    
-    //    // Owner can change yield manager
-    //    vm.prank(owner);
-    //    vault.setYieldManager(address(newYieldManager));
-    //    assertEq(vault.yieldManager(), address(newYieldManager));
-    //    
-    //    // Set yield for the new yield manager
-    //    newYieldManager.setAccruedYield(YIELD_AMOUNT);
-    //    
-    //    // Test that new yield manager is called
-    //    uint256 vaultBalanceBefore = lpToken.balanceOf(address(vault));
-    //    
-    //    vm.prank(user1);
-    //    lpToken.approve(address(vault), DEPOSIT_AMOUNT);
-    //    vault.deposit(DEPOSIT_AMOUNT, user1);
-    //    
-    //    uint256 vaultBalanceAfter = lpToken.balanceOf(address(vault));
-    //    assertEq(vaultBalanceAfter - vaultBalanceBefore, DEPOSIT_AMOUNT + YIELD_AMOUNT);
-    //}
+        uint256 totalAssetsAfter = vault.totalAssets();
+        assertEq(vault.totalAssets(), DEPOSIT_AMOUNT + YIELD_AMOUNT);
+        assertGt(vault.totalAssets(), totalAssetsBefore);
+    }
 
     //// Tests for regular ERC4626 behavior when yield manager is not set
 
