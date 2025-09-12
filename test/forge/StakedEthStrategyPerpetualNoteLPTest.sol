@@ -68,14 +68,18 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault = new StakedEthStrategyPerpetualNoteLP(lpToken, address(yieldManager), owner);
         
         // Transfer tokens to users
-        lpToken.transfer(user1, DEPOSIT_AMOUNT);
-        lpToken.transfer(user2, DEPOSIT_AMOUNT);
+        lpToken.transfer(user1, DEPOSIT_AMOUNT* 4);
+        lpToken.transfer(user2, DEPOSIT_AMOUNT* 4);
 
         // Approve vault to spend tokens
         lpToken.approve(address(vault), lpToken.totalSupply());
-        
-        // Set initial accrued yield for testing
-        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        vm.prank(user1);
+        lpToken.approve(address(vault), type(uint256).max);
+        vm.prank(user2);
+        lpToken.approve(address(vault), type(uint256).max);
+
+        // Start with no accrued yield
+        yieldManager.setAccruedYield(0);
     }
 
     function test_Constructor() external view {
@@ -466,7 +470,7 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         // User 1 deposits 1000 tokens
         vm.prank(user1);
         lpToken.approve(address(vault), DEPOSIT_AMOUNT);
-        uint256 user1Shares = vault.deposit(DEPOSIT_AMOUNT, user1);
+        vault.deposit(DEPOSIT_AMOUNT, user1);
         
         // User 2 deposits 500 tokens
         uint256 user2Deposit = 500 * 10**18;
@@ -644,5 +648,43 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         assertEq(previewMintAssets, mintShares);
         assertEq(previewWithdrawShares, withdrawAmount);
         assertEq(previewRedeemAssets, redeemShares);
+    }
+
+    // Tests for deposit/mint with yield manager and unremitted yield (double the deposit)
+
+    function test_DepositWithYieldManagerDoubleUnremittedYield() public {
+        // Initial deposit to establish baseline
+        uint256 firstDepositShares = vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        // Set unremitted yield to the deposit amount
+        yieldManager.setAccruedYield(DEPOSIT_AMOUNT);
+        
+        // Second deposit should result in half as many shares due to double unremitted yield
+        uint256 secondDepositShares = vault.deposit(DEPOSIT_AMOUNT, user2);
+        
+        // Should generate exactly half the shares because unremitted yield doubles totalAssets
+        assertEq(secondDepositShares, firstDepositShares / 2);
+        
+        // Verify total assets include both deposits plus remitted yield
+        assertEq(vault.totalAssets(), DEPOSIT_AMOUNT * 3);
+        
+        // Verify total supply is sum of both deposits
+        assertEq(vault.totalSupply(), firstDepositShares + secondDepositShares);
+    }
+
+    function test_MintWithYieldManagerDoubleUnremittedYield() public {
+        // Initial deposit to establish baseline
+        uint256 user1DepositedAssets = vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        // Set unremitted yield to the deposit amount
+        yieldManager.setAccruedYield(DEPOSIT_AMOUNT);
+
+        // Second deposit should need twice as many assets
+        uint256 user2DepositedAssets = vault.mint(DEPOSIT_AMOUNT, user2);
+        assertEq(user2DepositedAssets, DEPOSIT_AMOUNT * 2);
+        assertEq(user2DepositedAssets, user1DepositedAssets * 2);
+        
+        // Verify total assets include both deposits + yield
+        assertEq(vault.totalAssets(), DEPOSIT_AMOUNT * 4);
     }
 }
