@@ -9,6 +9,6 @@ pragma solidity ^0.8.20;
  *      increase the totalAssets)
  */
 interface IYieldManager {
-    function remitAccrued() external;
-    function accruedBy(address vault) external view returns (uint256);
+    function remit() external;
+    function accrued() external view returns (uint256);
 }

@@ -10,7 +10,7 @@ import {IYieldManager} from "../../src/interfaces/IYieldManager.sol";
 contract MockLP is MockERC20 {
     constructor() {
         initialize("Mock LP Token", "LP", 18);
-        _mint(msg.sender, 1000000 * 10**18);
+        _mint(msg.sender, 10000000 * 10**18);
     }
 }
 
@@ -26,7 +26,7 @@ contract MockYieldManager is IYieldManager {
         accruedYield = _accruedYield;
     }
     
-    function remitAccrued() external override {
+    function remit() external override {
         if (accruedYield > 0) {
             // Send the accrued yield to the caller (staking contract)
             token.transfer(msg.sender, accruedYield);
@@ -35,7 +35,7 @@ contract MockYieldManager is IYieldManager {
         }
     }
 
-    function accruedBy(address /* vault */) external view override returns (uint256) {
+    function accrued() external view override returns (uint256) {
         return accruedYield;
     }
 }
@@ -68,8 +68,9 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         vault = new StakedEthStrategyPerpetualNoteLP(lpToken, address(yieldManager), owner);
         
         // Transfer tokens to users
-        lpToken.transfer(user1, DEPOSIT_AMOUNT* 4);
-        lpToken.transfer(user2, DEPOSIT_AMOUNT* 4);
+        lpToken.transfer(user1, DEPOSIT_AMOUNT * 4);
+        lpToken.transfer(user2, DEPOSIT_AMOUNT * 4);
+        lpToken.transfer(address(yieldManager), DEPOSIT_AMOUNT * 4);
 
         // Approve vault to spend tokens
         lpToken.approve(address(vault), lpToken.totalSupply());
@@ -599,5 +600,44 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         
         // Verify total assets include both deposits + yield
         assertEq(vault.totalAssets(), DEPOSIT_AMOUNT * 4);
+    }
+
+    function test_WithdrawWithYieldManagerDoubleUnremittedYield() public {
+        // Initial deposit to establish baseline
+        uint256 firstDepositShares = vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        // Set unremitted yield to the deposit amount
+        yieldManager.setAccruedYield(DEPOSIT_AMOUNT);
+        
+        // Withdraw should burn half the shares when there is unremitted yield
+        vm.startPrank(user1);
+        vault.approve(address(vault), type(uint256).max);
+        uint256 sharedRedeemed = vault.withdraw(DEPOSIT_AMOUNT, user1, user1);
+        assertApproxEqAbs(sharedRedeemed, firstDepositShares / 2, 1);
+
+        // Withdraw remainder should work (confirms yield is remitted on withdraw)
+        vault.withdraw(vault.convertToAssets(vault.balanceOf(user1)), user1, user1);
+        assertApproxEqAbs(vault.balanceOf(user1), 0, 1);
+        vm.stopPrank();
+    }
+
+    function test_RedeemWithYieldManagerDoubleUnremittedYield() public {
+        // Initial deposit to establish baseline
+        uint256 firstDepositShares = vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        // Set unremitted yield to the deposit amount
+        yieldManager.setAccruedYield(DEPOSIT_AMOUNT);
+        
+        // redeem half should return DEPOSIT_AMOUNT
+        vm.startPrank(user1);
+        vault.approve(address(vault), type(uint256).max);
+        uint256 assetsReceived = vault.redeem(firstDepositShares / 2, user1, user1);
+        assertApproxEqAbs(assetsReceived, DEPOSIT_AMOUNT, 1);
+
+        // redeem remainder should work (confirms yield is remitted on redeem)
+        assetsReceived = vault.redeem(vault.balanceOf(user1), user1, user1);
+        assertApproxEqAbs(assetsReceived, DEPOSIT_AMOUNT, 1);
+        assertEq(vault.balanceOf(user1), 0);
+        vm.stopPrank();
     }
 }

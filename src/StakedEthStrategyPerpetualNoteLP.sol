@@ -42,7 +42,7 @@ contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
     /** @dev See {IERC4626-totalAssets}. */
     function totalAssets() public view virtual override returns (uint256) {
         if (address(yieldManager) != address(0)) {
-            return super.totalAssets() + IYieldManager(yieldManager).accruedBy(address(this));
+            return super.totalAssets() + IYieldManager(yieldManager).accrued();
         }
         return super.totalAssets();
     }
@@ -51,7 +51,7 @@ contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
     function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares) internal virtual override {
         // only need to pull in yield on withdraw - as it's accounted for in totalAssets
         if (address(yieldManager) != address(0)) {
-            IYieldManager(yieldManager).remitAccrued();
+            IYieldManager(yieldManager).remit();
         }
         return super._withdraw(caller, receiver, owner, assets, shares);
     }
