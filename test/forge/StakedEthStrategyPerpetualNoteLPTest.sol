@@ -494,4 +494,155 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         assertEq(user1SharesBurned, DEPOSIT_AMOUNT);
         assertEq(user2AssetsReceived, user2Deposit);
     }
+
+    // Tests for preview functions with unremitted yield
+    function test_PreviewDepositWithUnremittedYield() public {
+        // Initial deposit to establish baseline
+        vm.prank(user1);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        uint256 depositAmount = 500 * 10**18; // 500 assets
+        
+        // Preview deposit with no unremitted yield
+        yieldManager.setAccruedYield(0);
+        uint256 sharesWithoutYield = vault.previewDeposit(depositAmount);
+        
+        // Preview deposit with unremitted yield
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        uint256 sharesWithYield = vault.previewDeposit(depositAmount);
+        
+        // Should generate fewer shares when there is unremitted yield
+        // because totalAssets includes the unremitted yield, making the same asset amount
+        // represent a smaller percentage of total assets
+        assertLe(sharesWithYield, sharesWithoutYield);
+    }
+
+    function test_PreviewMintWithUnremittedYield() public {
+        // Initial deposit to establish baseline
+        vm.prank(user1);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        uint256 mintShares = 200 * 10**18; // 200 shares
+        
+        // Preview mint with no unremitted yield
+        yieldManager.setAccruedYield(0);
+        uint256 assetsWithoutYield = vault.previewMint(mintShares);
+        
+        // Preview mint with unremitted yield
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        uint256 assetsWithYield = vault.previewMint(mintShares);
+        
+        // Should require more assets when there is unremitted yield
+        // because totalAssets includes the unremitted yield, making the same share amount
+        // represent a smaller percentage of total supply
+        assertGt(assetsWithYield, assetsWithoutYield);
+    }
+
+    function test_PreviewWithdrawWithUnremittedYield() public {
+        // Initial deposit to establish baseline
+        vm.prank(user1);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        // Second deposit to trigger yield remittance
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        vm.prank(user2);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        vault.deposit(DEPOSIT_AMOUNT, user2);
+        
+        uint256 withdrawAmount = 300 * 10**18; // 300 assets
+        
+        // Preview withdraw with no additional unremitted yield
+        yieldManager.setAccruedYield(0);
+        uint256 sharesWithoutYield = vault.previewWithdraw(withdrawAmount);
+        
+        // Preview withdraw with additional unremitted yield
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        uint256 sharesWithYield = vault.previewWithdraw(withdrawAmount);
+        
+        // Should burn fewer shares when there is unremitted yield
+        // because totalAssets includes the unremitted yield, making the same asset amount
+        // represent a smaller percentage of total assets
+        assertLe(sharesWithYield, sharesWithoutYield);
+    }
+
+    function test_PreviewRedeemWithUnremittedYield() public {
+        // Initial deposit to establish baseline
+        vm.prank(user1);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        uint256 user1Shares = vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        // Second deposit to trigger yield remittance
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        vm.prank(user2);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        vault.deposit(DEPOSIT_AMOUNT, user2);
+        
+        uint256 redeemShares = user1Shares / 4; // Redeem quarter of user1's shares
+        
+        // Preview redeem with no additional unremitted yield
+        yieldManager.setAccruedYield(0);
+        uint256 assetsWithoutYield = vault.previewRedeem(redeemShares);
+        
+        // Preview redeem with additional unremitted yield
+        yieldManager.setAccruedYield(YIELD_AMOUNT);
+        uint256 assetsWithYield = vault.previewRedeem(redeemShares);
+        
+        // Should return more assets when there is unremitted yield
+        // because totalAssets includes the unremitted yield, making the same share amount
+        // represent a larger percentage of total supply
+        assertGt(assetsWithYield, assetsWithoutYield);
+    }
+
+
+    function test_PreviewFunctionsWithZeroYieldManager() public {
+        // Set yield manager to zero address
+        vm.prank(owner);
+        vault.setYieldManager(address(0));
+        
+        // Initial deposit to establish baseline
+        vm.prank(user1);
+        lpToken.approve(address(vault), DEPOSIT_AMOUNT);
+        vault.deposit(DEPOSIT_AMOUNT, user1);
+        
+        uint256 depositAmount = 500 * 10**18;
+        uint256 mintShares = 200 * 10**18;
+        uint256 withdrawAmount = 300 * 10**18;
+        uint256 redeemShares = 100 * 10**18;
+        
+        // Get preview values (should not be affected by yield manager)
+        uint256 previewDepositShares = vault.previewDeposit(depositAmount);
+        uint256 previewMintAssets = vault.previewMint(mintShares);
+        uint256 previewWithdrawShares = vault.previewWithdraw(withdrawAmount);
+        uint256 previewRedeemAssets = vault.previewRedeem(redeemShares);
+        
+        // Perform actual operations
+        vm.prank(user2);
+        lpToken.approve(address(vault), lpToken.totalSupply());
+        uint256 actualDepositShares = vault.deposit(depositAmount, user2);
+        
+        vm.prank(randomUser);
+        lpToken.approve(address(vault), lpToken.totalSupply());
+        uint256 actualMintAssets = vault.mint(mintShares, randomUser);
+        
+        vm.prank(user1);
+        uint256 actualWithdrawShares = vault.withdraw(withdrawAmount, user1, user1);
+        
+        vm.prank(user1);
+        uint256 actualRedeemAssets = vault.redeem(redeemShares, user1, user1);
+        
+        // Verify preview functions match actual operations (1:1 ratio)
+        assertEq(previewDepositShares, actualDepositShares);
+        assertEq(previewMintAssets, actualMintAssets);
+        assertEq(previewWithdrawShares, actualWithdrawShares);
+        assertEq(previewRedeemAssets, actualRedeemAssets);
+        
+        // Verify 1:1 ratios when no yield manager
+        assertEq(previewDepositShares, depositAmount);
+        assertEq(previewMintAssets, mintShares);
+        assertEq(previewWithdrawShares, withdrawAmount);
+        assertEq(previewRedeemAssets, redeemShares);
+    }
 }

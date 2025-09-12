@@ -41,6 +41,9 @@ contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
 
     /** @dev See {IERC4626-totalAssets}. */
     function totalAssets() public view virtual override returns (uint256) {
+        if (address(yieldManager) != address(0)) {
+            return super.totalAssets() + IYieldManager(yieldManager).accruedBy(address(this));
+        }
         return super.totalAssets();
     }
 
