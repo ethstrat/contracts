@@ -9,12 +9,12 @@ import {EthStrategyPerpetualNote} from "./EthStrategyPerpetualNote.sol";
 /**
  * @title ESPN Redemption Facilitator
  * @dev Contract to facilitate redeem and withdraw operations atop ESPN
- * 
+ *
  * This contract allows users to redeem or withdraw from ESPN by:
  * 1. Calculating the required USDS amount using previewWithdraw/previewRedeem
  * 2. Transferring the required USDS from the caller to ESPN
  * 3. Calling the appropriate ESPN method (redeem/withdraw) with the caller as receiver
- * 
+ *
  * The caller must have sufficient USDS balance and allowance to ESPN for this to work.
  */
 contract ESPNRedemptionFacilitator {
@@ -22,10 +22,10 @@ contract ESPNRedemptionFacilitator {
 
     /// @dev The ESPN contract instance
     EthStrategyPerpetualNote public immutable espn;
-    
+
     /// @dev The underlying USDS token
     IERC20 public immutable usds;
-    
+
     /// @dev The address authorized to sweep USDS from this contract
     address public immutable sweeper;
 
@@ -85,10 +85,10 @@ contract ESPNRedemptionFacilitator {
     function withdraw(uint256 assets, address receiver, address owner) external returns (uint256) {
         // Short-circuit for zero assets
         if (assets == 0) return 0;
-        
+
         // Transfer the required USDS (only the delta needed)
         _transferUsdsRequired(espn.previewWithdraw(assets));
-        
+
         // Call ESPN.withdraw with the provided receiver and owner
         // Note: owner must have approved this contract to spend their ESPN shares
         return espn.withdraw(assets, receiver, owner);
@@ -101,16 +101,16 @@ contract ESPNRedemptionFacilitator {
     function _transferUsdsRequired(uint256 usdsRequired) private {
         // Calculate how much USDS ESPN currently has
         uint256 espnCurrentBalance = usds.balanceOf(address(espn));
-        
+
         // Calculate the delta needed (only send what ESPN doesn't already have)
         uint256 usdsDelta = usdsRequired > espnCurrentBalance ? usdsRequired - espnCurrentBalance : 0;
-        
+
         // Check facilitator has sufficient USDS balance for the delta
         uint256 facilitatorBalance = usds.balanceOf(address(this));
         if (facilitatorBalance < usdsDelta) {
             revert ERC4626.ERC4626ExceededMaxDeposit(address(this), usdsDelta, facilitatorBalance);
         }
-        
+
         // Transfer only the delta USDS to ESPN
         if (usdsDelta > 0) {
             usds.safeTransfer(address(espn), usdsDelta);
@@ -125,11 +125,10 @@ contract ESPNRedemptionFacilitator {
         if (msg.sender != sweeper) {
             revert("Unauthorized");
         }
-        
+
         uint256 balance = usds.balanceOf(address(this));
         if (balance > 0) {
             usds.safeTransfer(sweeper, balance);
         }
     }
-
 }
