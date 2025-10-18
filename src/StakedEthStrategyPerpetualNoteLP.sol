@@ -22,8 +22,7 @@ contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
         ERC4626(_asset)
         ERC20("Staked ETH Strategy Perpetual Note LP", "sESPN-LP")
         Ownable(_owner)
-    {
-    }
+    {}
 
     /**
      * @dev Set the yield manager contract address.
