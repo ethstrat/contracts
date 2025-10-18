@@ -56,8 +56,6 @@ contract ESPNRedemptionFacilitatorTest is Test {
         vm.startPrank(owner);
         usds.mint(user1, DEPOSIT_AMOUNT * 10);
         usds.mint(user2, DEPOSIT_AMOUNT * 10);
-        usds.mint(address(espn), DEPOSIT_AMOUNT * 10);
-        usds.mint(address(facilitator), DEPOSIT_AMOUNT * 20);
         vm.stopPrank();
 
         // User1 deposits to ESPN
@@ -73,29 +71,76 @@ contract ESPNRedemptionFacilitatorTest is Test {
         vm.stopPrank();
     }
 
+    modifier givenESPNHasDefaultBalance() {
+        vm.prank(owner);
+        usds.mint(address(espn), DEPOSIT_AMOUNT * 10);
+        _;
+    }
+
+    modifier givenESPNHasUSDSBalance(uint256 balance) {
+        vm.prank(owner);
+        usds.mint(address(espn), balance);
+        _;
+    }
+
+    modifier givenFacilitatorHasDefaultBalance() {
+        vm.prank(owner);
+        usds.mint(address(facilitator), DEPOSIT_AMOUNT * 20);
+        _;
+    }
+
+    modifier givenFacilitatorHasUSDSBalance(uint256 balance) {
+        vm.prank(owner);
+        usds.mint(address(facilitator), balance);
+        _;
+    }
+
     // redeem
     // when shares is 0
-    //  [ ] it does nothing and returns 0
+    //  [X] it does nothing and returns 0
     // when ESPN withdrawals are disabled
-    //  [ ] it does nothing and returns 0
+    //  [X] it reverts
     // given usdsRequired is <= ESPN contract's balance
     //  given the owner has not approved the facilitator to spend their shares
-    //   [ ] it reverts
+    //   [X] it reverts
     //  given the owner does not have sufficient ESPN balance
-    //   [ ] it reverts
-    //  [ ] it does not transfer any USDS to the ESPN contract
-    //  [ ] it burns the shares
-    //  [ ] it transfers usdsRequired to the receiver
+    //   [X] it reverts
+    //  [X] it does not transfer any USDS to the ESPN contract
+    //  [X] it burns the shares
+    //  [X] it transfers usdsRequired to the receiver
     // given usdsRequired is > ESPN contract's balance
     //  given the facilitator's USDS balance is less than usdsDelta
-    //   [ ] it reverts
-    //  [ ] it transfers usdsDelta to the ESPN contract
-    //  [ ] it burns the shares
-    //  [ ] it transfers usdsRequired to the receiver
+    //   [X] it reverts
+    //  [X] it transfers usdsDelta to the ESPN contract
+    //  [X] it burns the shares
+    //  [X] it transfers usdsRequired to the receiver
 
-    function test_FacilitateRedeem_Success() public {
+    function test_FacilitateRedeem_WithdrawalsDisabled()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
+        // Disable withdrawals for this test
+        vm.prank(owner);
+        espn.setWithdrawalsDisabled(true);
+
+        vm.prank(user1);
+        espn.approve(address(facilitator), type(uint256).max);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxRedeem.selector, user1, REDEEM_SHARES, 0));
+        facilitator.redeem(REDEEM_SHARES, receiver, user1);
+    }
+
+    function test_FacilitateRedeem_GivenESPNBalanceSufficient()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         uint256 user1SharesBefore = espn.balanceOf(user1);
         uint256 receiverBalanceBefore = usds.balanceOf(receiver);
+        uint256 facilitatorBalanceBefore = usds.balanceOf(address(facilitator));
+        uint256 espnBalanceBefore = usds.balanceOf(address(espn));
 
         // Approve facilitator to spend ESPN shares
         vm.prank(user1);
@@ -106,12 +151,83 @@ contract ESPNRedemptionFacilitatorTest is Test {
         uint256 assetsReceived = facilitator.redeem(REDEEM_SHARES, receiver, user1);
 
         // Verify results
-        assertEq(espn.balanceOf(user1), user1SharesBefore - REDEEM_SHARES);
-        assertEq(usds.balanceOf(receiver), receiverBalanceBefore + assetsReceived);
-        assertEq(usds.balanceOf(user1), DEPOSIT_AMOUNT * 9); // User's USDS balance unchanged
+        assertEq(espn.balanceOf(user1), user1SharesBefore - REDEEM_SHARES, "User1 shares should be reduced");
+        assertEq(usds.balanceOf(receiver), receiverBalanceBefore + assetsReceived, "Receiver should receive the USDS");
+        assertEq(usds.balanceOf(user1), DEPOSIT_AMOUNT * 9, "User's USDS balance should be unchanged"); // User's USDS
+            // balance unchanged
+        assertEq(
+            usds.balanceOf(address(facilitator)),
+            facilitatorBalanceBefore,
+            "Facilitator should have the same USDS balance"
+        ); // No USDS transferred from the facilitator
+        assertEq(
+            usds.balanceOf(address(espn)), espnBalanceBefore - assetsReceived, "ESPN should have less USDS balance"
+        ); // USDS transferred from the ESPN contract to the receiver
     }
 
-    function test_FacilitateRedeem_InsufficientBalance() public {
+    function test_FacilitateRedeem_GivenESPNBalanceInsufficient()
+        public
+        givenESPNHasUSDSBalance(50e18)
+        givenFacilitatorHasUSDSBalance(DEPOSIT_AMOUNT * 20)
+    {
+        uint256 user1SharesBefore = espn.balanceOf(user1);
+        uint256 receiverBalanceBefore = usds.balanceOf(receiver);
+        uint256 facilitatorBalanceBefore = usds.balanceOf(address(facilitator));
+        uint256 espnBalanceBefore = usds.balanceOf(address(espn));
+
+        uint256 usdsRequired = espn.previewRedeem(REDEEM_SHARES);
+
+        // Approve facilitator to spend ESPN shares
+        vm.prank(user1);
+        espn.approve(address(facilitator), REDEEM_SHARES);
+
+        // Execute redeem
+        vm.prank(user1);
+        uint256 assetsReceived = facilitator.redeem(REDEEM_SHARES, receiver, user1);
+
+        // Verify results
+        assertEq(usdsRequired, assetsReceived, "USDS required should be equal to assets received");
+        assertEq(espn.balanceOf(user1), user1SharesBefore - REDEEM_SHARES, "User1 shares should be reduced");
+        assertEq(usds.balanceOf(receiver), receiverBalanceBefore + assetsReceived, "Receiver should receive the USDS");
+        assertEq(usds.balanceOf(user1), DEPOSIT_AMOUNT * 9, "User's USDS balance should be unchanged"); // User's USDS
+            // balance unchanged
+        assertEq(
+            usds.balanceOf(address(facilitator)),
+            facilitatorBalanceBefore - (usdsRequired - espnBalanceBefore),
+            "Facilitator should have less USDS balance"
+        ); // USDS transferred from the facilitator to the ESPN contract
+        assertEq(usds.balanceOf(address(espn)), 0, "ESPN should have 0 USDS balance"); // All USDS transferred to the
+            // receiver
+    }
+
+    function test_FacilitateRedeem_GivenESPNBalanceInsufficient_GivenFacilitatorHasInsufficientBalance()
+        public
+        givenESPNHasUSDSBalance(50e18)
+        givenFacilitatorHasUSDSBalance(10e18)
+    {
+        uint256 usdsRequired = espn.previewRedeem(REDEEM_SHARES);
+        uint256 espnBalanceBefore = usds.balanceOf(address(espn));
+        uint256 usdsDelta = usdsRequired - espnBalanceBefore;
+
+        // Approve facilitator to spend ESPN shares
+        vm.prank(user1);
+        espn.approve(address(facilitator), REDEEM_SHARES);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxDeposit.selector, address(facilitator), usdsDelta, 10e18)
+        );
+
+        // Execute redeem
+        vm.prank(user1);
+        uint256 assetsReceived = facilitator.redeem(REDEEM_SHARES, receiver, user1);
+    }
+
+    function test_FacilitateRedeem_GivenUserHasInsufficientESPNBalance()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         // Try to redeem more shares than user has
         uint256 excessiveShares = espn.balanceOf(user1) + 1;
 
@@ -123,56 +239,23 @@ contract ESPNRedemptionFacilitatorTest is Test {
         facilitator.redeem(excessiveShares, receiver, user1);
     }
 
-    function test_FacilitateRedeem_InsufficientUSDSBalance() public {
-        // Create a new ESPN with minimal USDS
-        vm.prank(owner);
-        EthStrategyPerpetualNote newEspn = new EthStrategyPerpetualNote(IERC20(address(usds)), owner);
-
-        vm.prank(owner);
-        newEspn.setManager(manager);
-
-        vm.prank(owner);
-        newEspn.setDepositCap(110_000 * 10 ** 18);
-
-        vm.prank(owner);
-        newEspn.setWithdrawalsDisabled(false);
-
-        // Mint only a small amount of USDS to the new ESPN
-        vm.prank(owner);
-        usds.mint(address(newEspn), 50 * 10 ** 18); // Only 50 USDS
-
-        // Create a new facilitator with insufficient USDS
-        ESPNRedemptionFacilitator newFacilitator = new ESPNRedemptionFacilitator(address(newEspn), owner);
-
-        // Mint only a small amount of USDS to the new facilitator
-        vm.prank(owner);
-        usds.mint(address(newFacilitator), 1); // Only 1 wei
-
-        uint256 usdsRequired = newEspn.previewRedeem(REDEEM_SHARES);
-
-        vm.prank(user1);
-        newEspn.approve(address(newFacilitator), REDEEM_SHARES);
-
-        vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                ERC4626.ERC4626ExceededMaxDeposit.selector,
-                address(newFacilitator),
-                usdsRequired - 50 * 10 ** 18, // Delta needed
-                1
-            )
-        );
-        newFacilitator.redeem(REDEEM_SHARES, receiver, user1);
-    }
-
-    function test_FacilitateRedeem_InsufficientAllowance() public {
+    function test_FacilitateRedeem_GivenUserHasInsufficientESPNAllowance()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         // User doesn't approve facilitator for ESPN shares
         vm.prank(user1);
         vm.expectRevert(); // ESPN will revert with ERC20InsufficientAllowance
         facilitator.redeem(REDEEM_SHARES, receiver, user1);
     }
 
-    function test_FacilitateRedeem_ZeroShares() public {
+    function test_FacilitateRedeem_ZeroShares() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
+        uint256 user1SharesBefore = espn.balanceOf(user1);
+        uint256 receiverBalanceBefore = usds.balanceOf(receiver);
+        uint256 facilitatorBalanceBefore = usds.balanceOf(address(facilitator));
+        uint256 espnBalanceBefore = usds.balanceOf(address(espn));
+
         vm.prank(user1);
         espn.approve(address(facilitator), 0);
 
@@ -180,16 +263,26 @@ contract ESPNRedemptionFacilitatorTest is Test {
         vm.prank(user1);
         uint256 assetsReceived = facilitator.redeem(0, receiver, user1);
 
-        assertEq(assetsReceived, 0);
-        assertEq(espn.balanceOf(user1), DEPOSIT_AMOUNT); // User's shares unchanged
-        assertEq(usds.balanceOf(receiver), 0); // Receiver gets 0 assets
+        assertEq(assetsReceived, 0, "Assets received should be 0");
+        assertEq(espn.balanceOf(user1), user1SharesBefore, "User's shares should be unchanged");
+        assertEq(usds.balanceOf(user1), DEPOSIT_AMOUNT * 9, "User's USDS balance should be unchanged"); // User's USDS
+            // balance unchanged
+        assertEq(
+            usds.balanceOf(address(facilitator)),
+            facilitatorBalanceBefore,
+            "Facilitator should have the same USDS balance"
+        ); // No USDS transferred from the facilitator
+        assertEq(usds.balanceOf(address(espn)), espnBalanceBefore, "ESPN should have the same USDS balance"); // ESPN
+            // balance of USDS should be the same
+        assertEq(usds.balanceOf(receiver), receiverBalanceBefore, "Receiver should get 0 assets"); // Receiver gets 0
+            // assets
     }
 
     // withdraw
     // when assets is 0
     //  [ ] it does nothing and returns 0
     // when ESPN withdrawals are disabled
-    //  [ ] it does nothing and returns 0
+    //  [ ] it reverts
     // given assets is < 1 share
     //  [ ] it does nothing and returns 0
     // given usdsRequired is <= ESPN contract's balance
@@ -207,7 +300,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
     //  [ ] it burns the shares
     //  [ ] it transfers usdsRequired to the receiver
 
-    function test_FacilitateWithdraw_Success() public {
+    function test_FacilitateWithdraw_Success() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         uint256 user1SharesBefore = espn.balanceOf(user1);
         uint256 receiverBalanceBefore = usds.balanceOf(receiver);
 
@@ -226,7 +319,11 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(user1), DEPOSIT_AMOUNT * 9); // User's USDS balance unchanged
     }
 
-    function test_FacilitateWithdraw_WithdrawalsDisabled() public {
+    function test_FacilitateWithdraw_WithdrawalsDisabled()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         // Disable withdrawals for this test
         vm.prank(owner);
         espn.setWithdrawalsDisabled(true);
@@ -281,14 +378,18 @@ contract ESPNRedemptionFacilitatorTest is Test {
         newFacilitator.withdraw(WITHDRAW_AMOUNT, receiver, user1);
     }
 
-    function test_FacilitateWithdraw_InsufficientAllowance() public {
+    function test_FacilitateWithdraw_InsufficientAllowance()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         // User doesn't approve facilitator for ESPN shares
         vm.prank(user1);
         vm.expectRevert(); // ESPN will revert with ERC20InsufficientAllowance
         facilitator.withdraw(WITHDRAW_AMOUNT, receiver, user1);
     }
 
-    function test_FacilitateWithdraw_ZeroAmount() public {
+    function test_FacilitateWithdraw_ZeroAmount() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         vm.prank(user1);
         espn.approve(address(facilitator), 0);
 
@@ -301,7 +402,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(receiver), 0); // Receiver gets 0 assets
     }
 
-    function test_FacilitateRedeem_Event() public {
+    function test_FacilitateRedeem_Event() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         vm.prank(user1);
         espn.approve(address(facilitator), REDEEM_SHARES);
 
@@ -314,7 +415,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(assetsReceived, REDEEM_SHARES); // Should receive same amount as shares redeemed
     }
 
-    function test_FacilitateWithdraw_Event() public {
+    function test_FacilitateWithdraw_Event() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         vm.startPrank(user1);
         espn.approve(address(facilitator), espn.previewWithdraw(WITHDRAW_AMOUNT));
         vm.stopPrank();
@@ -328,7 +429,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(sharesBurned, WITHDRAW_AMOUNT); // Should burn same amount as assets withdrawn
     }
 
-    function test_MultipleUsersRedeem() public {
+    function test_MultipleUsersRedeem() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Both users redeem some shares
         uint256 user1Shares = REDEEM_SHARES;
         uint256 user2Shares = REDEEM_SHARES / 2;
@@ -352,7 +453,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(user2), DEPOSIT_AMOUNT * 9 + user2AssetsReceived);
     }
 
-    function test_MultipleUsersWithdraw() public {
+    function test_MultipleUsersWithdraw() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Both users withdraw some assets
         uint256 user1Assets = WITHDRAW_AMOUNT;
         uint256 user2Assets = WITHDRAW_AMOUNT / 2;
@@ -383,7 +484,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
     //  [ ] it transfers the USDS to the sweeper
     //  [ ] the USDS balance of the facilitator is 0
 
-    function test_SweepUSDS_Success() public {
+    function test_SweepUSDS_Success() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Add some USDS to the facilitator
         uint256 sweepAmount = 1000 * 10 ** 18;
         vm.prank(owner);
@@ -401,14 +502,14 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(address(facilitator)), 0);
     }
 
-    function test_SweepUSDS_Unauthorized() public {
+    function test_SweepUSDS_Unauthorized() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Try to sweep as non-sweeper
         vm.prank(user1);
         vm.expectRevert("Unauthorized");
         facilitator.sweepUSDS();
     }
 
-    function test_SweepUSDS_ZeroBalance() public {
+    function test_SweepUSDS_ZeroBalance() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Sweep when facilitator has no USDS
         vm.prank(owner);
         facilitator.sweepUSDS(); // Should not revert
@@ -418,7 +519,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(address(facilitator)), 0);
     }
 
-    function test_SweepUSDS_PartialBalance() public {
+    function test_SweepUSDS_PartialBalance() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Use some USDS first, then sweep remaining
         vm.prank(user1);
         espn.approve(address(facilitator), REDEEM_SHARES);
@@ -438,7 +539,11 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(address(facilitator)), 0);
     }
 
-    function test_ESPN_USDS_Balance_Low_AfterRedeem() public {
+    function test_ESPN_USDS_Balance_Low_AfterRedeem()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         uint256 espnBalanceBefore = usds.balanceOf(address(espn));
 
         vm.prank(user1);
@@ -454,7 +559,11 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertLe(espnBalanceAfter, espnBalanceBefore + 1); // Allow for minimal rounding
     }
 
-    function test_ESPN_USDS_Balance_Low_AfterWithdraw() public {
+    function test_ESPN_USDS_Balance_Low_AfterWithdraw()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         uint256 espnBalanceBefore = usds.balanceOf(address(espn));
 
         vm.startPrank(user1);
@@ -469,7 +578,11 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertLe(espnBalanceAfter, espnBalanceBefore + 1); // Allow for minimal rounding
     }
 
-    function test_ESPN_USDS_Balance_Low_AfterMultipleOperations() public {
+    function test_ESPN_USDS_Balance_Low_AfterMultipleOperations()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         uint256 espnBalanceBefore = usds.balanceOf(address(espn));
 
         // Perform multiple operations
@@ -487,7 +600,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertLe(espnBalanceAfter, espnBalanceBefore + 1); // Allow for minimal rounding
     }
 
-    function test_DeltaLogic_ESPN_HasExcessUSDS() public {
+    function test_DeltaLogic_ESPN_HasExcessUSDS() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Send extra USDS to ESPN permissionlessly
         uint256 excessAmount = 5000 * 10 ** 18;
         vm.prank(owner);
@@ -511,7 +624,7 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(facilitatorBalanceAfter, facilitatorBalanceBefore); // Facilitator balance unchanged
     }
 
-    function test_DeltaLogic_ESPN_HasPartialUSDS() public {
+    function test_DeltaLogic_ESPN_HasPartialUSDS() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Send partial USDS to ESPN permissionlessly
         uint256 partialAmount = 500 * 10 ** 18; // Less than required for redeem
         vm.prank(owner);
@@ -539,7 +652,11 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertLe(espnBalanceAfter, espnBalanceBefore + 1); // Allow for minimal rounding
     }
 
-    function test_DeltaLogic_ESPN_HasSufficientUSDS() public {
+    function test_DeltaLogic_ESPN_HasSufficientUSDS()
+        public
+        givenESPNHasDefaultBalance
+        givenFacilitatorHasDefaultBalance
+    {
         // Send more than enough USDS to ESPN permissionlessly
         uint256 sufficientAmount = 2000 * 10 ** 18; // More than required for redeem
         vm.prank(owner);
