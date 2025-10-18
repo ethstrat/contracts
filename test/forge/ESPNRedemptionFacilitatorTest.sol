@@ -73,6 +73,26 @@ contract ESPNRedemptionFacilitatorTest is Test {
         vm.stopPrank();
     }
 
+    // redeem
+    // when shares is 0
+    //  [ ] it does nothing and returns 0
+    // when ESPN withdrawals are disabled
+    //  [ ] it does nothing and returns 0
+    // given usdsRequired is <= ESPN contract's balance
+    //  given the owner has not approved the facilitator to spend their shares
+    //   [ ] it reverts
+    //  given the owner does not have sufficient ESPN balance
+    //   [ ] it reverts
+    //  [ ] it does not transfer any USDS to the ESPN contract
+    //  [ ] it burns the shares
+    //  [ ] it transfers usdsRequired to the receiver
+    // given usdsRequired is > ESPN contract's balance
+    //  given the facilitator's USDS balance is less than usdsDelta
+    //   [ ] it reverts
+    //  [ ] it transfers usdsDelta to the ESPN contract
+    //  [ ] it burns the shares
+    //  [ ] it transfers usdsRequired to the receiver
+
     function test_FacilitateRedeem_Success() public {
         uint256 user1SharesBefore = espn.balanceOf(user1);
         uint256 receiverBalanceBefore = usds.balanceOf(receiver);
@@ -164,6 +184,28 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(espn.balanceOf(user1), DEPOSIT_AMOUNT); // User's shares unchanged
         assertEq(usds.balanceOf(receiver), 0); // Receiver gets 0 assets
     }
+
+    // withdraw
+    // when assets is 0
+    //  [ ] it does nothing and returns 0
+    // when ESPN withdrawals are disabled
+    //  [ ] it does nothing and returns 0
+    // given assets is < 1 share
+    //  [ ] it does nothing and returns 0
+    // given usdsRequired is <= ESPN contract's balance
+    //  given the owner has not approved the facilitator to spend their shares
+    //   [ ] it reverts
+    //  given the owner does not have sufficient ESPN balance
+    //   [ ] it reverts
+    //  [ ] it does not transfer any USDS to the ESPN contract
+    //  [ ] it burns the shares
+    //  [ ] it transfers usdsRequired to the receiver
+    // given usdsRequired is > ESPN contract's balance
+    //  given the facilitator's USDS balance is less than usdsDelta
+    //   [ ] it reverts
+    //  [ ] it transfers usdsDelta to the ESPN contract
+    //  [ ] it burns the shares
+    //  [ ] it transfers usdsRequired to the receiver
 
     function test_FacilitateWithdraw_Success() public {
         uint256 user1SharesBefore = espn.balanceOf(user1);
@@ -331,6 +373,15 @@ contract ESPNRedemptionFacilitatorTest is Test {
         assertEq(usds.balanceOf(user1), DEPOSIT_AMOUNT * 9 + user1Assets);
         assertEq(usds.balanceOf(user2), DEPOSIT_AMOUNT * 9 + user2Assets);
     }
+
+    // sweepUSDS
+    // when the caller is not the sweeper
+    //  [ ] it reverts
+    // when the facilitator has no USDS
+    //  [ ] it does nothing and returns 0
+    // when the facilitator has USDS
+    //  [ ] it transfers the USDS to the sweeper
+    //  [ ] the USDS balance of the facilitator is 0
 
     function test_SweepUSDS_Success() public {
         // Add some USDS to the facilitator
