@@ -541,12 +541,12 @@ contract ESPNRedemptionFacilitatorTest is Test {
 
     // sweepUSDS
     // when the caller is not the sweeper
-    //  [ ] it reverts
+    //  [X] it reverts
     // when the facilitator has no USDS
-    //  [ ] it does nothing and returns 0
+    //  [X] it does nothing and returns 0
     // when the facilitator has USDS
-    //  [ ] it transfers the USDS to the sweeper
-    //  [ ] the USDS balance of the facilitator is 0
+    //  [X] it transfers the USDS to the sweeper
+    //  [X] the USDS balance of the facilitator is 0
 
     function test_SweepUSDS_Success() public givenESPNHasDefaultBalance givenFacilitatorHasDefaultBalance {
         // Add some USDS to the facilitator
