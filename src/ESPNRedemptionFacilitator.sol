@@ -12,10 +12,18 @@ import {EthStrategyPerpetualNote} from "./EthStrategyPerpetualNote.sol";
  *
  * This contract allows users to redeem or withdraw from ESPN by:
  * 1. Calculating the required USDS amount using previewWithdraw/previewRedeem
- * 2. Transferring the required USDS from the caller to ESPN
- * 3. Calling the appropriate ESPN method (redeem/withdraw) with the caller as receiver
+ * 2. Transferring the required USDS from the facilitator to ESPN
+ * 3. Calling the appropriate ESPN method (redeem/withdraw)
  *
- * The caller must have sufficient USDS balance and allowance to ESPN for this to work.
+ * Security Features:
+ * - Only the caller or owner can be set as the receiver (prevents asset theft)
+ * - Input validation for zero addresses
+ * - Custom errors for better gas efficiency
+ * - SafeERC20 for all token transfers
+ *
+ * Requirements:
+ * - The owner must have approved this contract to spend their ESPN shares
+ * - The facilitator must have sufficient USDS balance to cover operations
  */
 contract ESPNRedemptionFacilitator {
     using SafeERC20 for IERC20;
@@ -28,6 +36,9 @@ contract ESPNRedemptionFacilitator {
 
     /// @dev The address authorized to sweep USDS from this contract
     address public immutable sweeper;
+
+    /// @dev Custom errors for better gas efficiency and error handling
+    error UnauthorizedSweeper();
 
     /**
      * @dev Constructor
@@ -43,18 +54,16 @@ contract ESPNRedemptionFacilitator {
     /**
      * @dev Redeem ESPN shares for underlying assets with USDS payment.
      * @param shares The number of ESPN shares to redeem
-     * @param receiver The address to receive the underlying assets
-     * @param owner The account whose ESPN shares will be redeemed
      *
      * This function:
      * 1. Calculates the required USDS using previewRedeem
-     * 2. Transfers USDS from caller to ESPN
-     * 3. Calls ESPN.redeem with the provided receiver and owner
+     * 2. Transfers USDS from facilitator to ESPN
+     * 3. Calls ESPN.redeem with msg.sender as both receiver and owner
      *
      * Requirements:
-     * - The owner must have approved this contract to spend their ESPN shares
+     * - The caller must have approved this contract to spend their ESPN shares
      */
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256) {
+    function redeem(uint256 shares) external returns (uint256) {
         // Short-circuit for zero shares
         if (shares == 0) return 0;
 
@@ -63,24 +72,22 @@ contract ESPNRedemptionFacilitator {
 
         // Call ESPN.redeem with the provided receiver and owner
         // Note: owner must have approved this contract to spend their ESPN shares
-        return espn.redeem(shares, receiver, owner);
+        return espn.redeem(shares, msg.sender, msg.sender);
     }
 
     /**
      * @dev Withdraw underlying assets from ESPN with USDS payment.
      * @param assets The amount of underlying assets to withdraw
-     * @param receiver The address to receive the underlying assets
-     * @param owner The account whose ESPN shares will be burned
      *
      * This function:
      * 1. Calculates the required USDS using previewWithdraw
-     * 2. Transfers USDS from caller to ESPN
-     * 3. Calls ESPN.withdraw with the provided receiver and owner
+     * 2. Transfers USDS from facilitator to ESPN
+     * 3. Calls ESPN.withdraw with msg.sender as both receiver and owner
      *
      * Requirements:
-     * - The owner must have approved this contract to spend their ESPN shares
+     * - The caller must have approved this contract to spend their ESPN shares
      */
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256) {
+    function withdraw(uint256 assets) external returns (uint256) {
         // Short-circuit for zero assets
         if (assets == 0) return 0;
 
@@ -89,7 +96,7 @@ contract ESPNRedemptionFacilitator {
 
         // Call ESPN.withdraw with the provided receiver and owner
         // Note: owner must have approved this contract to spend their ESPN shares
-        return espn.withdraw(assets, receiver, owner);
+        return espn.withdraw(assets, msg.sender, msg.sender);
     }
 
     /**
@@ -121,7 +128,7 @@ contract ESPNRedemptionFacilitator {
      */
     function sweepUSDS() external {
         if (msg.sender != sweeper) {
-            revert("Unauthorized");
+            revert UnauthorizedSweeper();
         }
 
         uint256 balance = usds.balanceOf(address(this));

@@ -49,7 +49,7 @@ contract ESPNRedemptionFacilitatorProdSimTest is Test {
         // Execute redeem
         uint256 receiverBalanceBefore = usds.balanceOf(user);
         vm.prank(user);
-        uint256 assetsReceived = facilitator.redeem(shares, user, user);
+        uint256 assetsReceived = facilitator.redeem(shares);
         
         // Verify results
         assertEq(espn.balanceOf(user), 0);
@@ -71,7 +71,7 @@ contract ESPNRedemptionFacilitatorProdSimTest is Test {
             excessiveShares,
             excessiveShares - 1
         ));
-        facilitator.redeem(excessiveShares, user, user);
+        facilitator.redeem(excessiveShares);
     }
 
     function test_FacilitateRedeem_InsufficientAllowance() public {
@@ -84,7 +84,7 @@ contract ESPNRedemptionFacilitatorProdSimTest is Test {
             0,
             shares
         )); // ESPN will revert with ERC20InsufficientAllowance
-        facilitator.redeem(shares, user, user);
+        facilitator.redeem(shares);
     }
 
     function test_FacilitateWithdraw_Success() public {
@@ -97,7 +97,7 @@ contract ESPNRedemptionFacilitatorProdSimTest is Test {
         
         // Execute withdraw
         vm.prank(user);
-        uint256 sharesBurned = facilitator.withdraw(WITHDRAW_AMOUNT, user, user);
+        uint256 sharesBurned = facilitator.withdraw(WITHDRAW_AMOUNT);
         
         // Verify results
         assertEq(espn.balanceOf(user), userSharesBefore - sharesBurned);
@@ -115,6 +115,6 @@ contract ESPNRedemptionFacilitatorProdSimTest is Test {
             0,
             espn.previewWithdraw(WITHDRAW_AMOUNT)
         ));
-        facilitator.withdraw(WITHDRAW_AMOUNT, user, user);
+        facilitator.withdraw(WITHDRAW_AMOUNT);
     }
 }
