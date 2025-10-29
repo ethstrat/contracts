@@ -496,7 +496,9 @@ contract EthStrategyPerpetualNoteTest is Test {
     //  [X] it burns the shares
     //  [X] it transfers the assets to the receiver
 
-    function test_Redeem_WhenCallerIsTokenHolder() public {
+    function test_Redeem_WhenCallerIsTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
         // Deposit for user1
         uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
 
@@ -507,18 +509,20 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Fund the contract with USDS
         usds.transfer(address(pb), 1000 * 10 ** 18);
         uint256 expectedAssets = pb.previewRedeem(shares);
-        uint256 user2BalanceBefore = usds.balanceOf(user2);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
 
         // Call function
         vm.prank(user1);
-        pb.redeem(shares, user2, user1);
+        pb.redeem(shares, recipient_, user1);
 
         // Check that the shares were burned
         assertEq(pb.balanceOf(user1), 0, "shares were not burned");
 
         // Check that the assets were transferred to the receiver
         assertEq(
-            usds.balanceOf(user2), user2BalanceBefore + expectedAssets, "assets were not transferred to the receiver"
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + expectedAssets,
+            "assets were not transferred to the receiver"
         );
     }
 
@@ -526,7 +530,9 @@ contract EthStrategyPerpetualNoteTest is Test {
     //  given the token holder has not approved the caller to spend the shares
     //   [X] it reverts
 
-    function test_Redeem_WhenCallerIsNotTokenHolder() public {
+    function test_Redeem_WhenCallerIsNotTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
         // Deposit for user1
         uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
 
@@ -544,16 +550,18 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Call function
         vm.prank(user2);
-        pb.redeem(shares, user2, user1);
+        pb.redeem(shares, recipient_, user1);
     }
 
     // given the caller is not the approved spender
     //  [X] it reverts
 
-    function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved_WhenCallerIsNotApprovedSpender(address caller_)
-        public
-    {
+    function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved_WhenCallerIsNotApprovedSpender(
+        address caller_,
+        address recipient_
+    ) public {
         vm.assume(caller_ != user1 && caller_ != user2);
+        vm.assume(recipient_ != user1);
 
         // Deposit for user1
         uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
@@ -576,13 +584,15 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Call function
         vm.prank(caller_);
-        pb.redeem(shares, user2, user1);
+        pb.redeem(shares, recipient_, user1);
     }
 
     //  [X] it burns the shares
     //  [X] it transfers the assets to the receiver
 
-    function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved() public {
+    function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
         // Deposit for user1
         uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
 
@@ -593,7 +603,7 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Fund the contract with USDS
         usds.transfer(address(pb), 1000 * 10 ** 18);
         uint256 expectedAssets = pb.previewRedeem(shares);
-        uint256 user2BalanceBefore = usds.balanceOf(user2);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
 
         // Approve user2 to spend shares
         vm.prank(user1);
@@ -601,14 +611,16 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Call function
         vm.prank(user2);
-        pb.redeem(shares, user2, user1);
+        pb.redeem(shares, recipient_, user1);
 
         // Check that the shares were burned
         assertEq(pb.balanceOf(user1), 0, "shares were not burned");
 
         // Check that the assets were transferred to the receiver
         assertEq(
-            usds.balanceOf(user2), user2BalanceBefore + expectedAssets, "assets were not transferred to the receiver"
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + expectedAssets,
+            "assets were not transferred to the receiver"
         );
     }
 
@@ -638,7 +650,9 @@ contract EthStrategyPerpetualNoteTest is Test {
     //  [X] it burns the shares
     //  [X] it transfers the assets to the receiver
 
-    function test_Withdraw_WhenCallerIsTokenHolder() public {
+    function test_Withdraw_WhenCallerIsTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
         // Deposit for user1
         uint256 depositAmount = 1000 * 10 ** 18;
         uint256 shares = pb.deposit(depositAmount, user1);
@@ -651,19 +665,21 @@ contract EthStrategyPerpetualNoteTest is Test {
         usds.transfer(address(pb), depositAmount);
         uint256 sharesToAssets = pb.previewRedeem(shares);
         uint256 expectedShares = pb.previewWithdraw(sharesToAssets);
-        uint256 user2BalanceBefore = usds.balanceOf(user2);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
         uint256 user1ShareBalanceBefore = pb.balanceOf(user1);
 
         // Call function
         vm.prank(user1);
-        pb.withdraw(sharesToAssets, user2, user1);
+        pb.withdraw(sharesToAssets, recipient_, user1);
 
         // Check that the shares were burned
         assertEq(pb.balanceOf(user1), user1ShareBalanceBefore - expectedShares, "shares were not burned");
 
         // Check that the assets were transferred to the receiver
         assertEq(
-            usds.balanceOf(user2), user2BalanceBefore + sharesToAssets, "assets were not transferred to the receiver"
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + sharesToAssets,
+            "assets were not transferred to the receiver"
         );
     }
 
@@ -671,7 +687,9 @@ contract EthStrategyPerpetualNoteTest is Test {
     //  given the token holder has not approved the caller to spend the shares
     //   [X] it reverts
 
-    function test_Withdraw_WhenCallerIsNotTokenHolder() public {
+    function test_Withdraw_WhenCallerIsNotTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
         // Deposit for user1
         uint256 depositAmount = 1000 * 10 ** 18;
         uint256 shares = pb.deposit(depositAmount, user1);
@@ -691,16 +709,18 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Call function
         vm.prank(user2);
-        pb.withdraw(sharesToAssets, user2, user1);
+        pb.withdraw(sharesToAssets, recipient_, user1);
     }
 
     //  given the caller is not the approved spender
     //   [X] it reverts
 
-    function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved_WhenCallerIsNotApprovedSpender(address caller_)
-        public
-    {
+    function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved_WhenCallerIsNotApprovedSpender(
+        address caller_,
+        address recipient_
+    ) public {
         vm.assume(caller_ != user1 && caller_ != user2);
+        vm.assume(recipient_ != user1);
 
         // Deposit for user1
         uint256 depositAmount = 1000 * 10 ** 18;
@@ -725,13 +745,15 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Call function
         vm.prank(caller_);
-        pb.withdraw(sharesToAssets, user2, user1);
+        pb.withdraw(sharesToAssets, recipient_, user1);
     }
 
     //  [X] it burns the shares
     //  [X] it transfers the assets to the receiver
 
-    function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved() public {
+    function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
         // Deposit for user1
         uint256 depositAmount = 1000 * 10 ** 18;
         uint256 shares = pb.deposit(depositAmount, user1);
@@ -744,7 +766,7 @@ contract EthStrategyPerpetualNoteTest is Test {
         usds.transfer(address(pb), depositAmount);
         uint256 sharesToAssets = pb.previewRedeem(shares);
         uint256 expectedShares = pb.previewWithdraw(sharesToAssets);
-        uint256 user2BalanceBefore = usds.balanceOf(user2);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
         uint256 user1ShareBalanceBefore = pb.balanceOf(user1);
 
         // Approve user2 to spend shares
@@ -753,14 +775,16 @@ contract EthStrategyPerpetualNoteTest is Test {
 
         // Call function
         vm.prank(user2);
-        pb.withdraw(sharesToAssets, user2, user1);
+        pb.withdraw(sharesToAssets, recipient_, user1);
 
         // Check that the shares were burned
         assertEq(pb.balanceOf(user1), user1ShareBalanceBefore - expectedShares, "shares were not burned");
 
         // Check that the assets were transferred to the receiver
         assertEq(
-            usds.balanceOf(user2), user2BalanceBefore + sharesToAssets, "assets were not transferred to the receiver"
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + sharesToAssets,
+            "assets were not transferred to the receiver"
         );
     }
 }
