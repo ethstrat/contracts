@@ -101,14 +101,15 @@ contract StratOption is ERC721, Ownable2Step, IStratOption {
     function tokenURI(uint256 tokenId) public view override(ERC721, IStratOption) returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
-            return TokenURIRenderer(tokenURIRenderer).render(
-                tokenId,
-                strikeAmount[tokenId],
-                notionalUnderlyingAmount[tokenId],
-                notionalUSDAmount[tokenId],
-                expiry[tokenId],
-                timelock[tokenId]
-            );
+            return TokenURIRenderer(tokenURIRenderer)
+                .render(
+                    tokenId,
+                    strikeAmount[tokenId],
+                    notionalUnderlyingAmount[tokenId],
+                    notionalUSDAmount[tokenId],
+                    expiry[tokenId],
+                    timelock[tokenId]
+                );
         } else {
             return "";
         }

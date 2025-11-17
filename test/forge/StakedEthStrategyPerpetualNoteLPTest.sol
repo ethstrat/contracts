@@ -65,7 +65,9 @@ contract StakedEthStrategyPerpetualNoteLPTest is Test {
         lpToken.transfer(address(yieldManager), 100000 * 10 ** 18);
 
         // Deploy vault
-        vault = new StakedEthStrategyPerpetualNoteLP(lpToken, address(yieldManager), owner);
+        vault = new StakedEthStrategyPerpetualNoteLP(lpToken, owner);
+        vm.prank(owner);
+        vault.setYieldManager(address(yieldManager));
 
         // Transfer tokens to users
         lpToken.transfer(user1, DEPOSIT_AMOUNT * 4);

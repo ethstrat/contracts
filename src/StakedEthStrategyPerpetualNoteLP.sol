@@ -8,23 +8,21 @@ import {IYieldManager} from "./interfaces/IYieldManager.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 /**
- * @title Strat Perpetual LP Vault
- * @dev Vault where ESNP/STABLE LP Tokens can be staked to earn more LP tokens
+ * @title ETH Strategy Perpetual Note LP Vault
+ * @dev Vault where ESPN/STABLE LP Tokens can be staked to earn more LP tokens
  */
 contract StakedEthStrategyPerpetualNoteLP is ERC4626, Ownable2Step {
     address public yieldManager;
 
     /**
      * @dev Constructor for the vault
-     * @param _asset The underlying ERC20 LP token for a STABLE/PBS pair
+     * @param _asset The underlying ERC20 LP token for a STABLE/ESPN pair
      */
-    constructor(IERC20 _asset, address _yieldManager, address _owner)
+    constructor(IERC20 _asset, address _owner)
         ERC4626(_asset)
         ERC20("Staked ETH Strategy Perpetual Note LP", "sESPN-LP")
         Ownable(_owner)
-    {
-        yieldManager = _yieldManager;
-    }
+    {}
 
     /**
      * @dev Set the yield manager contract address.
