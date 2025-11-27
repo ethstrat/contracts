@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.20;
 
-import {IStratOption} from "./interfaces/IStratOption.sol";
 import {ITokenLockupPlans} from "./interfaces/ITokenLockupPlans.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
+
+interface IStratOption {
+    function notionalUnderlyingAmount(uint256 tokenId) external view returns (uint256);
+    function ownerOf(uint256 tokenId) external view returns (address);
+    function transferFrom(address from, address to, uint256 tokenId) external;
+    function burn(uint256 tokenId) external;
+}
 
 /**
  * @title ClaimStratStream
@@ -85,6 +91,7 @@ contract ClaimStratStream {
      * @notice Claim a streaming lockup plan for an oStrat NFT
      * @param tokenId The oStrat tokenId to claim for (must be <= 466)
      * @return lockupPlanId The ID of the created lockup plan
+     * @dev The caller must have approved this contract to transfer the NFT
      */
     function claim(uint256 tokenId) external returns (uint256 lockupPlanId) {
         if (paused) revert ClaimingPaused();
@@ -95,8 +102,13 @@ contract ClaimStratStream {
         // Mark as claimed
         hasClaimed[tokenId] = true;
 
-        // Get the amount from the oStrat NFT
+        // Get the amount from the oStrat NFT before burning
         uint256 amount = stratOption.notionalUnderlyingAmount(tokenId);
+
+        // Transfer NFT from user to this contract, then burn it
+        // This requires the user to have approved this contract
+        stratOption.transferFrom(msg.sender, address(this), tokenId);
+        stratOption.burn(tokenId);
 
         // Pull STRAT from source
         bool success = IERC20(stratToken).transferFrom(stratSource, address(this), amount);

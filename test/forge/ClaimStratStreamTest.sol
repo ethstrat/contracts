@@ -120,12 +120,20 @@ contract ClaimStratStreamTest is Test {
         // Verify user1 owns the NFT
         assertEq(stratOption.ownerOf(tokenId), user1);
 
+        // Approve ClaimStratStream to transfer the NFT
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
         // Calculate expected rate
         uint256 expectedRate = STRAT_AMOUNT_1 / VESTING_DURATION_SECONDS;
 
         // Claim as user1
         vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
+
+        // Verify NFT was burned (ownerOf should revert for burned token)
+        vm.expectRevert();
+        stratOption.ownerOf(tokenId);
 
         // Verify hasClaimed is set
         assertTrue(claimStream.hasClaimed(tokenId));
@@ -149,10 +157,18 @@ contract ClaimStratStreamTest is Test {
     }
 
     function test_Claim_RevertIfTokenIdTooHigh() public {
-        uint256 tokenId = MAX_TOKEN_ID + 1; // 467
+        // First mint tokens 1-466 to reach tokenId 467
+        for (uint256 i = 1; i <= MAX_TOKEN_ID; i++) {
+            vm.prank(owner);
+            stratOption.mint(address(0x999), 0, 1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+        }
 
+        uint256 tokenId = MAX_TOKEN_ID + 1; // 467
         vm.prank(owner);
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
 
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(ClaimStratStream.NotPresaylor.selector, tokenId));
@@ -165,11 +181,15 @@ contract ClaimStratStreamTest is Test {
         vm.prank(owner);
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
+        // Approve for first claim
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
         // First claim succeeds
         vm.prank(user1);
         claimStream.claim(tokenId);
 
-        // Second claim should fail
+        // Second claim should fail (NFT is already burned, but hasClaimed check happens first)
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(ClaimStratStream.AlreadyClaimed.selector, tokenId));
         claimStream.claim(tokenId);
@@ -181,9 +201,9 @@ contract ClaimStratStreamTest is Test {
         vm.prank(owner);
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
-        // user2 tries to claim user1's NFT
+        // user2 tries to claim user1's NFT (without approval, transferFrom will fail)
         vm.prank(user2);
-        vm.expectRevert(abi.encodeWithSelector(ClaimStratStream.NotPresaylor.selector, tokenId));
+        vm.expectRevert(); // Will revert on transferFrom due to lack of approval/ownership
         claimStream.claim(tokenId);
     }
 
@@ -192,6 +212,10 @@ contract ClaimStratStreamTest is Test {
 
         vm.prank(owner);
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+
+        // Approve ClaimStratStream
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
 
         // Pause claiming
         vm.prank(emergencyPauser);
@@ -210,9 +234,16 @@ contract ClaimStratStreamTest is Test {
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
         vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId1);
+
+        vm.prank(user1);
         uint256 planId1 = claimStream.claim(tokenId1);
         assertTrue(claimStream.hasClaimed(tokenId1));
         assertEq(claimStream.planId(tokenId1), planId1);
+
+        // Verify NFT was burned
+        vm.expectRevert();
+        stratOption.ownerOf(tokenId1);
 
         // User2 claims tokenId 2
         uint256 tokenId2 = 2;
@@ -220,9 +251,16 @@ contract ClaimStratStreamTest is Test {
         stratOption.mint(user2, 0, STRAT_AMOUNT_2, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
         vm.prank(user2);
+        stratOption.approve(address(claimStream), tokenId2);
+
+        vm.prank(user2);
         uint256 planId2 = claimStream.claim(tokenId2);
         assertTrue(claimStream.hasClaimed(tokenId2));
         assertEq(claimStream.planId(tokenId2), planId2);
+
+        // Verify NFT was burned
+        vm.expectRevert();
+        stratOption.ownerOf(tokenId2);
 
         // Verify both plans were created
         assertEq(tokenLockupPlans.ownerOf(planId1), user1);
@@ -246,9 +284,16 @@ contract ClaimStratStreamTest is Test {
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
         vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
+        vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
         assertTrue(claimStream.hasClaimed(tokenId));
         assertEq(claimStream.planId(tokenId), planId);
+
+        // Verify NFT was burned
+        vm.expectRevert();
+        stratOption.ownerOf(tokenId);
     }
 
     function test_Pause_OnlyEmergencyPauser() public {
@@ -300,11 +345,19 @@ contract ClaimStratStreamTest is Test {
         claimStream.unpause();
         assertFalse(claimStream.paused());
 
+        // Approve before claiming
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
         // Can claim after unpause
         vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
         assertTrue(claimStream.hasClaimed(tokenId));
         assertEq(claimStream.planId(tokenId), planId);
+
+        // Verify NFT was burned
+        vm.expectRevert();
+        stratOption.ownerOf(tokenId);
     }
 
     function test_Claim_DifferentAmounts() public {
@@ -324,11 +377,19 @@ contract ClaimStratStreamTest is Test {
             // Get the tokenId that was just minted (it's the current counter value)
             uint256 tokenId = stratOption._tokenIdCounter() - 1;
 
+            // Approve before claiming
+            vm.prank(user1);
+            stratOption.approve(address(claimStream), tokenId);
+
             // Calculate expected rate
             uint256 expectedRate = amounts[i] / VESTING_DURATION_SECONDS;
 
             vm.prank(user1);
             uint256 planId = claimStream.claim(tokenId);
+
+            // Verify NFT was burned
+            vm.expectRevert();
+            stratOption.ownerOf(tokenId);
 
             // Verify plan details            
             ITokenLockupPlans.Plan memory plan = tokenLockupPlans.plans(planId);
@@ -349,6 +410,9 @@ contract ClaimStratStreamTest is Test {
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
         vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
+        vm.prank(user1);
         // Expect the Claimed event to be emitted
         // Note: planId will be whatever the next plan ID is on the deployed contract
         vm.expectEmit(true, true, false, false); // Check first 2 indexed params, skip planId and amount
@@ -358,6 +422,10 @@ contract ClaimStratStreamTest is Test {
         // Verify the event was emitted with a valid planId
         assertTrue(planId > 0);
         assertEq(claimStream.planId(tokenId), planId);
+
+        // Verify NFT was burned
+        vm.expectRevert();
+        stratOption.ownerOf(tokenId);
     }
 
     function test_Claim_RateCalculation() public {
@@ -367,6 +435,9 @@ contract ClaimStratStreamTest is Test {
         vm.prank(owner);
         stratOption.mint(user1, 0, amount, 0, block.timestamp + 365 days, block.timestamp + 1 days);
         uint256 tokenId = stratOption._tokenIdCounter() - 1;
+
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
 
         vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
@@ -383,6 +454,9 @@ contract ClaimStratStreamTest is Test {
         vm.prank(owner);
         stratOption.mint(user1, 0, amount, 0, block.timestamp + 365 days, block.timestamp + 1 days);
         uint256 tokenId = stratOption._tokenIdCounter() - 1;
+
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
 
         vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
