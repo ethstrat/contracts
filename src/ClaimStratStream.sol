@@ -50,9 +50,6 @@ contract ClaimStratStream {
     /// @notice Mapping of oStrat tokenId => whether it has been claimed
     mapping(uint256 => bool) public hasClaimed;
 
-    /// @notice Mapping of oStrat tokenId => lockup plan ID
-    mapping(uint256 => uint256) public planId;
-
     error AlreadyClaimed(uint256 tokenId);
     error NotPresaylor(uint256 tokenId);
     error ClaimingPaused();
@@ -129,8 +126,6 @@ contract ClaimStratStream {
             rate, // rate
             VESTING_RATE_PERIOD // period
         );
-
-        planId[tokenId] = lockupPlanId;
 
         emit Claimed(msg.sender, tokenId, lockupPlanId, amount);
     }

@@ -130,7 +130,6 @@ contract ClaimStratStreamTest is Test {
 
         // Verify hasClaimed is set
         assertTrue(claimStream.hasClaimed(tokenId));
-        assertEq(claimStream.planId(tokenId), planId);
 
         // Verify STRAT was transferred from source to claimStream
         assertEq(stratToken.balanceOf(stratSource), 10000000 * 1e18 - STRAT_AMOUNT_1);
@@ -232,7 +231,6 @@ contract ClaimStratStreamTest is Test {
         vm.prank(user1);
         uint256 planId1 = claimStream.claim(tokenId1);
         assertTrue(claimStream.hasClaimed(tokenId1));
-        assertEq(claimStream.planId(tokenId1), planId1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -249,7 +247,6 @@ contract ClaimStratStreamTest is Test {
         vm.prank(user2);
         uint256 planId2 = claimStream.claim(tokenId2);
         assertTrue(claimStream.hasClaimed(tokenId2));
-        assertEq(claimStream.planId(tokenId2), planId2);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -282,7 +279,7 @@ contract ClaimStratStreamTest is Test {
         vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
         assertTrue(claimStream.hasClaimed(tokenId));
-        assertEq(claimStream.planId(tokenId), planId);
+        assertEq(tokenLockupPlans.ownerOf(planId), user1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -346,7 +343,7 @@ contract ClaimStratStreamTest is Test {
         vm.prank(user1);
         uint256 planId = claimStream.claim(tokenId);
         assertTrue(claimStream.hasClaimed(tokenId));
-        assertEq(claimStream.planId(tokenId), planId);
+        assertEq(tokenLockupPlans.ownerOf(planId), user1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -414,7 +411,7 @@ contract ClaimStratStreamTest is Test {
 
         // Verify the event was emitted with a valid planId
         assertTrue(planId > 0);
-        assertEq(claimStream.planId(tokenId), planId);
+        assertEq(tokenLockupPlans.ownerOf(planId), user1);
 
         // Verify NFT was burned
         vm.expectRevert();
