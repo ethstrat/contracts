@@ -4,11 +4,12 @@ names = true
 sizes = true
 via-ir = true
 optimizer_runs = 999999 # Etherscan does not support verifying contracts with more optimization runs.
-solc_version = "0.8.20"
+solc_version = "0.8.24"
 ffi = true
 fs_permissions = [
     {access = "write", path = "./tmp/"},
 ]
+
 
 [profile.default.invariant]
 runs = 8
