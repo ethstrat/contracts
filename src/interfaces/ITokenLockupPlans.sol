@@ -3,7 +3,8 @@ pragma solidity ^0.8.0;
 
 /// @title ITokenLockupPlans - Interface for Hedgey Finance TokenLockupPlans
 /// @dev This interface provides the functions for interacting with Hedgey's TokenLockupPlans contract
-///      used by eth strategy. This interface matches the deployed contract at 0x1961A23409CA59EEDCA6a99c97E4087DaD752486
+///      used by eth strategy. This interface matches the deployed contract at
+/// 0x1961A23409CA59EEDCA6a99c97E4087DaD752486
 interface ITokenLockupPlans {
     /// @notice Plan struct containing lockup plan details
     struct Plan {
@@ -46,4 +47,3 @@ interface ITokenLockupPlans {
 
     function planEnd(uint256 planId) external view returns (uint256);
 }
-

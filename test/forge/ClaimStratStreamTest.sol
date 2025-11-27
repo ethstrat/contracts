@@ -61,11 +61,7 @@ contract ClaimStratStreamTest is Test {
 
         // Deploy ClaimStratStream
         claimStream = new ClaimStratStream(
-            address(stratOption),
-            address(stratToken),
-            address(tokenLockupPlans),
-            stratSource,
-            emergencyPauser
+            address(stratOption), address(stratToken), address(tokenLockupPlans), stratSource, emergencyPauser
         );
 
         // Set up minter for StratOption
@@ -98,10 +94,7 @@ contract ClaimStratStreamTest is Test {
         assertFalse(claimStream.paused());
 
         // Check that unlimited allowance was set
-        assertEq(
-            stratToken.allowance(address(claimStream), address(tokenLockupPlans)),
-            type(uint256).max
-        );
+        assertEq(stratToken.allowance(address(claimStream), address(tokenLockupPlans)), type(uint256).max);
     }
 
     function test_Claim_Success() public {
@@ -368,12 +361,11 @@ contract ClaimStratStreamTest is Test {
         amounts[2] = 10000 * 1e18;
         amounts[3] = 100000 * 1e18;
 
-
         for (uint256 i = 0; i < amounts.length; i++) {
             // Each mint gets a new sequential tokenId
             vm.prank(owner);
             stratOption.mint(user1, 0, amounts[i], 0, block.timestamp + 365 days, block.timestamp + 1 days);
-            
+
             // Get the tokenId that was just minted (it's the current counter value)
             uint256 tokenId = stratOption._tokenIdCounter() - 1;
 
@@ -391,14 +383,15 @@ contract ClaimStratStreamTest is Test {
             vm.expectRevert();
             stratOption.ownerOf(tokenId);
 
-            // Verify plan details            
+            // Verify plan details
             ITokenLockupPlans.Plan memory plan = tokenLockupPlans.plans(planId);
             assertEq(plan.rate, expectedRate);
             assertEq(plan.amount, amounts[i]);
             assertEq(plan.start, VESTING_START);
             assertEq(plan.cliff, VESTING_START);
             assertEq(plan.period, VESTING_RATE_PERIOD);
-            // planEnd adds an extra period when amount % rate != 0, so it's VESTING_START + VESTING_DURATION_SECONDS + 1
+            // planEnd adds an extra period when amount % rate != 0, so it's VESTING_START + VESTING_DURATION_SECONDS +
+            // 1
             assertEq(tokenLockupPlans.planEnd(planId), VESTING_START + VESTING_DURATION_SECONDS + 1);
         }
     }
@@ -418,7 +411,7 @@ contract ClaimStratStreamTest is Test {
         vm.expectEmit(true, true, false, false); // Check first 2 indexed params, skip planId and amount
         emit ClaimStratStream.Claimed(user1, tokenId, 0, 0);
         uint256 planId = claimStream.claim(tokenId);
-        
+
         // Verify the event was emitted with a valid planId
         assertTrue(planId > 0);
         assertEq(claimStream.planId(tokenId), planId);
@@ -470,4 +463,3 @@ contract ClaimStratStreamTest is Test {
         assertEq(plan.rate, 379477838494);
     }
 }
-

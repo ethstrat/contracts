@@ -58,7 +58,9 @@ contract ClaimStratStream {
     error ClaimingPaused();
     error OnlyEmergencyPauser();
 
-    event Claimed(address indexed claimant, uint256 indexed oStratTokenId, uint256 indexed lockupPlanId, uint256 amount);
+    event Claimed(
+        address indexed claimant, uint256 indexed oStratTokenId, uint256 indexed lockupPlanId, uint256 amount
+    );
     event Paused(address indexed pauser);
     event Unpaused(address indexed pauser);
 
@@ -153,4 +155,3 @@ contract ClaimStratStream {
         emit Unpaused(msg.sender);
     }
 }
-
