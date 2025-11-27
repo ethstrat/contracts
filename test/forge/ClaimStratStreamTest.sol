@@ -24,7 +24,7 @@ contract ClaimStratStreamTest is Test {
     address public nonOwner = address(0x5);
 
     uint256 public constant MAX_TOKEN_ID = 466;
-    uint256 public constant VESTING_START = 1764417600; // November 29, 2025 00:00:00 UTC
+    uint256 public constant VESTING_START = 1764417600; // Sat 29 Nov 2025 12:00:00 UTC
     uint256 public constant VESTING_DURATION_SECONDS = 5270400; // 2 months = 61 days
     uint256 public constant VESTING_RATE_PERIOD = 1;
 

@@ -21,7 +21,7 @@ contract ClaimStratStream {
     uint256 public constant MAX_CLAIMABLE_TOKEN_ID = 466;
 
     /// @notice Start and cliff timestamp for all lockup plans
-    uint256 public constant VESTING_START = 1764417600; // November 29, 2025 00:00:00 UTC
+    uint256 public constant VESTING_START = 1764417600; // Sat 29 Nov 2025 12:00:00 UTC
 
     /// @notice Duration in seconds over which tokens are distributed (2 months = 61 days)
     uint256 public constant VESTING_DURATION_SECONDS = 5270400;
