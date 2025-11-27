@@ -56,7 +56,6 @@ contract ClaimStratStream {
     error AlreadyClaimed(uint256 tokenId);
     error NotPresaylor(uint256 tokenId);
     error ClaimingPaused();
-    error TransferFailed();
     error OnlyEmergencyPauser();
 
     event Claimed(address indexed claimant, uint256 indexed oStratTokenId, uint256 indexed lockupPlanId, uint256 amount);
@@ -104,6 +103,7 @@ contract ClaimStratStream {
 
         // Get the amount from the oStrat NFT before burning
         uint256 amount = stratOption.notionalUnderlyingAmount(tokenId);
+        if (amount == 0) revert NotPresaylor(tokenId);
 
         // Transfer NFT from user to this contract, then burn it
         // This requires the user to have approved this contract
@@ -111,10 +111,10 @@ contract ClaimStratStream {
         stratOption.burn(tokenId);
 
         // Pull STRAT from source
-        bool success = IERC20(stratToken).transferFrom(stratSource, address(this), amount);
-        if (!success) revert TransferFailed();
+        IERC20(stratToken).transferFrom(stratSource, address(this), amount);
 
         // Calculate rate: amount / LOCKUP_DURATION_SECONDS (distributes over 2 months)
+        // NOTE: hedgey locker contract handles emitting any remainder tokens from the total amount
         uint256 rate = amount / VESTING_DURATION_SECONDS;
 
         // Create the lockup plan
