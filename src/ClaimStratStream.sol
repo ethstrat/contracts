@@ -117,15 +117,15 @@ contract ClaimStratStream {
         uint256 rate = amount / VESTING_DURATION_SECONDS;
 
         // Create the lockup plan
-        lockupPlanId = tokenLockupPlans.createPlan(
-            msg.sender, // recipient
-            stratToken, // token
-            amount, // amount
-            VESTING_START, // start
-            VESTING_START, // cliff
-            rate, // rate
-            VESTING_RATE_PERIOD // period
-        );
+        lockupPlanId = tokenLockupPlans.createPlan({
+            recipient: msg.sender,
+            token: stratToken,
+            amount: amount,
+            start: VESTING_START,
+            cliff: VESTING_START,
+            rate: rate,
+            period: VESTING_RATE_PERIOD
+        });
 
         emit Claimed(msg.sender, tokenId, lockupPlanId, amount);
     }
