@@ -193,9 +193,38 @@ contract ClaimStratStreamTest is Test {
         vm.prank(owner);
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
-        // user2 tries to claim user1's NFT (without approval, transferFrom will fail)
         vm.prank(user2);
-        vm.expectRevert(); // Will revert on transferFrom due to lack of approval/ownership
+        vm.expectRevert(abi.encodeWithSelector(ClaimStratStream.NotPresaylor.selector, tokenId));
+        claimStream.claim(tokenId);
+    }
+
+    function test_Claim_RevertIfNotOwnerTokenIdIsApproved() public {
+        uint256 tokenId = 1;
+
+        vm.prank(owner);
+        stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+
+        // user2 tries to claim user1's NFT (with appropriate approvals)
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
+        vm.prank(user2);
+        vm.expectRevert(abi.encodeWithSelector(ClaimStratStream.NotPresaylor.selector, tokenId));
+        claimStream.claim(tokenId);
+    }
+
+    function test_Claim_RevertIfOwnerWithoutApproval() public {
+        uint256 tokenId = 1;
+
+        vm.prank(owner);
+        stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+
+        // Verify user1 owns the NFT
+        assertEq(stratOption.ownerOf(tokenId), user1);
+
+        // user1 (the owner) tries to claim without approving the NFT transfer
+        vm.prank(user1);
+        vm.expectRevert(); // Will revert on transferFrom due to lack of approval
         claimStream.claim(tokenId);
     }
 
@@ -458,5 +487,40 @@ contract ClaimStratStreamTest is Test {
         // The calculated rate should be 379,477,838,494 for 2 months (61 days = 5270400 seconds)
         // 2e18 / 5270400 = 379477838494
         assertEq(plan.rate, 379477838494);
+    }
+
+    function test_Claim_RedeemPlans_NoNetLoss() public {
+        // Test with the exact example values from the user
+        uint256 amount = 2000000000000000000; // 2e18
+
+        vm.prank(owner);
+        stratOption.mint(user1, 0, amount, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+        uint256 tokenId = stratOption._tokenIdCounter() - 1;
+
+        // Store the notionalUnderlyingAmount before claiming (NFT gets burned)
+        uint256 notionalUnderlyingAmount = stratOption.notionalUnderlyingAmount(tokenId);
+
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
+        vm.prank(user1);
+        uint256 planId = claimStream.claim(tokenId);
+
+        // Get user1's balance before redemption
+        uint256 user1BalanceBefore = stratToken.balanceOf(user1);
+
+        // Roll forward 3 months (90 days = 7776000 seconds, more than the 2 month vesting period)
+        vm.warp(block.timestamp + 90 days);
+
+        // Redeem the plan
+        uint256[] memory planIds = new uint256[](1);
+        planIds[0] = planId;
+        vm.prank(user1);
+        tokenLockupPlans.redeemPlans(planIds);
+
+        // Verify user1 received the full notionalUnderlyingAmount (no net loss)
+        uint256 user1BalanceAfter = stratToken.balanceOf(user1);
+        assertEq(user1BalanceAfter - user1BalanceBefore, notionalUnderlyingAmount);
+        assertEq(notionalUnderlyingAmount, amount);
     }
 }

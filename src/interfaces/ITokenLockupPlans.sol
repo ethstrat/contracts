@@ -46,4 +46,6 @@ interface ITokenLockupPlans {
     function tokenOfOwnerByIndex(address owner, uint256 index) external view returns (uint256);
 
     function planEnd(uint256 planId) external view returns (uint256);
+
+    function redeemPlans(uint256[] calldata planIds) external;
 }
