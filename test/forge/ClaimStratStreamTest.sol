@@ -498,7 +498,7 @@ contract ClaimStratStreamTest is Test {
         uint256 tokenId = stratOption._tokenIdCounter() - 1;
 
         // Store the notionalUnderlyingAmount before claiming (NFT gets burned)
-        uint256 notionalUnderlyingAmount = stratOption.notionalUnderlyingAmount(tokenId);
+        uint256 vestingAmount = stratOption.notionalUnderlyingAmount(tokenId);
 
         vm.prank(user1);
         stratOption.approve(address(claimStream), tokenId);
@@ -520,7 +520,7 @@ contract ClaimStratStreamTest is Test {
 
         // Verify user1 received the full notionalUnderlyingAmount (no net loss)
         uint256 user1BalanceAfter = stratToken.balanceOf(user1);
-        assertEq(user1BalanceAfter - user1BalanceBefore, notionalUnderlyingAmount);
-        assertEq(notionalUnderlyingAmount, amount);
+        assertEq(user1BalanceAfter - user1BalanceBefore, vestingAmount);
+        assertEq(vestingAmount, amount);
     }
 }
