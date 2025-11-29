@@ -509,8 +509,43 @@ contract ClaimStratStreamTest is Test {
         // Get user1's balance before redemption
         uint256 user1BalanceBefore = stratToken.balanceOf(user1);
 
-        // Roll forward 3 months (90 days = 7776000 seconds, more than the 2 month vesting period)
-        vm.warp(block.timestamp + 90 days);
+        // Roll forward 2 months and 1 second from the vesting start date
+        vm.warp(VESTING_START + VESTING_DURATION_SECONDS + 1);
+
+        // Redeem the plan
+        uint256[] memory planIds = new uint256[](1);
+        planIds[0] = planId;
+        vm.prank(user1);
+        tokenLockupPlans.redeemPlans(planIds);
+
+        // Verify user1 received the full notionalUnderlyingAmount (no net loss)
+        uint256 user1BalanceAfter = stratToken.balanceOf(user1);
+        assertEq(user1BalanceAfter - user1BalanceBefore, vestingAmount);
+        assertEq(vestingAmount, amount);
+    }
+
+    function test_Claim_RedeemPlans_AfterVestingPeriod() public {
+        // Test with the exact example values from the user
+        uint256 amount = 2000000000000000000; // 2e18
+
+        vm.prank(owner);
+        stratOption.mint(user1, 0, amount, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+        uint256 tokenId = stratOption._tokenIdCounter() - 1;
+
+        // Store the notionalUnderlyingAmount before claiming (NFT gets burned)
+        uint256 vestingAmount = stratOption.notionalUnderlyingAmount(tokenId);
+
+        vm.prank(user1);
+        stratOption.approve(address(claimStream), tokenId);
+
+        // Roll forward 2 months and 1 second from the vesting start date
+        vm.warp(VESTING_START + VESTING_DURATION_SECONDS + 1);
+
+        vm.prank(user1);
+        uint256 planId = claimStream.claim(tokenId);
+
+        // Get user1's balance before redemption
+        uint256 user1BalanceBefore = stratToken.balanceOf(user1);
 
         // Redeem the plan
         uint256[] memory planIds = new uint256[](1);
