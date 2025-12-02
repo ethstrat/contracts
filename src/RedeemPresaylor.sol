@@ -92,10 +92,10 @@ contract RedeemPresaylor {
         wethAmount = notionalUnderlyingAmount * 0.8e18 / 1e22;
 
         // Pull WETH from source
-        IERC20(weth).transferFrom(wethSource, address(this), wethAmount);
+        IERC20(weth).transferFrom(wethSource, presaylor, wethAmount);
 
         // Send WETH to caller
-        IERC20(weth).transfer(presaylor, wethAmount);
+        // IERC20(weth).transfer(presaylor, wethAmount);
 
         emit BurntAndRedeemed(msg.sender, presaylor, tokenId, wethAmount);
     }

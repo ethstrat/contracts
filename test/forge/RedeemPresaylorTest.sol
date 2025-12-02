@@ -31,7 +31,9 @@ contract RedeemPresaylorTest is Test {
     uint256 public constant MAX_TOKEN_ID = 466;
 
     uint256 public constant STRAT_AMOUNT_1 = 1000 * 1e18; // 1000 STRAT
+    uint256 public constant ETH_AMOUNT_EXPECTED_1 = 800 * 1e18 / 10_000;
     uint256 public constant STRAT_AMOUNT_2 = 500 * 1e18; // 500 STRAT
+    uint256 public constant ETH_AMOUNT_EXPECTED_2 = 400 * 1e18 / 10_000;
 
     function setUp() public {
         // Deploy StratOption (oStrat NFT)
@@ -95,10 +97,6 @@ contract RedeemPresaylorTest is Test {
         vm.prank(user1);
         stratOption.approve(address(redeemPresaylor), tokenId);
 
-        // Calculate expected WETH amount: notionalUnderlyingAmount * 8e17 / 1e22
-        // For 1000 STRAT: 1000e18 * 8e17 / 1e22 = 800e17 / 1e22 = 0.08e18 = 0.08 WETH
-        uint256 expectedWethAmount = STRAT_AMOUNT_1 * 8e17 / 1e22;
-
         // Get initial balances
         uint256 wethSourceBalanceBefore = weth.balanceOf(wethSource);
         uint256 user1WethBalanceBefore = weth.balanceOf(user1);
@@ -108,7 +106,7 @@ contract RedeemPresaylorTest is Test {
         uint256 wethAmount = redeemPresaylor.burnAndRedeemForETH(tokenId);
 
         // Verify WETH amount
-        assertEq(wethAmount, expectedWethAmount);
+        assertEq(wethAmount, ETH_AMOUNT_EXPECTED_1);
 
         // Verify NFT was burned (ownerOf should revert for burned token)
         vm.expectRevert();
@@ -118,9 +116,9 @@ contract RedeemPresaylorTest is Test {
         assertTrue(redeemPresaylor.hasBurnedAndRedeemed(tokenId));
 
         // Verify WETH was transferred from source to RedeemPresaylor and then to user1
-        assertEq(weth.balanceOf(wethSource), wethSourceBalanceBefore - expectedWethAmount);
+        assertEq(weth.balanceOf(wethSource), wethSourceBalanceBefore - ETH_AMOUNT_EXPECTED_1);
         assertEq(weth.balanceOf(address(redeemPresaylor)), 0); // Should be 0 after transfer
-        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmount);
+        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + ETH_AMOUNT_EXPECTED_1);
     }
 
     function test_BurnAndRedeemForETH_RevertIfTokenIdTooHigh() public {
@@ -212,14 +210,13 @@ contract RedeemPresaylorTest is Test {
         vm.prank(user1);
         stratOption.approve(address(redeemPresaylor), tokenId1);
 
-        uint256 expectedWethAmount1 = STRAT_AMOUNT_1 * 8e17 / 1e22;
         uint256 user1WethBalanceBefore = weth.balanceOf(user1);
 
         vm.prank(user1);
         uint256 wethAmount1 = redeemPresaylor.burnAndRedeemForETH(tokenId1);
-        assertEq(wethAmount1, expectedWethAmount1);
+        assertEq(wethAmount1, ETH_AMOUNT_EXPECTED_1);
         assertTrue(redeemPresaylor.hasBurnedAndRedeemed(tokenId1));
-        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmount1);
+        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + ETH_AMOUNT_EXPECTED_1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -233,14 +230,13 @@ contract RedeemPresaylorTest is Test {
         vm.prank(user2);
         stratOption.approve(address(redeemPresaylor), tokenId2);
 
-        uint256 expectedWethAmount2 = STRAT_AMOUNT_2 * 8e17 / 1e22;
         uint256 user2WethBalanceBefore = weth.balanceOf(user2);
 
         vm.prank(user2);
         uint256 wethAmount2 = redeemPresaylor.burnAndRedeemForETH(tokenId2);
-        assertEq(wethAmount2, expectedWethAmount2);
+        assertEq(wethAmount2, ETH_AMOUNT_EXPECTED_2);
         assertTrue(redeemPresaylor.hasBurnedAndRedeemed(tokenId2));
-        assertEq(weth.balanceOf(user2), user2WethBalanceBefore + expectedWethAmount2);
+        assertEq(weth.balanceOf(user2), user2WethBalanceBefore + ETH_AMOUNT_EXPECTED_2);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -263,14 +259,13 @@ contract RedeemPresaylorTest is Test {
         vm.prank(user1);
         stratOption.approve(address(redeemPresaylor), tokenId);
 
-        uint256 expectedWethAmount = STRAT_AMOUNT_1 * 8e17 / 1e22;
         uint256 user1WethBalanceBefore = weth.balanceOf(user1);
 
         vm.prank(user1);
         uint256 wethAmount = redeemPresaylor.burnAndRedeemForETH(tokenId);
-        assertEq(wethAmount, expectedWethAmount);
+        assertEq(wethAmount, ETH_AMOUNT_EXPECTED_1);
         assertTrue(redeemPresaylor.hasBurnedAndRedeemed(tokenId));
-        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmount);
+        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + ETH_AMOUNT_EXPECTED_1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -331,14 +326,13 @@ contract RedeemPresaylorTest is Test {
         stratOption.approve(address(redeemPresaylor), tokenId);
 
         // Can redeem after unpause
-        uint256 expectedWethAmount = STRAT_AMOUNT_1 * 8e17 / 1e22;
         uint256 user1WethBalanceBefore = weth.balanceOf(user1);
 
         vm.prank(user1);
         uint256 wethAmount = redeemPresaylor.burnAndRedeemForETH(tokenId);
-        assertEq(wethAmount, expectedWethAmount);
+        assertEq(wethAmount, ETH_AMOUNT_EXPECTED_1);
         assertTrue(redeemPresaylor.hasBurnedAndRedeemed(tokenId));
-        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmount);
+        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + ETH_AMOUNT_EXPECTED_1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -353,6 +347,12 @@ contract RedeemPresaylorTest is Test {
         amounts[2] = 10000 * 1e18;
         amounts[3] = 100000 * 1e18;
 
+        uint256[] memory expectedWethAmounts = new uint256[](4);
+        expectedWethAmounts[0] = 80 * 1e18 / 10_000;
+        expectedWethAmounts[1] = 800 * 1e18 / 10_000;
+        expectedWethAmounts[2] = 8000 * 1e18 / 10_000;
+        expectedWethAmounts[3] = 80000 * 1e18 / 10_000;
+
         for (uint256 i = 0; i < amounts.length; i++) {
             // Each mint gets a new sequential tokenId
             vm.prank(owner);
@@ -366,15 +366,14 @@ contract RedeemPresaylorTest is Test {
             stratOption.approve(address(redeemPresaylor), tokenId);
 
             // Calculate expected WETH amount
-            uint256 expectedWethAmount = amounts[i] * 8e17 / 1e22;
             uint256 user1WethBalanceBefore = weth.balanceOf(user1);
 
             vm.prank(user1);
             uint256 wethAmount = redeemPresaylor.burnAndRedeemForETH(tokenId);
 
             // Verify WETH amount calculation
-            assertEq(wethAmount, expectedWethAmount);
-            assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmount);
+            assertEq(wethAmount, expectedWethAmounts[i]);
+            assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmounts[i]);
 
             // Verify NFT was burned
             vm.expectRevert();
@@ -391,16 +390,14 @@ contract RedeemPresaylorTest is Test {
         vm.prank(user1);
         stratOption.approve(address(redeemPresaylor), tokenId);
 
-        uint256 expectedWethAmount = STRAT_AMOUNT_1 * 8e17 / 1e22;
-
         vm.prank(user1);
         // Expect the BurntAndRedeemed event to be emitted
         vm.expectEmit(true, true, true, true); // Check all indexed params and data
-        emit RedeemPresaylor.BurntAndRedeemed(user1, user1, tokenId, expectedWethAmount);
+        emit RedeemPresaylor.BurntAndRedeemed(user1, user1, tokenId, ETH_AMOUNT_EXPECTED_1);
         uint256 wethAmount = redeemPresaylor.burnAndRedeemForETH(tokenId);
 
         // Verify the event was emitted with correct values
-        assertEq(wethAmount, expectedWethAmount);
+        assertEq(wethAmount, ETH_AMOUNT_EXPECTED_1);
 
         // Verify NFT was burned
         vm.expectRevert();
@@ -459,7 +456,6 @@ contract RedeemPresaylorTest is Test {
         vm.prank(owner);
         stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
-        uint256 expectedWethAmount = STRAT_AMOUNT_1 * 8e17 / 1e22;
         uint256 user1WethBalanceBefore = weth.balanceOf(user1);
 
         vm.prank(user1);
@@ -470,7 +466,7 @@ contract RedeemPresaylorTest is Test {
         redeemPresaylor.burnAndRedeemForETH(tokenId);
 
         // WETH should go to user1 (the presaylor)
-        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + expectedWethAmount);
+        assertEq(weth.balanceOf(user1), user1WethBalanceBefore + ETH_AMOUNT_EXPECTED_1);
     }
 
     function test_BurnAndRedeemForETH_RevertIfZeroNotionalUnderlyingAmount() public {
