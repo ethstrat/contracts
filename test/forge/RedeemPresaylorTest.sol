@@ -151,6 +151,17 @@ contract RedeemPresaylorTest is Test {
         redeemPresaylor.burnAndRedeemForETH(tokenId);
     }
 
+    function test_BurnAndRedeemForETH_RevertITokenIdIsApproved() public {
+        uint256 tokenId = 1;
+
+        vm.prank(owner);
+        stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("ERC721InsufficientApproval(address,uint256)", address(redeemPresaylor), tokenId));
+        redeemPresaylor.burnAndRedeemForETH(tokenId);
+    }
+
     function test_BurnAndRedeemForETH_RevertIfNotOwnerTokenIdIsApproved() public {
         uint256 tokenId = 1;
 
