@@ -38,6 +38,7 @@ contract RedeemPresaylor {
     bool public paused;
 
     error NotPresaylor(uint256 tokenId);
+    error PresaylorRedeemedOrBurned(uint256 tokenId);
     error BurnAndRedeemPaused();
     error OnlyEmergencyPauser();
 
@@ -80,7 +81,7 @@ contract RedeemPresaylor {
         // Get the amount from the oStrat NFT before burning
         uint256 notionalUnderlyingAmount = stratOption.notionalUnderlyingAmount(tokenId);
         address presaylor = stratOption.ownerOf(tokenId);
-        if (notionalUnderlyingAmount == 0) revert NotPresaylor(tokenId);
+        if (notionalUnderlyingAmount == 0) revert PresaylorRedeemedOrBurned(tokenId);
 
         // Transfer NFT from user to this contract, then burn it
         // This requires the user to have approved this contract

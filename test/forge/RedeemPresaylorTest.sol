@@ -480,19 +480,20 @@ contract RedeemPresaylorTest is Test {
         assertEq(weth.balanceOf(user1), user1WethBalanceBefore + ETH_AMOUNT_EXPECTED_1);
     }
 
-    function test_BurnAndRedeemForETH_RevertIfZeroNotionalUnderlyingAmount() public {
+    function test_BurnAndRedeemForETH_RevertIfRedeemed() public {
         uint256 tokenId = 1;
 
         // Mint NFT with zero notionalUnderlyingAmount
         vm.prank(owner);
-        stratOption.mint(user1, 0, 0, 0, block.timestamp + 365 days, block.timestamp + 1 days);
+        stratOption.mint(user1, 0, STRAT_AMOUNT_1, 0, block.timestamp + 365 days, block.timestamp + 1 days);
 
-        vm.prank(user1);
+        vm.startPrank(user1);
         stratOption.approve(address(redeemPresaylor), tokenId);
-
-        vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSelector(RedeemPresaylor.NotPresaylor.selector, tokenId));
         redeemPresaylor.burnAndRedeemForETH(tokenId);
+
+        vm.expectRevert(abi.encodeWithSignature("ERC721NonexistentToken(uint256)", tokenId));
+        redeemPresaylor.burnAndRedeemForETH(tokenId);
+        vm.stopPrank();
     }
 }
 
