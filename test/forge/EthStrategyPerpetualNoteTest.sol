@@ -5,10 +5,12 @@ import {Test, console2} from "forge-std/Test.sol";
 import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 
 contract MockUSDS is MockERC20 {
     constructor() {
         initialize("Mock USDS", "USDS", 18);
+        _mint(msg.sender, 1000000 * 10 ** 18);
         _mint(msg.sender, 1000000 * 10 ** 18);
     }
 }
@@ -232,6 +234,74 @@ contract EthStrategyPerpetualNoteTest is Test {
         uint256 totalAssetsAfter = pb.totalAssets();
         assertEq(totalAssetsAfter, totalAssetsBefore - DEPOSIT_AMOUNT);
         assertLt(totalAssetsAfter, totalAssetsBefore);
+
+        // Remaining USDS in contract should be ADD_ASSETS_AMOUNT
+        assertEq(usds.balanceOf(address(pb)), ADD_ASSETS_AMOUNT);
+    }
+
+    function test_RedeemUpdatesTotalAssets() public {
+        // First deposit and add assets
+        uint256 shares = pb.deposit(DEPOSIT_AMOUNT, user1);
+        pb.increaseAssetsPerShare(ADD_ASSETS_AMOUNT);
+        uint256 totalAssetsAfterIncrease = pb.totalAssets();
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Transfer assets back to contract for redemption (simulating yield being returned)
+        usds.transfer(address(pb), DEPOSIT_AMOUNT + ADD_ASSETS_AMOUNT);
+        vm.prank(user1);
+        uint256 assetsReceived = pb.redeem(shares, user1, user1);
+
+        // Check that shares were burned and assets were received
+        assertEq(pb.balanceOf(user1), 0);
+        // Check that totalAssets decreased (allowing for rounding in ERC4626 calculations)
+        assertEq(pb.totalAssets(), totalAssetsAfterIncrease - assetsReceived);
+    }
+    
+    function test_OnlyShareOwnerCanRedeemOrWithdraw() public {
+        // First deposit and add assets
+        uint256 shares = pb.deposit(DEPOSIT_AMOUNT, user1);
+        pb.increaseAssetsPerShare(ADD_ASSETS_AMOUNT);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        usds.transfer(address(pb), DEPOSIT_AMOUNT + ADD_ASSETS_AMOUNT);
+
+        // Withdraw
+        vm.prank(user2);
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, user2, 0, shares));
+        pb.redeem(shares, user2, user1);
+
+        // redeem
+        vm.prank(user2);
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, user2, 0, shares));
+        pb.redeem(shares, user2, user1);
+    }
+
+    function test_ShareOwnerCanDelegateRedeemOrWithdraw() public {
+        // First deposit and add assets
+        uint256 shares = pb.deposit(DEPOSIT_AMOUNT * 2, user1);
+        pb.deposit(DEPOSIT_AMOUNT, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        usds.transfer(address(pb), DEPOSIT_AMOUNT);
+        vm.prank(user1);
+        pb.approve(user2, 3);
+
+        // Withdraw
+        vm.prank(user2);
+        pb.withdraw(1, user2, user1);
+
+        // redeem
+        vm.prank(user2);
+        pb.redeem(1, user2, user1);
     }
 
     //// Deposit Cap Tests

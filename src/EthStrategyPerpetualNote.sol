@@ -18,7 +18,7 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
     using Math for uint256;
 
     address public manager;
-    
+
     uint256 private _totalAssets;
 
     /// @dev Maximum total assets that can be deposited (uint256 max = no cap)
@@ -41,13 +41,15 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
      * @param _asset The underlying ERC20 token for the vault
      * @param _owner The owner of the vault
      */
-    constructor(
-        IERC20 _asset,
-        address _owner
-    ) ERC4626(_asset) ERC20("ETH Strategy Perpetual Note", "ESPN") Ownable(_owner) {
-    }
+    constructor(IERC20 _asset, address _owner)
+        ERC4626(_asset)
+        ERC20("ETH Strategy Perpetual Note", "ESPN")
+        Ownable(_owner)
+    {}
 
-    /** @dev See {IERC4626-totalAssets}. */
+    /**
+     * @dev See {IERC4626-totalAssets}.
+     */
     function totalAssets() public view virtual override returns (uint256) {
         return _totalAssets;
     }
@@ -60,17 +62,23 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
         emit AssetsPerShareIncreased(msg.sender, _totalAssets, assets);
     }
 
-    /** @dev See {IERC4626-maxDeposit}. */
+    /**
+     * @dev See {IERC4626-maxDeposit}.
+     */
     function maxDeposit(address) public view virtual override returns (uint256) {
         return depositCap > _totalAssets ? depositCap - _totalAssets : 0;
     }
 
-    /** @dev See {IERC4626-maxMint}. */
+    /**
+     * @dev See {IERC4626-maxMint}.
+     */
     function maxMint(address) public view virtual override returns (uint256) {
         return previewDeposit(maxDeposit(address(0)));
     }
 
-    /** @dev See {IERC4626-maxWithdraw}. */
+    /**
+     * @dev See {IERC4626-maxWithdraw}.
+     */
     function maxWithdraw(address owner) public view virtual override returns (uint256) {
         if (withdrawalsDisabled) {
             return 0;
@@ -84,7 +92,9 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
         return ownerAssets < contractBalance ? ownerAssets : contractBalance;
     }
 
-    /** @dev See {IERC4626-maxRedeem}. */
+    /**
+     * @dev See {IERC4626-maxRedeem}.
+     */
     function maxRedeem(address owner) public view virtual override returns (uint256) {
         if (withdrawalsDisabled) {
             return 0;
@@ -105,7 +115,7 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
      *
      * intentended to be used by the STRAT protocol if it needs to burn any ESPN it holds to
      * boost yield for external holders.
-     * 
+     *
      * @param value The amount of tokens to burn
      */
     function burn(uint256 value) external {
@@ -113,8 +123,8 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
     }
 
     /**
-     * @dev Override of _deposit to 
-     *   1. track totalAssets explicitly 
+     * @dev Override of _deposit to
+     *   1. track totalAssets explicitly
      *   2. transfer funds to the manager
      *   3. Cap deposits
      * @param caller The address calling the deposit
@@ -122,12 +132,7 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
      * @param assets The amount of assets being deposited
      * @param shares The amount of shares being minted
      */
-    function _deposit(
-        address caller,
-        address receiver,
-        uint256 assets,
-        uint256 shares
-    ) internal virtual override {
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override {
         uint256 newTotal = _totalAssets + assets;
         if (newTotal > depositCap) {
             revert ERC4626ExceededMaxDeposit(receiver, assets, maxDeposit(receiver));
@@ -165,7 +170,7 @@ contract EthStrategyPerpetualNote is ERC4626, Ownable2Step, ReentrancyGuard {
      */
     function setManager(address _manager) external onlyOwner {
         if (_manager == address(0)) revert InvalidManager();
-        
+
         manager = _manager;
         emit ManagerUpdated(_manager);
     }
