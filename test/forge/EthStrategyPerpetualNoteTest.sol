@@ -11,6 +11,7 @@ contract MockUSDS is MockERC20 {
     constructor() {
         initialize("Mock USDS", "USDS", 18);
         _mint(msg.sender, 1000000 * 10 ** 18);
+        _mint(msg.sender, 1000000 * 10 ** 18);
     }
 }
 
@@ -537,5 +538,323 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Now totalSupply should go down by 5, while totalAssets should remain the same
         assertEq(pb.totalSupply(), INITIAL_SHARES + 5 * 10 ** 18);
         assertEq(pb.totalAssets(), totalAssetsBefore);
+    }
+
+    // redeem tests
+    // given withdrawals are disabled
+    //  [X] it reverts
+
+    function test_Redeem_WithdrawalsDisabled() public {
+        // Deposit for user1
+        uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), 1000 * 10 ** 18);
+
+        // Withdrawals are disabled by default
+        assertEq(pb.maxRedeem(user1), 0);
+
+        // Expect revert
+        vm.expectRevert(abi.encodeWithSignature("ERC4626ExceededMaxRedeem(address,uint256,uint256)", user1, shares, 0));
+
+        // Call function
+        vm.prank(user1);
+        pb.redeem(shares, user2, user1);
+    }
+
+    // when the caller is the token holder
+    //  [X] it burns the shares
+    //  [X] it transfers the assets to the receiver
+
+    function test_Redeem_WhenCallerIsTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), 1000 * 10 ** 18);
+        uint256 expectedAssets = pb.previewRedeem(shares);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
+
+        // Call function
+        vm.prank(user1);
+        pb.redeem(shares, recipient_, user1);
+
+        // Check that the shares were burned
+        assertEq(pb.balanceOf(user1), 0, "shares were not burned");
+
+        // Check that the assets were transferred to the receiver
+        assertEq(
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + expectedAssets,
+            "assets were not transferred to the receiver"
+        );
+    }
+
+    // when the caller is not the token holder
+    //  given the token holder has not approved the caller to spend the shares
+    //   [X] it reverts
+
+    function test_Redeem_WhenCallerIsNotTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), 1000 * 10 ** 18);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientAllowance(address,uint256,uint256)", user2, 0, shares)
+        );
+
+        // Call function
+        vm.prank(user2);
+        pb.redeem(shares, recipient_, user1);
+    }
+
+    // given the caller is not the approved spender
+    //  [X] it reverts
+
+    function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved_WhenCallerIsNotApprovedSpender(
+        address caller_,
+        address recipient_
+    ) public {
+        vm.assume(caller_ != user1 && caller_ != user2);
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), 1000 * 10 ** 18);
+
+        // Approve user2 to spend shares
+        vm.prank(user1);
+        pb.approve(user2, shares);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientAllowance(address,uint256,uint256)", caller_, 0, shares)
+        );
+
+        // Call function
+        vm.prank(caller_);
+        pb.redeem(shares, recipient_, user1);
+    }
+
+    //  [X] it burns the shares
+    //  [X] it transfers the assets to the receiver
+
+    function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), 1000 * 10 ** 18);
+        uint256 expectedAssets = pb.previewRedeem(shares);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
+
+        // Approve user2 to spend shares
+        vm.prank(user1);
+        pb.approve(user2, shares);
+
+        // Call function
+        vm.prank(user2);
+        pb.redeem(shares, recipient_, user1);
+
+        // Check that the shares were burned
+        assertEq(pb.balanceOf(user1), 0, "shares were not burned");
+
+        // Check that the assets were transferred to the receiver
+        assertEq(
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + expectedAssets,
+            "assets were not transferred to the receiver"
+        );
+    }
+
+    // withdraw tests
+    // given withdrawals are disabled
+    //  [X] it reverts
+
+    function test_Withdraw_WithdrawalsDisabled() public {
+        // Deposit for user1
+        uint256 depositAmount = 1000 * 10 ** 18;
+        pb.deposit(depositAmount, user1);
+
+        // Withdrawals are disabled by default
+        assertEq(pb.maxWithdraw(user1), 0);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC4626ExceededMaxWithdraw(address,uint256,uint256)", user1, depositAmount, 0)
+        );
+
+        // Call function
+        vm.prank(user1);
+        pb.withdraw(depositAmount, user2, user1);
+    }
+
+    // when the caller is the token holder
+    //  [X] it burns the shares
+    //  [X] it transfers the assets to the receiver
+
+    function test_Withdraw_WhenCallerIsTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 depositAmount = 1000 * 10 ** 18;
+        uint256 shares = pb.deposit(depositAmount, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), depositAmount);
+        uint256 sharesToAssets = pb.previewRedeem(shares);
+        uint256 expectedShares = pb.previewWithdraw(sharesToAssets);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
+        uint256 user1ShareBalanceBefore = pb.balanceOf(user1);
+
+        // Call function
+        vm.prank(user1);
+        pb.withdraw(sharesToAssets, recipient_, user1);
+
+        // Check that the shares were burned
+        assertEq(pb.balanceOf(user1), user1ShareBalanceBefore - expectedShares, "shares were not burned");
+
+        // Check that the assets were transferred to the receiver
+        assertEq(
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + sharesToAssets,
+            "assets were not transferred to the receiver"
+        );
+    }
+
+    // when the caller is not the token holder
+    //  given the token holder has not approved the caller to spend the shares
+    //   [X] it reverts
+
+    function test_Withdraw_WhenCallerIsNotTokenHolder(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 depositAmount = 1000 * 10 ** 18;
+        uint256 shares = pb.deposit(depositAmount, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), depositAmount);
+        uint256 sharesToAssets = pb.previewRedeem(shares);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientAllowance(address,uint256,uint256)", user2, 0, shares)
+        );
+
+        // Call function
+        vm.prank(user2);
+        pb.withdraw(sharesToAssets, recipient_, user1);
+    }
+
+    //  given the caller is not the approved spender
+    //   [X] it reverts
+
+    function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved_WhenCallerIsNotApprovedSpender(
+        address caller_,
+        address recipient_
+    ) public {
+        vm.assume(caller_ != user1 && caller_ != user2);
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 depositAmount = 1000 * 10 ** 18;
+        uint256 shares = pb.deposit(depositAmount, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), depositAmount);
+        uint256 sharesToAssets = pb.previewRedeem(shares);
+
+        // Approve user2 to spend shares
+        vm.prank(user1);
+        pb.approve(user2, shares);
+
+        // Expect revert
+        vm.expectRevert(
+            abi.encodeWithSignature("ERC20InsufficientAllowance(address,uint256,uint256)", caller_, 0, shares)
+        );
+
+        // Call function
+        vm.prank(caller_);
+        pb.withdraw(sharesToAssets, recipient_, user1);
+    }
+
+    //  [X] it burns the shares
+    //  [X] it transfers the assets to the receiver
+
+    function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved(address recipient_) public {
+        vm.assume(recipient_ != user1);
+
+        // Deposit for user1
+        uint256 depositAmount = 1000 * 10 ** 18;
+        uint256 shares = pb.deposit(depositAmount, user1);
+
+        // Enable withdrawals
+        vm.prank(owner);
+        pb.setWithdrawalsDisabled(false);
+
+        // Fund the contract with USDS
+        usds.transfer(address(pb), depositAmount);
+        uint256 sharesToAssets = pb.previewRedeem(shares);
+        uint256 expectedShares = pb.previewWithdraw(sharesToAssets);
+        uint256 recipientBalanceBefore = usds.balanceOf(recipient_);
+        uint256 user1ShareBalanceBefore = pb.balanceOf(user1);
+
+        // Approve user2 to spend shares
+        vm.prank(user1);
+        pb.approve(user2, shares);
+
+        // Call function
+        vm.prank(user2);
+        pb.withdraw(sharesToAssets, recipient_, user1);
+
+        // Check that the shares were burned
+        assertEq(pb.balanceOf(user1), user1ShareBalanceBefore - expectedShares, "shares were not burned");
+
+        // Check that the assets were transferred to the receiver
+        assertEq(
+            usds.balanceOf(recipient_),
+            recipientBalanceBefore + sharesToAssets,
+            "assets were not transferred to the receiver"
+        );
     }
 }
