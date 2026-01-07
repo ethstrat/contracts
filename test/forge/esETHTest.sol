@@ -51,33 +51,6 @@ contract MockERC4626Vault is ERC4626 {
     }
 }
 
-// Mock conversion contract for tokens like rETH
-contract MockConversionContract {
-    // For testing, we'll use a simple multiplier
-    uint256 public constant RETH_MULTIPLIER = 1.1e18; // 1 rETH = 1.1 ETH
-    address public rETHAddress;
-
-    constructor(address _rETHAddress) {
-        rETHAddress = _rETHAddress;
-    }
-
-    function convertToETH(address token, uint256 amount) external view returns (uint256) {
-        // For rETH, multiply by 1.1
-        if (token == rETHAddress) {
-            return amount * RETH_MULTIPLIER / 1e18;
-        }
-        return amount;
-    }
-
-    function convertFromETH(address token, uint256 ethValue) external view returns (uint256) {
-        // For rETH, divide by 1.1
-        if (token == rETHAddress) {
-            return ethValue * 1e18 / RETH_MULTIPLIER;
-        }
-        return ethValue;
-    }
-}
-
 // Wrapper for MockERC20 to add mint function
 contract MintableMockERC20 is MockERC20 {
     function mint(address to, uint256 amount) external {
@@ -85,17 +58,49 @@ contract MintableMockERC20 is MockERC20 {
     }
 }
 
+// Mock wstETH token (has stEthPerToken function)
+contract MockWstETH is MintableMockERC20 {
+    uint256 public stEthPerToken = 1e18; // 1:1 by default, can be changed to simulate rebasing
+
+    constructor() {
+        initialize("Wrapped stETH", "wstETH", 18);
+    }
+
+    function setStEthPerToken(uint256 rate) external {
+        stEthPerToken = rate;
+    }
+}
+
+// Mock rETH token (has getExchangeRate function)
+contract MockRETH is MintableMockERC20 {
+    uint256 public exchangeRate = 1e18; // 1:1 by default, can be changed
+
+    constructor() {
+        initialize("Rocket Pool ETH", "rETH", 18);
+    }
+
+    function getExchangeRate() external view returns (uint256) {
+        return exchangeRate;
+    }
+
+    function setExchangeRate(uint256 rate) external {
+        exchangeRate = rate;
+    }
+}
+
 contract esETHTest is Test {
     esETH public esETHContract;
     MintableMockERC20 public weth;
-    MintableMockERC20 public reth;
     MockERC4626Vault public stETH;
     MockERC4626Vault public cbETH;
-    MockConversionContract public conversionContract;
+    MockWstETH public wstETH;
+    MockRETH public rETH;
 
     address public owner = address(0x1);
     address public user1 = address(0x2);
     address public user2 = address(0x3);
+    address public harvestReceiver = address(0x4);
+    address public randomUser = address(0x5);
 
     uint256 public constant INITIAL_BALANCE = 10000 * 1e18;
     uint256 public constant MINT_AMOUNT = 1000 * 1e18;
@@ -107,12 +112,6 @@ contract esETHTest is Test {
         weth.mint(address(this), INITIAL_BALANCE);
         weth.mint(user1, INITIAL_BALANCE);
         weth.mint(user2, INITIAL_BALANCE);
-
-        reth = new MintableMockERC20();
-        reth.initialize("Rocket Pool ETH", "rETH", 18);
-        reth.mint(address(this), INITIAL_BALANCE);
-        reth.mint(user1, INITIAL_BALANCE);
-        reth.mint(user2, INITIAL_BALANCE);
 
         // Deploy ERC4626 vaults
         MintableMockERC20 underlyingStETH = new MintableMockERC20();
@@ -147,8 +146,16 @@ contract esETHTest is Test {
         vm.prank(user2);
         underlyingCbETH.approve(address(cbETH), type(uint256).max);
 
-        // Deploy conversion contract
-        conversionContract = new MockConversionContract(address(reth));
+        // Deploy wstETH and rETH
+        wstETH = new MockWstETH();
+        wstETH.mint(address(this), INITIAL_BALANCE);
+        wstETH.mint(user1, INITIAL_BALANCE);
+        wstETH.mint(user2, INITIAL_BALANCE);
+
+        rETH = new MockRETH();
+        rETH.mint(address(this), INITIAL_BALANCE);
+        rETH.mint(user1, INITIAL_BALANCE);
+        rETH.mint(user2, INITIAL_BALANCE);
 
         // Deploy esETH contract
         vm.prank(owner);
@@ -156,21 +163,24 @@ contract esETHTest is Test {
 
         // Configure tokens
         vm.startPrank(owner);
-        // WETH: non-ERC4626, 1:1 with ETH, mintable and redeemable
-        esETHContract.setTokenConfig(address(weth), false, address(0), true, true);
-        // rETH: non-ERC4626, uses conversion contract, mintable and redeemable
-        esETHContract.setTokenConfig(address(reth), false, address(conversionContract), true, true);
+        // WETH: ERC20 type, 1:1 with ETH, mintable and redeemable
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
         // stETH: ERC4626, mintable and redeemable
-        esETHContract.setTokenConfig(address(stETH), true, address(0), true, true);
+        esETHContract.setTokenConfig(address(stETH), esETH.TokenType.ERC4626, true, true);
         // cbETH: ERC4626, mintable and redeemable
-        esETHContract.setTokenConfig(address(cbETH), true, address(0), true, true);
+        esETHContract.setTokenConfig(address(cbETH), esETH.TokenType.ERC4626, true, true);
+        // wstETH: WSTETH type, mintable and redeemable
+        esETHContract.setTokenConfig(address(wstETH), esETH.TokenType.WSTETH, true, true);
+        // rETH: RETH type, mintable and redeemable
+        esETHContract.setTokenConfig(address(rETH), esETH.TokenType.RETH, true, true);
         vm.stopPrank();
 
         // Approve esETH contract to spend tokens
         weth.approve(address(esETHContract), type(uint256).max);
-        reth.approve(address(esETHContract), type(uint256).max);
         stETH.approve(address(esETHContract), type(uint256).max);
         cbETH.approve(address(esETHContract), type(uint256).max);
+        wstETH.approve(address(esETHContract), type(uint256).max);
+        rETH.approve(address(esETHContract), type(uint256).max);
     }
 
     // ============ Constructor Tests ============
@@ -181,6 +191,8 @@ contract esETHTest is Test {
         assertEq(esETHContract.symbol(), "esETH");
         assertEq(esETHContract.decimals(), 18);
         assertEq(esETHContract.totalSupply(), 0);
+        // harvestReceiver should be initialized to owner
+        assertEq(esETHContract.harvestReceiver(), owner);
     }
 
     // ============ Token Configuration Tests ============
@@ -190,14 +202,14 @@ contract esETHTest is Test {
         newToken.initialize("New Token", "NEW", 18);
 
         vm.prank(owner);
-        esETHContract.setTokenConfig(address(newToken), false, address(0), true, true);
+        esETHContract.setTokenConfig(address(newToken), esETH.TokenType.ERC20, true, true);
 
-        (bool isERC4626, address convContract, bool isMintable, bool isRedeemable) =
+        (esETH.TokenType tokenType, bool isMintable, bool isRedeemable, uint256 totalMinted) =
             esETHContract.tokenConfigs(address(newToken));
-        assertEq(isERC4626, false);
-        assertEq(convContract, address(0));
+        assertEq(uint256(tokenType), uint256(esETH.TokenType.ERC20));
         assertEq(isMintable, true);
         assertEq(isRedeemable, true);
+        assertEq(totalMinted, 0);
     }
 
     function test_SetTokenConfig_OnlyOwner() external {
@@ -206,16 +218,38 @@ contract esETHTest is Test {
 
         vm.prank(user1);
         vm.expectRevert();
-        esETHContract.setTokenConfig(address(newToken), false, address(0), true, true);
+        esETHContract.setTokenConfig(address(newToken), esETH.TokenType.ERC20, true, true);
     }
 
-    function test_TokenListLength() external view {
-        assertEq(esETHContract.tokenListLength(), 4);
+    function test_SetTokenConfig_ZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(esETH.ZeroAddress.selector);
+        esETHContract.setTokenConfig(address(0), esETH.TokenType.ERC20, true, true);
+    }
+
+    function test_SetTokenConfig_PreservesTotalMinted() external {
+        // First mint some esETH
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // Check totalMinted
+        (,,, uint256 totalMintedBefore) = esETHContract.tokenConfigs(address(weth));
+        assertEq(totalMintedBefore, MINT_AMOUNT);
+
+        // Update config
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, false);
+
+        // totalMinted should be preserved
+        (,,, uint256 totalMintedAfter) = esETHContract.tokenConfigs(address(weth));
+        assertEq(totalMintedAfter, totalMintedBefore);
     }
 
     // ============ Mint Tests ============
 
-    function test_Mint_WithWETH() external {
+    function test_Mint_WithERC20() external {
         uint256 amount = MINT_AMOUNT;
         uint256 balanceBefore = esETHContract.balanceOf(user1);
         uint256 wethBalanceBefore = weth.balanceOf(address(esETHContract));
@@ -225,10 +259,14 @@ contract esETHTest is Test {
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), amount);
 
-        assertEq(esETHAmount, amount); // 1:1 for WETH
+        assertEq(esETHAmount, amount); // 1:1 for ERC20
         assertEq(esETHContract.balanceOf(user1), balanceBefore + esETHAmount);
         assertEq(weth.balanceOf(address(esETHContract)), wethBalanceBefore + amount);
         assertEq(esETHContract.totalSupply(), esETHAmount);
+
+        // Check totalMinted is updated
+        (,,, uint256 totalMinted) = esETHContract.tokenConfigs(address(weth));
+        assertEq(totalMinted, esETHAmount);
     }
 
     function test_Mint_WithERC4626() external {
@@ -244,21 +282,55 @@ contract esETHTest is Test {
         uint256 expectedETH = stETH.convertToAssets(amount);
         assertEq(esETHAmount, expectedETH);
         assertEq(esETHContract.balanceOf(user1), balanceBefore + esETHAmount);
+
+        // Check totalMinted is updated
+        (,,, uint256 totalMinted) = esETHContract.tokenConfigs(address(stETH));
+        assertEq(totalMinted, esETHAmount);
     }
 
-    function test_Mint_WithConversionContract() external {
+    function test_Mint_WithWstETH() external {
         uint256 amount = MINT_AMOUNT;
-        uint256 balanceBefore = esETHContract.balanceOf(user1);
+        // Set exchange rate: 1 wstETH = 1.1 stETH
+        wstETH.setStEthPerToken(1.1e18);
 
         vm.prank(user1);
-        reth.approve(address(esETHContract), amount);
+        wstETH.approve(address(esETHContract), amount);
         vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(reth), amount);
+        uint256 esETHAmount = esETHContract.mint(address(wstETH), amount);
 
-        // rETH should use conversion contract: amount * 1.1
-        uint256 expectedETH = amount * 110 / 100; // 1.1 multiplier
+        // Should convert using stEthPerToken
+        uint256 expectedETH = amount * 1.1e18 / 1e18;
         assertEq(esETHAmount, expectedETH);
-        assertEq(esETHContract.balanceOf(user1), balanceBefore + esETHAmount);
+        assertEq(esETHContract.balanceOf(user1), esETHAmount);
+    }
+
+    function test_Mint_WithRETH() external {
+        uint256 amount = MINT_AMOUNT;
+        // Set exchange rate: 1 rETH = 1.05 ETH
+        rETH.setExchangeRate(1.05e18);
+
+        vm.prank(user1);
+        rETH.approve(address(esETHContract), amount);
+        vm.prank(user1);
+        uint256 esETHAmount = esETHContract.mint(address(rETH), amount);
+
+        // Should convert using getExchangeRate
+        uint256 expectedETH = amount * 1.05e18 / 1e18;
+        assertEq(esETHAmount, expectedETH);
+        assertEq(esETHContract.balanceOf(user1), esETHAmount);
+    }
+
+    function test_Mint_AnyoneCanMint() external {
+        // Verify that non-owner users can mint
+        vm.prank(randomUser);
+        weth.mint(randomUser, MINT_AMOUNT);
+        vm.prank(randomUser);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(randomUser);
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        assertEq(esETHAmount, MINT_AMOUNT);
+        assertEq(esETHContract.balanceOf(randomUser), MINT_AMOUNT);
     }
 
     function test_Mint_NotWhitelisted() external {
@@ -273,6 +345,18 @@ contract esETHTest is Test {
         esETHContract.mint(address(newToken), MINT_AMOUNT);
     }
 
+    function test_Mint_NotMintable() external {
+        // Set token as not mintable
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, true);
+
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        vm.expectRevert(esETH.TokenNotWhitelistedForMint.selector);
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+    }
+
     function test_Mint_ZeroAmount() external {
         vm.prank(user1);
         vm.expectRevert(esETH.ZeroAmount.selector);
@@ -281,7 +365,7 @@ contract esETHTest is Test {
 
     // ============ Redeem Tests ============
 
-    function test_Redeem_ForWETH() external {
+    function test_Redeem_ForERC20() external {
         // First mint some esETH
         uint256 mintAmount = MINT_AMOUNT;
         vm.prank(user1);
@@ -291,13 +375,18 @@ contract esETHTest is Test {
 
         // Now redeem
         uint256 wethBalanceBefore = weth.balanceOf(user1);
+        uint256 esETHBalanceBefore = esETHContract.balanceOf(user1);
         vm.prank(user1);
         uint256 tokenAmount = esETHContract.redeem(address(weth), esETHAmount);
 
-        assertEq(tokenAmount, esETHAmount); // 1:1 for WETH
+        assertEq(tokenAmount, esETHAmount); // 1:1 for ERC20
         assertEq(weth.balanceOf(user1), wethBalanceBefore + tokenAmount);
-        assertEq(esETHContract.balanceOf(user1), 0);
+        assertEq(esETHContract.balanceOf(user1), esETHBalanceBefore - esETHAmount);
         assertEq(esETHContract.totalSupply(), 0);
+
+        // Check totalMinted is updated
+        (,,, uint256 totalMinted) = esETHContract.tokenConfigs(address(weth));
+        assertEq(totalMinted, 0);
     }
 
     function test_Redeem_ForERC4626() external {
@@ -319,23 +408,22 @@ contract esETHTest is Test {
         assertEq(stETH.balanceOf(user1), stETHBalanceBefore + tokenAmount);
     }
 
-    function test_Redeem_ForConversionContract() external {
-        // First mint some esETH with rETH
-        uint256 mintAmount = MINT_AMOUNT;
+    function test_Redeem_AnyoneCanRedeem() external {
+        // Mint esETH
         vm.prank(user1);
-        reth.approve(address(esETHContract), mintAmount);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(reth), mintAmount);
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // Now redeem for rETH
-        uint256 rethBalanceBefore = reth.balanceOf(user1);
+        // Random user can redeem if they have esETH
         vm.prank(user1);
-        uint256 tokenAmount = esETHContract.redeem(address(reth), esETHAmount);
+        esETHContract.transfer(randomUser, esETHAmount);
 
-        // Should get back rETH using conversion: ethValue / 1.1
-        uint256 expectedRETH = esETHAmount * 100 / 110;
-        assertApproxEqRel(tokenAmount, expectedRETH, 0.01e18); // Allow small rounding
-        assertEq(reth.balanceOf(user1), rethBalanceBefore + tokenAmount);
+        vm.prank(randomUser);
+        uint256 tokenAmount = esETHContract.redeem(address(weth), esETHAmount);
+
+        assertEq(tokenAmount, esETHAmount);
+        assertEq(weth.balanceOf(randomUser), tokenAmount);
     }
 
     function test_Redeem_NotWhitelisted() external {
@@ -353,8 +441,24 @@ contract esETHTest is Test {
         esETHContract.redeem(address(newToken), esETHAmount);
     }
 
+    function test_Redeem_NotRedeemable() external {
+        // Mint esETH
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // Set token as not redeemable
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, false);
+
+        vm.prank(user1);
+        vm.expectRevert(esETH.TokenNotWhitelistedForRedeem.selector);
+        esETHContract.redeem(address(weth), esETHAmount);
+    }
+
     function test_Redeem_InsufficientBalance() external {
-        // Mint some esETH
+        // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
@@ -372,34 +476,25 @@ contract esETHTest is Test {
         esETHContract.redeem(address(weth), 0);
     }
 
-    // ============ Total Backing Tests ============
-
-    function test_TotalBacking_Empty() external view {
-        uint256 backing = esETHContract.totalBacking();
-        assertEq(backing, 0);
-    }
-
-    function test_TotalBacking_WithTokens() external {
-        // Mint esETH with different tokens
+    function test_Redeem_CrossToken() external {
+        // User1 mints with WETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
-        esETHContract.mint(address(weth), MINT_AMOUNT);
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        vm.prank(user2);
-        stETH.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user2);
-        esETHContract.mint(address(stETH), MINT_AMOUNT);
+        // User1 redeems for cbETH (different token)
+        uint256 cbETHBalanceBefore = cbETH.balanceOf(user1);
+        vm.prank(user1);
+        uint256 tokenAmount = esETHContract.redeem(address(cbETH), esETHAmount);
 
-        uint256 backing = esETHContract.totalBacking();
-        uint256 expectedWETH = MINT_AMOUNT;
-        uint256 expectedStETH = stETH.convertToAssets(MINT_AMOUNT);
-        assertEq(backing, expectedWETH + expectedStETH);
+        assertGt(tokenAmount, 0);
+        assertEq(cbETH.balanceOf(user1), cbETHBalanceBefore + tokenAmount);
     }
 
-    // ============ Mint Deficit Tests ============
+    // ============ Mint Deficit / Harvest Tests ============
 
-    function test_MintDeficit() external {
+    function test_MintDeficit_AnyoneCanCall() external {
         // Mint some esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -409,17 +504,44 @@ contract esETHTest is Test {
         // Manually add more tokens to contract (simulating yield or donations)
         weth.transfer(address(esETHContract), MINT_AMOUNT);
 
-        uint256 backingBefore = esETHContract.totalBacking();
         uint256 supplyBefore = esETHContract.totalSupply();
-        uint256 deficit = backingBefore - supplyBefore;
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
 
-        vm.prank(owner);
-        esETHContract.mintDeficit();
+        // Random user can call mintDeficit
+        vm.prank(randomUser);
+        esETHContract.mintDeficit(tokens);
 
         uint256 supplyAfter = esETHContract.totalSupply();
+        uint256 deficit = supplyAfter - supplyBefore;
 
-        assertEq(supplyAfter, supplyBefore + deficit);
+        assertGt(deficit, 0);
+        // Should mint to harvestReceiver (owner by default)
         assertEq(esETHContract.balanceOf(owner), deficit);
+    }
+
+    function test_MintDeficit_MintsToHarvestReceiver() external {
+        // Set custom harvest receiver
+        vm.prank(owner);
+        esETHContract.setHarvestReceiver(harvestReceiver);
+
+        // Mint some esETH
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // Add more tokens
+        weth.transfer(address(esETHContract), MINT_AMOUNT);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+
+        vm.prank(user1);
+        esETHContract.mintDeficit(tokens);
+
+        // Should mint to harvestReceiver
+        assertGt(esETHContract.balanceOf(harvestReceiver), 0);
     }
 
     function test_MintDeficit_NoDeficit() external {
@@ -429,116 +551,171 @@ contract esETHTest is Test {
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        vm.prank(owner);
-        vm.expectRevert(esETH.InsufficientBacking.selector);
-        esETHContract.mintDeficit();
-    }
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
 
-    function test_MintDeficit_OnlyOwner() external {
+        uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
-        vm.expectRevert();
-        esETHContract.mintDeficit();
+        esETHContract.mintDeficit(tokens);
+        uint256 supplyAfter = esETHContract.totalSupply();
+
+        // Should not mint if no deficit
+        assertEq(supplyAfter, supplyBefore);
     }
 
-    // ============ Convert LST Tests ============
-
-    function test_ConvertLST_NoLoss() external {
-        // Setup: mint esETH and have tokens in contract
+    function test_MintDeficit_MultipleTokens() external {
+        // Mint esETH with WETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // Transfer some esETH to contract for potential loss coverage
+        // Mint esETH with stETH
+        vm.prank(user2);
+        stETH.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user2);
+        esETHContract.mint(address(stETH), MINT_AMOUNT);
+
+        // Add extra tokens to both
+        weth.transfer(address(esETHContract), MINT_AMOUNT / 2);
+        stETH.transfer(address(esETHContract), MINT_AMOUNT / 2);
+
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(weth);
+        tokens[1] = address(stETH);
+
+        uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
-        esETHContract.transfer(address(esETHContract), MINT_AMOUNT / 10);
+        esETHContract.mintDeficit(tokens);
+        uint256 supplyAfter = esETHContract.totalSupply();
 
-        uint256 fromAmount = MINT_AMOUNT / 2;
-        
-        // Get balance before (should have weth from mint)
-        uint256 wethBalanceBefore = weth.balanceOf(address(esETHContract));
-        assertGe(wethBalanceBefore, fromAmount);
-
-        uint256 toBalanceBefore = cbETH.balanceOf(address(esETHContract));
-        
-        // Simulate swap: owner swaps weth for cbETH externally and sends cbETH to contract
-        // In real scenario, owner would do this via DEX, but for test we simulate
-        cbETH.transfer(address(esETHContract), fromAmount); // 1:1 swap, no loss
-        uint256 toBalanceAfter = cbETH.balanceOf(address(esETHContract));
-        uint256 toAmount = toBalanceAfter - toBalanceBefore;
-
-        vm.prank(owner);
-        (uint256 receivedAmount, uint256 loss) = esETHContract.convertLST(
-            address(weth), address(cbETH), fromAmount, toAmount
-        );
-
-        assertEq(receivedAmount, toAmount);
-        assertEq(loss, 0);
+        assertGt(supplyAfter, supplyBefore);
     }
 
-    function test_ConvertLST_WithLoss() external {
-        // Setup: mint esETH
+    function test_MintDeficit_WithERC4626Yield() external {
+        // Mint esETH with stETH
+        vm.prank(user1);
+        stETH.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        esETHContract.mint(address(stETH), MINT_AMOUNT);
+
+        // Simulate yield by increasing totalAssets (which affects convertToAssets)
+        stETH.setTotalAssets(stETH.totalAssets() + MINT_AMOUNT / 10);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(stETH);
+
+        uint256 supplyBefore = esETHContract.totalSupply();
+        vm.prank(user1);
+        esETHContract.mintDeficit(tokens);
+        uint256 supplyAfter = esETHContract.totalSupply();
+
+        // Should mint deficit based on increased backing
+        assertGt(supplyAfter, supplyBefore);
+    }
+
+    // ============ Burn Surplus Tests ============
+
+    function test_BurnSurplus_OnlyOwner() external {
+        // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // Transfer esETH to contract for loss coverage
-        vm.prank(user1);
-        esETHContract.transfer(address(esETHContract), MINT_AMOUNT);
-
-        uint256 fromAmount = MINT_AMOUNT;
-        
-        // Get balance before
-        uint256 toBalanceBefore = cbETH.balanceOf(address(esETHContract));
-        
-        // Simulate swap with loss: receive 90% of value
-        uint256 toAmount = MINT_AMOUNT * 9 / 10;
-        cbETH.transfer(address(esETHContract), toAmount);
-        uint256 toBalanceAfter = cbETH.balanceOf(address(esETHContract));
-
-        uint256 esETHBalanceBefore = esETHContract.balanceOf(address(esETHContract));
-
+        // Remove some tokens (simulating loss)
         vm.prank(owner);
-        (uint256 receivedAmount, uint256 loss) = esETHContract.convertLST(
-            address(weth), address(cbETH), fromAmount, toAmount
-        );
+        weth.transferFrom(address(esETHContract), owner, MINT_AMOUNT / 2);
 
-        uint256 esETHBalanceAfter = esETHContract.balanceOf(address(esETHContract));
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
 
-        assertEq(receivedAmount, toBalanceAfter - toBalanceBefore);
-        assertGt(loss, 0);
-        assertEq(esETHBalanceBefore - esETHBalanceAfter, loss);
+        // Non-owner cannot call
+        vm.prank(user1);
+        vm.expectRevert();
+        esETHContract.burnSurplus(tokens);
+
+        // Owner can call
+        uint256 supplyBefore = esETHContract.totalSupply();
+        vm.prank(owner);
+        esETHContract.burnSurplus(tokens);
+        uint256 supplyAfter = esETHContract.totalSupply();
+
+        // Should burn surplus
+        assertLt(supplyAfter, supplyBefore);
     }
 
-    function test_ConvertLST_InsufficientESETHForLoss() external {
-        // Setup: mint esETH
+    function test_BurnSurplus_NoSurplus() external {
+        // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // Don't transfer esETH to contract (contract has 0 esETH balance)
-        uint256 fromAmount = MINT_AMOUNT;
-        uint256 toAmount = MINT_AMOUNT * 9 / 10; // 10% loss
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
 
-        // Simulate swap: send toToken to contract
-        cbETH.transfer(address(esETHContract), toAmount);
-
+        uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(owner);
-        vm.expectRevert();
-        esETHContract.convertLST(address(weth), address(cbETH), fromAmount, toAmount);
+        esETHContract.burnSurplus(tokens);
+        uint256 supplyAfter = esETHContract.totalSupply();
+
+        // Should not burn if no surplus
+        assertEq(supplyAfter, supplyBefore);
     }
 
-    function test_ConvertLST_OnlyOwner() external {
+    function test_BurnSurplus_OwnerMustHaveBalance() external {
+        // Mint esETH
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // Remove some tokens (simulating loss)
+        vm.prank(owner);
+        weth.transferFrom(address(esETHContract), owner, MINT_AMOUNT / 2);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+
+        // Owner needs to have esETH to burn
+        // Transfer esETH to owner first
+        vm.prank(user1);
+        esETHContract.transfer(owner, MINT_AMOUNT / 2);
+
+        uint256 supplyBefore = esETHContract.totalSupply();
+        vm.prank(owner);
+        esETHContract.burnSurplus(tokens);
+        uint256 supplyAfter = esETHContract.totalSupply();
+
+        // Should burn surplus from owner's balance
+        assertLt(supplyAfter, supplyBefore);
+    }
+
+    // ============ Set Harvest Receiver Tests ============
+
+    function test_SetHarvestReceiver() external {
+        vm.prank(owner);
+        esETHContract.setHarvestReceiver(harvestReceiver);
+
+        assertEq(esETHContract.harvestReceiver(), harvestReceiver);
+    }
+
+    function test_SetHarvestReceiver_OnlyOwner() external {
         vm.prank(user1);
         vm.expectRevert();
-        esETHContract.convertLST(address(weth), address(cbETH), 100, 100);
+        esETHContract.setHarvestReceiver(harvestReceiver);
+    }
+
+    function test_SetHarvestReceiver_ZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(esETH.ZeroAddress.selector);
+        esETHContract.setHarvestReceiver(address(0));
     }
 
     // ============ Get ETH Value Tests ============
 
-    function test_GetETHValue_WETH() external view {
+    function test_GetETHValue_ERC20() external view {
         uint256 value = esETHContract.getETHValue(address(weth), MINT_AMOUNT);
         assertEq(value, MINT_AMOUNT);
     }
@@ -549,10 +726,26 @@ contract esETHTest is Test {
         assertEq(value, expected);
     }
 
-    function test_GetETHValue_ConversionContract() external view {
-        uint256 value = esETHContract.getETHValue(address(reth), MINT_AMOUNT);
-        uint256 expected = MINT_AMOUNT * 110 / 100; // 1.1 multiplier
+    function test_GetETHValue_WstETH() external {
+        wstETH.setStEthPerToken(1.1e18);
+        uint256 value = esETHContract.getETHValue(address(wstETH), MINT_AMOUNT);
+        uint256 expected = MINT_AMOUNT * 1.1e18 / 1e18;
         assertEq(value, expected);
+    }
+
+    function test_GetETHValue_RETH() external {
+        rETH.setExchangeRate(1.05e18);
+        uint256 value = esETHContract.getETHValue(address(rETH), MINT_AMOUNT);
+        uint256 expected = MINT_AMOUNT * 1.05e18 / 1e18;
+        assertEq(value, expected);
+    }
+
+    function test_GetETHValue_UnsupportedToken() external {
+        MintableMockERC20 newToken = new MintableMockERC20();
+        newToken.initialize("New Token", "NEW", 18);
+
+        vm.expectRevert(esETH.UnsupportedToken.selector);
+        esETHContract.getETHValue(address(newToken), MINT_AMOUNT);
     }
 
     // ============ Integration Tests ============
@@ -600,5 +793,40 @@ contract esETHTest is Test {
 
         assertEq(esETHContract.totalSupply(), amount * 5);
         assertEq(weth.balanceOf(address(esETHContract)), amount * 5);
+    }
+
+    function test_Integration_FullCycle() external {
+        // 1. Multiple users mint with different tokens
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        uint256 esETH1 = esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        vm.prank(user2);
+        stETH.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user2);
+        uint256 esETH2 = esETHContract.mint(address(stETH), MINT_AMOUNT);
+
+        // 2. Yield accrues (simulated by adding tokens)
+        weth.transfer(address(esETHContract), MINT_AMOUNT / 10);
+        stETH.setTotalAssets(stETH.totalAssets() + MINT_AMOUNT / 10);
+
+        // 3. Anyone can harvest
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(weth);
+        tokens[1] = address(stETH);
+        vm.prank(randomUser);
+        esETHContract.mintDeficit(tokens);
+
+        // 4. Users redeem
+        vm.prank(user1);
+        esETHContract.redeem(address(weth), esETH1);
+        vm.prank(user2);
+        esETHContract.redeem(address(stETH), esETH2);
+
+        // 5. Owner can burn surplus if needed
+        // (In this case there shouldn't be surplus, but test the flow)
+        vm.prank(owner);
+        esETHContract.burnSurplus(tokens);
     }
 }

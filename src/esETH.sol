@@ -8,6 +8,11 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
+interface ILegacyVaultTypes {
+    function stEthPerToken() external view returns (uint256);
+    function getExchangeRate() external view returns (uint256);
+}
+
 /**
  * @title esETH - ETH Strategy ETH
  * @dev A wrapped token that represents a basket of staked ETH/LSTs.
@@ -17,51 +22,54 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    enum TokenType { UNSUPPORTED, ERC20, ERC4626, WSTETH, RETH }
+
     /// @dev Structure to store token configuration
     struct TokenConfig {
-        bool isERC4626; // Whether the token is ERC4626 compliant
-        address conversionContract; // Contract that converts 1 token to ETH (address(0) for default)
+        TokenType tokenType; // Type of the token (ERC4626, STETH, WETH, WSTETH)
         bool isMintable; // Whether this token can be used to mint esETH
         bool isRedeemable; // Whether this token can be redeemed for esETH
+        uint256 totalMinted;
     }
 
     /// @dev Mapping from token address to its configuration
     mapping(address token => TokenConfig) public tokenConfigs;
 
-    /// @dev Array of all configured tokens (for iteration)
-    address[] public tokenList;
+    address public harvestReceiver;
 
-    /// @dev Mapping to track if token is in the list (to avoid duplicates)
-    mapping(address token => bool) public isTokenInList;
+    event Minted(address indexed user, address indexed token, uint256 esETHAmount, uint256 tokenAmount);
+    event Redeemed(address indexed user, address indexed token, uint256 esETHAmount, uint256 tokenAmount);
+    event LSTConverted(address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss);
+    event DeficitMinted(uint256 esETHAmount);
+    event SurplusBurned(uint256 esETHAmount);
+    event HarvestReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
+
+    
 
     /// @dev Events
     event TokenConfigUpdated(
         address indexed token,
-        bool isERC4626,
-        address conversionContract,
+        TokenType tokenType,
         bool isMintable,
         bool isRedeemable
     );
-    event Minted(address indexed user, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
-    event Redeemed(address indexed user, address indexed token, uint256 esETHAmount, uint256 tokenAmount);
-    event LSTConverted(address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss);
-    event DeficitMinted(uint256 esETHAmount);
+
 
     /// @dev Errors
     error TokenNotWhitelistedForMint(address token);
     error TokenNotWhitelistedForRedeem(address token);
+    error UnsupportedToken(address token);
     error ZeroAmount();
+    error ZeroAddress();
     error InsufficientBalance(address token);
-    error ConversionFailed();
-    error InvalidConversionContract();
-    error InsufficientBacking();
-    error InsufficientESETHForLoss(uint256 required, uint256 available);
 
     /**
      * @dev Constructor
      * @param _owner The owner of the contract
      */
-    constructor(address _owner) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {}
+    constructor(address _owner) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {
+        harvestReceiver = _owner;
+    }
 
     /**
      * @notice Mint esETH by depositing a whitelisted LST
@@ -79,181 +87,66 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
         // Calculate ETH value of deposited tokens
-        uint256 ethValue = _convertTokenToETH(token, amount, config);
+        esETHAmount = _convertTokenToETH(token, amount, config.tokenType);
+        tokenConfigs[token].totalMinted += esETHAmount;
 
-        // Mint esETH 1:1 with ETH value
-        esETHAmount = ethValue;
         _mint(msg.sender, esETHAmount);
-
-        emit Minted(msg.sender, token, amount, esETHAmount);
+        emit Minted(msg.sender, token, esETHAmount, amount);
     }
 
     /**
      * @notice Redeem esETH for a whitelisted LST
      * @param token The LST token to receive
-     * @param esETHAmount The amount of esETH to burn
+     * @param amount The amount of esETH to burn
      * @return tokenAmount The amount of LST tokens received
      */
-    function redeem(address token, uint256 esETHAmount) external nonReentrant returns (uint256 tokenAmount) {
-        if (esETHAmount == 0) revert ZeroAmount();
+    function redeem(address token, uint256 amount) external nonReentrant returns (uint256 tokenAmount) {
+        if (amount == 0) revert ZeroAmount();
         
-        TokenConfig memory config = tokenConfigs[token];
+        TokenConfig storage config = tokenConfigs[token];
         if (!config.isRedeemable) revert TokenNotWhitelistedForRedeem(token);
 
-        // Burn esETH
-        _burn(msg.sender, esETHAmount);
-
-        // Calculate how many tokens to give for the ETH value
-        tokenAmount = _convertETHToToken(token, esETHAmount, config);
+        // Calculate how many tokens to give for the esETH amount (amount is already in ETH terms)
+        uint256 esETHAmount = _convertTokenToETH(token, amount, config.tokenType);
 
         // Check contract has enough balance
         uint256 contractBalance = IERC20(token).balanceOf(address(this));
         if (contractBalance < tokenAmount) revert InsufficientBalance(token);
 
-        // Transfer tokens to user
+        // Burn esETH and update totalMinted
+        config.totalMinted -= esETHAmount;
+        _burn(msg.sender, esETHAmount);
         IERC20(token).safeTransfer(msg.sender, tokenAmount);
 
-        emit Redeemed(msg.sender, token, esETHAmount, tokenAmount);
-    }
-
-    /**
-     * @notice Owner-only: Convert one LST to another (flashloan-like)
-     * @dev May have slippage/loss, which is covered by burning esETH
-     *      
-     *      Usage flow:
-     *      1. Ensure contract has fromToken balance >= fromAmount
-     *      2. Owner swaps fromToken to toToken externally (via DEX/router)
-     *      3. Owner sends toToken to this contract
-     *      4. Owner calls this function to verify swap and handle loss
-     *      
-     *      If there's a loss (in ETH terms), esETH will be burned from contract balance.
-     *      Owner must ensure contract has sufficient esETH balance to cover potential losses.
-     *      
-     * @param fromToken The token to convert from
-     * @param toToken The token to convert to
-     * @param fromAmount The amount of fromToken to convert
-     * @param minToAmount The minimum amount of toToken expected
-     * @return toAmount The amount of toToken received
-     * @return loss The loss in ETH terms (if any)
-     */
-    function convertLST(
-        address fromToken,
-        address toToken,
-        uint256 fromAmount,
-        uint256 minToAmount
-    ) external onlyOwner nonReentrant returns (uint256 toAmount, uint256 loss) {
-        TokenConfig memory fromConfig = tokenConfigs[fromToken];
-        TokenConfig memory toConfig = tokenConfigs[toToken];
-
-        if (!fromConfig.isMintable && !fromConfig.isRedeemable) {
-            revert TokenNotWhitelistedForMint(fromToken);
-        }
-        if (!toConfig.isMintable && !toConfig.isRedeemable) {
-            revert TokenNotWhitelistedForMint(toToken);
-        }
-
-        // Calculate ETH value of fromToken
-        uint256 fromETHValue = _convertTokenToETH(fromToken, fromAmount, fromConfig);
-
-        // Check contract has enough fromToken balance
-        uint256 fromBalance = IERC20(fromToken).balanceOf(address(this));
-        if (fromBalance < fromAmount) revert InsufficientBalance(fromToken);
-
-        // Get toToken balance before swap
-        uint256 toBalanceBefore = IERC20(toToken).balanceOf(address(this));
-        
-        // Owner should swap fromToken to toToken externally and send toToken to this contract
-        // We verify the received amount after the swap
-        uint256 toBalanceAfter = IERC20(toToken).balanceOf(address(this));
-        toAmount = toBalanceAfter - toBalanceBefore;
-
-        if (toAmount < minToAmount) revert InsufficientOutput(minToAmount, toAmount);
-
-        // Calculate ETH value of received toToken
-        uint256 toETHValue = _convertTokenToETH(toToken, toAmount, toConfig);
-
-        // Calculate loss and burn esETH to cover it
-        if (toETHValue < fromETHValue) {
-            loss = fromETHValue - toETHValue;
-            // Burn esETH to cover the loss
-            // The owner must ensure the contract has enough esETH balance
-            uint256 contractBalance = balanceOf(address(this));
-            if (contractBalance < loss) {
-                revert InsufficientESETHForLoss(loss, contractBalance);
-            }
-            _burn(address(this), loss);
-        }
-
-        emit LSTConverted(fromToken, toToken, fromAmount, toAmount, loss);
-    }
-
-    /**
-     * @notice Owner-only: Mint esETH if totalSupply < totalBacking
-     * @dev Mints the difference between totalBacking and totalSupply
-     */
-    function mintDeficit() external onlyOwner {
-        uint256 backing = _calculateTotalBacking();
-        uint256 currentSupply = totalSupply();
-
-        if (backing <= currentSupply) revert InsufficientBacking();
-
-        uint256 deficit = backing - currentSupply;
-        _mint(owner(), deficit);
-
-        emit DeficitMinted(deficit);
+        emit Redeemed(msg.sender, token, esETHAmount, amount);
     }
 
     /**
      * @notice Owner-only: Update token configuration
      * @param token The token address
-     * @param isERC4626 Whether the token is ERC4626 compliant
-     * @param conversionContract The contract that converts 1 token to ETH (address(0) for default)
+     * @param tokenType The type of the token (ERC4626, STETH, WETH, WSTETH)
      * @param isMintable Whether this token can be used to mint esETH
      * @param isRedeemable Whether this token can be redeemed for esETH
      */
     function setTokenConfig(
         address token,
-        bool isERC4626,
-        address conversionContract,
+        TokenType tokenType,
         bool isMintable,
         bool isRedeemable
     ) external onlyOwner {
-        if (conversionContract != address(0)) {
-            // Verify the conversion contract has the required function
-            // We'll check it has a function that can convert tokens
-            // For simplicity, we'll just check it's not the zero address
+        if (token == address(0)) {
+            revert ZeroAddress();
         }
 
-        // Add to token list if not already present
-        if (!isTokenInList[token] && (isMintable || isRedeemable)) {
-            tokenList.push(token);
-            isTokenInList[token] = true;
-        }
-
+        uint256 totalMinted = tokenConfigs[token].totalMinted;
         tokenConfigs[token] = TokenConfig({
-            isERC4626: isERC4626,
-            conversionContract: conversionContract,
+            tokenType: tokenType,
             isMintable: isMintable,
-            isRedeemable: isRedeemable
+            isRedeemable: isRedeemable,
+            totalMinted: totalMinted
         });
 
-        emit TokenConfigUpdated(token, isERC4626, conversionContract, isMintable, isRedeemable);
-    }
-
-    /**
-     * @notice Get the number of configured tokens
-     * @return The number of tokens in the list
-     */
-    function tokenListLength() external view returns (uint256) {
-        return tokenList.length;
-    }
-
-    /**
-     * @notice Calculate total backing in ETH terms
-     * @return total The total ETH value of all held LSTs
-     */
-    function totalBacking() external view returns (uint256 total) {
-        return _calculateTotalBacking();
+        emit TokenConfigUpdated(token, tokenType, isMintable, isRedeemable);
     }
 
     /**
@@ -264,80 +157,106 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      */
     function getETHValue(address token, uint256 amount) external view returns (uint256 ethValue) {
         TokenConfig memory config = tokenConfigs[token];
-        return _convertTokenToETH(token, amount, config);
+        if (config.tokenType == TokenType.UNSUPPORTED) {
+            revert UnsupportedToken(token);
+        }
+
+        return _convertTokenToETH(token, amount, config.tokenType);
     }
 
     /**
      * @dev Internal: Convert token amount to ETH value
      */
-    function _convertTokenToETH(address token, uint256 amount, TokenConfig memory config) internal view returns (uint256) {
-        if (config.conversionContract != address(0)) {
-            // Use custom conversion contract
-            // Assume it has a function: convertToETH(address token, uint256 amount) returns (uint256)
-            // We'll use a low-level call for flexibility
-            (bool success, bytes memory data) = config.conversionContract.staticcall(
-                abi.encodeWithSignature("convertToETH(address,uint256)", token, amount)
-            );
-            if (success && data.length >= 32) {
-                return abi.decode(data, (uint256));
-            }
-            revert ConversionFailed();
-        }
-
-        if (config.isERC4626) {
+    function _convertTokenToETH(address token, uint256 amount, TokenType tokenType) internal view returns (uint256) {
+        if (tokenType == TokenType.ERC4626) {
             // Use ERC4626 standard: convertToAssets
             // convertToAssets(amount) directly gives the underlying asset (ETH) value
             IERC4626 vault = IERC4626(token);
             return vault.convertToAssets(amount);
-        } else {
-            // For non-ERC4626, assume 1:1 with ETH (like WETH)
-            // For tokens like rETH, a conversion contract should be specified
+        } else if (tokenType == TokenType.ERC20) {
             return amount;
+        } else if (tokenType == TokenType.WSTETH) {
+            // wstETH (Wrapped stETH) is not ERC4626, but exposes stEthPerToken()
+            // Converting wstETH to its underlying ETH (stETH)
+            // Interface: function stEthPerToken() external view returns (uint256);
+            return amount * ILegacyVaultTypes(token).stEthPerToken() / 1e18;
+        } else if (tokenType == TokenType.RETH) {
+            // rETH: rethPerToken() returns the ETH value of 1 rETH, scaled by 1e18.
+            return amount * ILegacyVaultTypes(token).getExchangeRate() / 1e18;
         }
+
+        revert UnsupportedToken(token);
     }
 
     /**
-     * @dev Internal: Convert ETH value to token amount
+     * @dev Mint deficit esETH based on backing vs total minted
      */
-    function _convertETHToToken(address token, uint256 ethValue, TokenConfig memory config) internal view returns (uint256) {
-        if (config.conversionContract != address(0)) {
-            // Use custom conversion contract
-            (bool success, bytes memory data) = config.conversionContract.staticcall(
-                abi.encodeWithSignature("convertFromETH(address,uint256)", token, ethValue)
-            );
-            if (success && data.length >= 32) {
-                return abi.decode(data, (uint256));
-            }
-            revert ConversionFailed();
-        }
+    function mintDeficit(address[] memory tokens) external {
+        uint256 deficit = 0;
 
-        if (config.isERC4626) {
-            // Use ERC4626 standard: convertToShares
-            IERC4626 vault = IERC4626(token);
-            return vault.convertToShares(ethValue);
-        } else {
-            // For non-ERC4626, assume 1:1 with ETH (like WETH)
-            return ethValue;
-        }
-    }
-
-    /**
-     * @dev Internal: Calculate total backing by summing all LST balances in ETH terms
-     */
-    function _calculateTotalBacking() internal view returns (uint256 total) {
-        for (uint256 i = 0; i < tokenList.length; i++) {
-            address token = tokenList[i];
-            TokenConfig memory config = tokenConfigs[token];
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address t = tokens[i];
+            TokenConfig memory config = tokenConfigs[t];
             
-            // Only count tokens that are mintable or redeemable
-            if (config.isMintable || config.isRedeemable) {
-                uint256 balance = IERC20(token).balanceOf(address(this));
+            // Only count tokens that are supported
+            if (config.tokenType != TokenType.UNSUPPORTED) {
+                uint256 balance = IERC20(t).balanceOf(address(this));
                 if (balance > 0) {
-                    total += _convertTokenToETH(token, balance, config);
+                    uint256 esETHValueForToken = _convertTokenToETH(t, balance, config.tokenType);
+                    if (esETHValueForToken > config.totalMinted) {
+                        deficit = deficit + (esETHValueForToken - config.totalMinted);
+                        config.totalMinted = esETHValueForToken;
+                    }
                 }
             }
         }
+
+        if (deficit > 0) {
+            _mint(harvestReceiver, deficit);
+            emit DeficitMinted(deficit);
+        }
     }
 
-    error InsufficientOutput(uint256 expected, uint256 actual);
+    /**
+     * @dev Burn surplus esETH if total minted exceeds backing.
+     *      This function checks each token and calculates if more esETH is minted than backing,
+     *      and burns the surplus amount from the contract's own balance.
+     */
+    function burnSurplus(address[] memory tokens) external onlyOwner {
+        uint256 surplus = 0;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address t = tokens[i];
+            TokenConfig memory config = tokenConfigs[t];
+            
+            // Only count tokens that are supported
+            if (config.tokenType != TokenType.UNSUPPORTED) {
+                uint256 balance = IERC20(t).balanceOf(address(this));
+                uint256 esETHValueForToken = 0;
+                if (balance > 0) {
+                    esETHValueForToken = _convertTokenToETH(t, balance, config.tokenType);
+                }
+                if (config.totalMinted > esETHValueForToken) {
+                    surplus = surplus + (config.totalMinted - esETHValueForToken);
+                }
+            }
+        }
+
+        if (surplus > 0) {
+            _burn(msg.sender, surplus);
+            emit SurplusBurned(surplus);
+        }
+    }
+
+    /**
+     * @notice Set the harvest receiver address
+     * @dev Only the owner can set the harvest receiver
+     * @param _receiver The new harvest receiver address
+     */
+    function setHarvestReceiver(address _receiver) external onlyOwner {
+        if (_receiver == address(0)) revert ZeroAddress();
+        address old = harvestReceiver;
+        harvestReceiver = _receiver;
+        emit HarvestReceiverUpdated(old, _receiver);
+    }
 }
