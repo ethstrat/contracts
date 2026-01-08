@@ -90,6 +90,13 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         }
 
         // Calculate new rewards that haven't been synced yet
+        // If currentBalance < totalSyncedRewards, it means rewards were claimed/withdrawn
+        // Reset totalSyncedRewards to currentBalance to account for this
+        if (currentBalance < totalSyncedRewards) {
+            totalSyncedRewards = currentBalance;
+            return;
+        }
+        
         uint256 newRewards = currentBalance - totalSyncedRewards;
         if (newRewards == 0) {
             return;
@@ -112,13 +119,15 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         if (amount == 0) revert ZeroAmount();
 
         // Sync rewards before updating user state
-        syncRewards();
-
-        // Update reward debt to account for any pending rewards before staking
-        if (staked[msg.sender] > 0) {
-            rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        // If totalStaked is 0, syncRewards will return early, so we sync after adding stake
+        bool wasZeroStaked = (totalStaked == 0);
+        if (!wasZeroStaked) {
+            syncRewards();
         }
 
+        // Calculate current pending rewards to preserve them
+        int256 currentRewardDebt = rewardDebt[msg.sender];
+        
         // Transfer STRAT from user
         stratToken.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -126,8 +135,28 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         staked[msg.sender] += amount;
         totalStaked += amount;
 
-        // Update reward debt
-        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        // If totalStaked was 0, mark existing rewards as synced so they won't be distributed to new stakers
+        // New stakers should only get rewards that arrive after they stake
+        if (wasZeroStaked) {
+            // Set totalSyncedRewards to current balance so old rewards are marked as synced
+            // This prevents them from being distributed to new stakers
+            totalSyncedRewards = address(this).balance;
+            // Don't call syncRewards here - it would calculate newRewards = 0
+            // Instead, new rewards that arrive after staking will be synced normally
+        }
+
+        // Update reward debt: preserve existing debt and add debt for new stake
+        // This preserves pending rewards from existing stake
+        // If totalStaked was 0, set rewardDebt based on current rewardsPerShare
+        // This ensures user doesn't get credit for rewards that arrived when there were no stakers
+        int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
+        if (wasZeroStaked) {
+            // User starts fresh - rewardDebt equals current rewardsPerShare for their stake
+            // They won't get old rewards, only new ones that arrive after they stake
+            rewardDebt[msg.sender] = newStakeDebt;
+        } else {
+            rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
+        }
 
         // Mint sSTRAT tokens (non-transferrable, but still tracked)
         _mint(msg.sender, amount);
@@ -216,11 +245,17 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         totalStaked -= amountToMigrate;
         rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
 
-        // Update recipient's state
+        // Calculate and pay out recipient's existing pending rewards if they have stake
+        uint256 recipientPendingRewards = 0;
         if (staked[to] > 0) {
-            // If recipient already has stake, update their rewards first
-            rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
+            recipientPendingRewards = _getPendingRewards(to);
+            if (recipientPendingRewards > 0) {
+                totalSyncedRewards -= recipientPendingRewards;
+                rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
+            }
         }
+
+        // Update recipient's state
         staked[to] += amountToMigrate;
         totalStaked += amountToMigrate;
         rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
@@ -228,10 +263,13 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         // Transfer sSTRAT tokens
         _transfer(msg.sender, to, amountToMigrate);
 
-        // Transfer ETH rewards if any
-        if (rewardsToMigrate > 0) {
-            totalSyncedRewards -= rewardsToMigrate;
-            (bool success,) = to.call{value: rewardsToMigrate}("");
+        // Transfer ETH rewards (both recipient's existing and migrated rewards)
+        uint256 totalRewardsToPay = recipientPendingRewards + rewardsToMigrate;
+        if (totalRewardsToPay > 0) {
+            if (rewardsToMigrate > 0) {
+                totalSyncedRewards -= rewardsToMigrate;
+            }
+            (bool success,) = to.call{value: totalRewardsToPay}("");
             if (!success) revert();
         }
 

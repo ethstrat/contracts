@@ -292,9 +292,9 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
         // NOTE: The ESPN manager must be set to this contract for this to work properly.
         // When USDS is deposited, ESPN's _deposit function sends it to the manager (this contract),
         // allowing us to repay the flash loan.
-        usds.safeApprove(address(espn), flashLoanAmount);
+        usds.forceApprove(address(espn), flashLoanAmount);
         uint256 espnMinted = espn.deposit(flashLoanAmount, address(this));
-        usds.safeApprove(address(espn), 0);
+        usds.forceApprove(address(espn), 0);
 
         // ESPN sends the USDS to the manager (this contract) as part of _deposit
         // Verify we have enough USDS to repay (including premium)
@@ -307,7 +307,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
         IERC20(address(espn)).safeTransfer(data.user, espnMinted);
 
         // Approve the flash loan provider to take back the USDS + premium
-        usds.safeApprove(msg.sender, totalToRepay);
+        usds.forceApprove(msg.sender, totalToRepay);
 
         // Burn the NFT
         _burn(data.tokenId);
