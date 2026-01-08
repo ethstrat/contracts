@@ -140,21 +140,22 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         if (wasZeroStaked) {
             // Set totalSyncedRewards to current balance so old rewards are marked as synced
             // This prevents them from being distributed to new stakers
-            totalSyncedRewards = address(this).balance;
-            // Don't call syncRewards here - it would calculate newRewards = 0
-            // Instead, new rewards that arrive after staking will be synced normally
+            // Reset rewardsPerShare to 0 so new stakers start fresh
+            uint256 oldBalance = address(this).balance;
+            totalSyncedRewards = oldBalance;
+            rewardsPerShare = 0;
+            // Now sync any new rewards that might have arrived
+            syncRewards();
         }
 
         // Update reward debt: preserve existing debt and add debt for new stake
         // This preserves pending rewards from existing stake
-        // If totalStaked was 0, set rewardDebt based on current rewardsPerShare
-        // This ensures user doesn't get credit for rewards that arrived when there were no stakers
-        int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
+        // If totalStaked was 0, rewardDebt should be 0 since rewardsPerShare was reset to 0
         if (wasZeroStaked) {
-            // User starts fresh - rewardDebt equals current rewardsPerShare for their stake
-            // They won't get old rewards, only new ones that arrive after they stake
-            rewardDebt[msg.sender] = newStakeDebt;
+            // User starts fresh - rewardDebt is 0, they'll only get rewards that arrive after they stake
+            rewardDebt[msg.sender] = 0;
         } else {
+            int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
             rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
         }
 
