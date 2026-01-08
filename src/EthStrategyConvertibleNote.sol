@@ -9,12 +9,13 @@ import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
 import {IERC20, IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {Permit} from "./lib/Permit.sol";
+import {console} from "forge-std/console.sol";
 
 /**
- * @title The ETH Strategy Long Bonds
+ * @title The ETH Strategy Convertible Note
  * @dev NFT-based convertible notes on STRAT. Bonders get CDT and an NFT representing the option.
  */
-contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
+contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
     using Permit for IERC20MintableBurnablePermit;
 
     uint256 public _tokenIdCounter;
@@ -100,7 +101,7 @@ contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
         uint256 _pcf,
         uint256 _gcf,
         address owner
-    ) ERC721("ETH Strategy Long Bond", "esLB") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
+    ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
         gavToken = IERC20(_gavToken);
@@ -141,15 +142,27 @@ contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
     }
 
     function bond(address bonder, uint256 minNotionalUnderlyingAmount, uint256 deadline) external payable {
+        // #region agent log
+        // Logging instrumentation for debugging
+        // #endregion
+        
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
         if (deadline < block.timestamp) revert TransactionStale(deadline);
 
         // redemption
         uint256 notionalUSD = msg.value * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
+        uint256 strikePrice_ = strikePrice(notionalUSD);
         uint256 strikeAmount_ = notionalUSD; // Scale: 18 decimals
-        uint256 notionalUnderlyingAmount_ = notionalUSD * SCALE / strikePrice(notionalUSD); // Scale: 18
+        uint256 notionalUnderlyingAmount_ = notionalUSD * SCALE / strikePrice_; // Scale: 18
             // decimals (since strikePrice is always 18 decimals)
+
+        // #region agent log
+        console.log("bond: notionalUSD", notionalUSD);
+        console.log("bond: strikePrice_", strikePrice_);
+        console.log("bond: strikeAmount_", strikeAmount_);
+        console.log("bond: notionalUnderlyingAmount_", notionalUnderlyingAmount_);
+        // #endregion
 
         // Check that the notional underlying amount is greater than the minimum
         if (notionalUnderlyingAmount_ < minNotionalUnderlyingAmount) {
@@ -159,6 +172,11 @@ contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
         uint256 tokenId = _tokenIdCounter++;
         uint256 expiry_ = block.timestamp + (4.2 * 365 days);
         uint256 timelock_ = block.timestamp + 6.9 days;
+
+        // #region agent log
+        console.log("bond: tokenId", tokenId);
+        console.log("bond: bonder", uint160(bonder));
+        // #endregion
 
         // Validate timelock and expiry
         if (block.timestamp > timelock_ || timelock_ > expiry_) {
@@ -212,7 +230,7 @@ contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
         address optionOwner = ownerOf(tokenId);
 
         // Check that the sender is either the owner or approved for the option token.
-        if (msg.sender != optionOwner && !isApprovedForAll(optionOwner, msg.sender)) {
+        if (msg.sender != optionOwner && !isApprovedForAll(optionOwner, msg.sender) && getApproved(tokenId) != msg.sender) {
             revert NotOwnerOrApproved(msg.sender, tokenId);
         }
 
@@ -281,7 +299,7 @@ contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
         address optionOwner = ownerOf(tokenId);
 
         // Check the caller is either the option owner, or operator
-        if (msg.sender != optionOwner && !isApprovedForAll(optionOwner, msg.sender)) {
+        if (msg.sender != optionOwner && !isApprovedForAll(optionOwner, msg.sender) && getApproved(tokenId) != msg.sender) {
             revert NotOwnerOrApproved(msg.sender, tokenId);
         }
 
@@ -336,7 +354,19 @@ contract EthStrategyLongBonds is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
         uint256 stratTotalSupply = stratToken.totalSupply();
         uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSD / 2));
 
+        // #region agent log
+        console.log("strikePrice: gav", gav);
+        console.log("strikePrice: stratTotalSupply", stratTotalSupply);
+        console.log("strikePrice: adjustedCdtSupply", adjustedCdtSupply);
+        console.log("strikePrice: gcf", gcf);
+        console.log("strikePrice: pcf", pcf);
+        // #endregion
+
         strikePrice_ = ((gav * gcf) + (pcf * adjustedCdtSupply)) / stratTotalSupply;
+        
+        // #region agent log
+        console.log("strikePrice: result", strikePrice_);
+        // #endregion
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {

@@ -2,7 +2,8 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import "../../src/EthStrategyLongBonds.sol";
+import "forge-std/console.sol";
+import "../../src/EthStrategyConvertibleNote.sol";
 import "../../src/CdtToken.sol";
 import "../../src/StratToken.sol";
 import "../mocks/MockTreasury.sol";
@@ -12,8 +13,8 @@ import {PermitGenerator} from "../lib/Permit.sol";
 import {IERC20Errors} from "openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol";
 import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGenerator {
-    EthStrategyLongBonds public bonds;
+contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, PermitGenerator {
+    EthStrategyConvertibleNote public bonds;
     CdtToken public cdtToken;
     StratToken public stratToken;
     MockGavToken public gavToken;
@@ -45,8 +46,8 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         stratToken = new StratToken(owner);
         gavToken = new MockGavToken(owner);
 
-        // Deploy the EthStrategyLongBonds contract
-        bonds = new EthStrategyLongBonds(
+        // Deploy the EthStrategyConvertibleNote contract
+        bonds = new EthStrategyConvertibleNote(
             address(cdtToken),
             address(stratToken),
             address(gavToken), // GAV token
@@ -69,6 +70,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
         // Give bonding contract ability to mint CDT
         cdtToken.manageMinter(address(bonds), true);
+        cdtToken.manageMinter(owner, true); // Allow owner to mint CDT for testing
         vm.stopPrank();
     }
 
@@ -100,14 +102,14 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
     function testBondRevertIfNoETHSent() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.NoEthSent.selector));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.NoEthSent.selector));
         bonds.bond(user, 1 ether, block.timestamp + 1 hours);
     }
 
     function testBondRevertIfBonderAddressIsZero() public {
         vm.deal(user, 1 ether);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.ZeroAddress.selector));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.ZeroAddress.selector));
         bonds.bond{value: 1 ether}(address(0), 1 ether, block.timestamp + 1 hours);
     }
 
@@ -194,20 +196,33 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
                 continue;
             }
 
-            uint256 tokenId = i; // tokenId starts at 1, but we're comparing i and i+1
+            // tokenIds start at 1, so:
+            // i=0: creates tokenId 1
+            // i=1: creates tokenId 2, we want to compare tokenId 1 vs 2
+            // i=2: creates tokenId 3, we want to compare tokenId 2 vs 3
+            // So when at iteration i, we just created tokenId i+1, and we compare tokenId i vs i+1
+            uint256 prevTokenId = i; // Previous bond's tokenId (from iteration i-1, which created tokenId i)
+            uint256 currTokenId = i + 1; // Current bond's tokenId (just created in this iteration)
+            
+            console.log("testBondDataInvariants: iteration", i);
+            console.log("testBondDataInvariants: prevTokenId", prevTokenId);
+            console.log("testBondDataInvariants: currTokenId", currTokenId);
+            console.log("testBondDataInvariants: prevNotional", bonds.notionalUnderlyingAmount(prevTokenId));
+            console.log("testBondDataInvariants: currNotional", bonds.notionalUnderlyingAmount(currTokenId));
+            
             assertGt(
-                bonds.notionalUnderlyingAmount(tokenId),
-                bonds.notionalUnderlyingAmount(tokenId + 1),
+                bonds.notionalUnderlyingAmount(prevTokenId),
+                bonds.notionalUnderlyingAmount(currTokenId),
                 "Each subsequent bond should have less notional than the previous"
             );
             assertEq(
-                bonds.strikeAmount(tokenId),
-                bonds.strikeAmount(tokenId + 1),
+                bonds.strikeAmount(prevTokenId),
+                bonds.strikeAmount(currTokenId),
                 "Strike should be the same, as we are bonding the same amount of ETH each time (and the oracle isn't changing)"
             );
             assertEq(
-                bonds.notionalUSDAmount(tokenId),
-                bonds.strikeAmount(tokenId + 1),
+                bonds.notionalUSDAmount(prevTokenId),
+                bonds.strikeAmount(currTokenId),
                 "Debt should be the same, as we are bonding the same amount of ETH each time (and the oracle isn't changing)"
             );
         }
@@ -259,16 +274,19 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         // Find the tokenId by checking ownerOf for recent tokenIds
         // Start from last known tokenId + 1
         uint256 startId = _lastTokenId > 0 ? _lastTokenId + 1 : 1;
+        console.log("_bondOption: searching from startId", startId);
         for (uint256 i = startId; i <= startId + 100; i++) {
             try bonds.ownerOf(i) returns (address tokenOwner) {
                 if (tokenOwner == to) {
                     _lastTokenId = i;
+                    console.log("_bondOption: found tokenId", i);
                     return i;
                 }
             } catch {
                 continue;
             }
         }
+        console.log("_bondOption: ERROR - tokenId not found");
         revert("TokenId not found");
     }
 
@@ -279,8 +297,9 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         // Capture values before exercise
         uint256 expectedStrat = bonds.notionalUnderlyingAmount(tokenId);
         uint256 strike = bonds.strikeAmount(tokenId);
+        uint256 cdtFromBond = bonds.notionalUSDAmount(tokenId); // CDT received from bonding
         
-        // Give user CDT
+        // Give user additional CDT
         vm.prank(owner);
         cdtToken.mint(user, 1000 ether);
 
@@ -298,7 +317,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         // Check balances
         assertEq(stratToken.balanceOf(user), expectedStrat, "User should get STRAT");
         assertEq(bonds.balanceOf(user), 0, "Option NFT should be burned");
-        assertEq(cdtToken.balanceOf(user), 1000 ether - strike, "CDT should be burned");
+        assertEq(cdtToken.balanceOf(user), 1000 ether + cdtFromBond - strike, "CDT should be burned");
         vm.stopPrank();
     }
 
@@ -343,7 +362,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
         // Before timelock
         vm.startPrank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.TimelockActive.selector, user, tokenId));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.TimelockActive.selector, user, tokenId));
         bonds.exercise(tokenId);
         vm.stopPrank();
     }
@@ -358,7 +377,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         vm.warp(block.timestamp + (4.2 * 365 days) + 1);
         vm.startPrank(user);
 
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.OptionExpired.selector, user, tokenId));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionExpired.selector, user, tokenId));
         bonds.exercise(tokenId);
         vm.stopPrank();
     }
@@ -388,6 +407,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         vm.prank(owner);
         cdtToken.mint(permitOwner, 1000 ether);
 
+        vm.prank(permitOwner);
         bonds.approve(address(bonds), tokenId);
 
         // Generate permit approval
@@ -407,6 +427,8 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
     function test_exerciseWithPermit_deadlineIsZero_spendingApprovalProvided() public {
         uint256 tokenId = _bondOption(permitOwner, 1 ether);
+        uint256 strike = bonds.strikeAmount(tokenId);
+        uint256 cdtFromBond = bonds.notionalUSDAmount(tokenId); // CDT received from bonding
         
         vm.warp(block.timestamp + 7 days);
         vm.prank(owner);
@@ -418,29 +440,29 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
         // Approve spending of CDT
         vm.prank(permitOwner);
-        cdtToken.approve(address(bonds), bonds.strikeAmount(tokenId));
+        cdtToken.approve(address(bonds), strike);
 
         // Approve NFT transfer
         vm.prank(permitOwner);
         bonds.approve(address(bonds), tokenId);
 
+        // Capture values before exercise (NFT will be burned)
+        uint256 expectedStrat = bonds.notionalUnderlyingAmount(tokenId);
+        
         // Exercise
         vm.prank(permitOwner);
         bonds.exerciseWithPermit(tokenId, permitApproval);
-
-        // Capture values before checking (NFT is burned)
-        uint256 expectedStrat = bonds.notionalUnderlyingAmount(tokenId);
-        uint256 strike = bonds.strikeAmount(tokenId);
         
         // Check balances
         assertEq(stratToken.balanceOf(permitOwner), expectedStrat, "Permit owner should get STRAT");
         assertEq(bonds.balanceOf(permitOwner), 0, "Option NFT should be burned");
-        assertEq(cdtToken.balanceOf(permitOwner), 1000 ether - strike, "CDT should be burned");
+        assertEq(cdtToken.balanceOf(permitOwner), 1000 ether + cdtFromBond - strike, "CDT should be burned");
     }
 
     function test_exerciseWithPermit() public {
         uint256 tokenId = _bondOption(permitOwner, 1 ether);
         uint256 cdtAmount = bonds.strikeAmount(tokenId);
+        uint256 cdtFromBond = bonds.notionalUSDAmount(tokenId); // CDT received from bonding
         
         vm.warp(block.timestamp + 7 days);
         vm.prank(owner);
@@ -470,7 +492,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         // Check balances
         assertEq(stratToken.balanceOf(permitOwner), expectedStrat, "Permit owner should get STRAT");
         assertEq(bonds.balanceOf(permitOwner), 0, "Option NFT should be burned");
-        assertEq(cdtToken.balanceOf(permitOwner), 1000 ether - cdtAmount, "CDT should be burned");
+        assertEq(cdtToken.balanceOf(permitOwner), 1000 ether + cdtFromBond - cdtAmount, "CDT should be burned");
     }
 
     // ============ Redemption Tests ============
@@ -478,6 +500,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
     function testRedeemSuccessTreasuryGtDebt() public {
         uint256 tokenId = _bondOption(user, 1 ether);
         uint256 notionalUSD = bonds.notionalUSDAmount(tokenId);
+        uint256 cdtFromBond = notionalUSD; // CDT received from bonding
         
         // Give treasury enough ETH (value > total CDT)
         vm.deal(address(treasury), 100 ether);
@@ -494,7 +517,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         bonds.redeemCdtForUsdNotional(tokenId);
 
         assertEq(bonds.balanceOf(user), 0, "Option NFT should be burned");
-        assertEq(cdtToken.balanceOf(user), 1000 ether - notionalUSD, "CDT should be partially burned");
+        assertEq(cdtToken.balanceOf(user), 1000 ether + cdtFromBond - notionalUSD, "CDT should be partially burned");
         // In this case: if treasury.total() * price >= totalDebt, so withdraw should be full notional USD of ETH
         uint256 expectedEth = notionalUSD * 1e18 / _ETH_USD_INITIAL_PRICE;
         assertEq(address(user).balance, expectedEth, "should withdraw full notional USD of ETH");
@@ -504,6 +527,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
     function testRedeemSuccessTreasuryLtDebt() public {
         uint256 tokenId = _bondOption(user, 1 ether);
         uint256 notionalUSD = bonds.notionalUSDAmount(tokenId);
+        uint256 cdtFromBond = notionalUSD; // CDT received from bonding
         
         // Set price to 7.5. This will make treasury value < total debt
         ethUsdOracle.setBasePerQuote(7.5e18);
@@ -520,13 +544,15 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         cdtToken.approve(address(bonds), notionalUSD);
         bonds.approve(address(bonds), tokenId);
 
+        // Calculate totalDebt BEFORE redemption (since contract uses it before burning)
+        uint256 totalDebtBefore = cdtToken.totalSupply();
+        
         bonds.redeemCdtForUsdNotional(tokenId);
 
         assertEq(bonds.balanceOf(user), 0, "Option NFT should be burned");
-        assertEq(cdtToken.balanceOf(user), 1000 ether - notionalUSD, "CDT should be partially burned");
+        assertEq(cdtToken.balanceOf(user), 1000 ether + cdtFromBond - notionalUSD, "CDT should be partially burned");
         // In this case: if treasury.total() * price < totalDebt, so withdraw should be proportional share
-        uint256 totalDebt = cdtToken.totalSupply();
-        uint256 expectedEth = notionalUSD * 100 ether / totalDebt;
+        uint256 expectedEth = notionalUSD * 100 ether / totalDebtBefore;
         assertApproxEqAbs(address(user).balance, expectedEth, 1e15, "should withdraw proportional share of ETH");
         vm.stopPrank();
     }
@@ -539,7 +565,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
         // Before timelock
         vm.startPrank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.TimelockActive.selector, user, tokenId));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.TimelockActive.selector, user, tokenId));
         bonds.redeemCdtForUsdNotional(tokenId);
         vm.stopPrank();
     }
@@ -553,7 +579,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         // before expiry, after timelock
         vm.warp(block.timestamp + 7 days);
         vm.startPrank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.OptionUnexpired.selector, user, tokenId));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionUnexpired.selector, user, tokenId));
         bonds.redeemCdtForUsdNotional(tokenId);
         vm.stopPrank();
     }
@@ -561,6 +587,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
     function test_redeemCdtForUsdNotionalWithPermit() public {
         uint256 tokenId = _bondOption(permitOwner, 1 ether);
         uint256 notionalUSD = bonds.notionalUSDAmount(tokenId);
+        uint256 cdtFromBond = notionalUSD; // CDT received from bonding
         
         vm.deal(address(treasury), 100 ether);
         vm.warp(block.timestamp + (4.2 * 365 days) + 1);
@@ -587,7 +614,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
 
         // Check balances
         assertEq(bonds.balanceOf(permitOwner), 0, "Option NFT should be burned");
-        assertEq(cdtToken.balanceOf(permitOwner), 1000 ether - notionalUSD, "CDT should be partially burned");
+        assertEq(cdtToken.balanceOf(permitOwner), 1000 ether + cdtFromBond - notionalUSD, "CDT should be partially burned");
         uint256 expectedEth = notionalUSD * 1e18 / _ETH_USD_INITIAL_PRICE;
         assertEq(address(permitOwner).balance, expectedEth, "should withdraw full notional USD of ETH");
     }
@@ -629,16 +656,17 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
     function testExerciseByApprovedOperator() public {
         uint256 tokenId = _bondOption(user, 1 ether);
         address operator = address(0x456);
+        uint256 strike = bonds.strikeAmount(tokenId);
         
         vm.prank(owner);
-        cdtToken.mint(operator, 1000 ether);
+        cdtToken.mint(operator, strike); // Give operator enough CDT to cover strike
         
         vm.prank(user);
         bonds.setApprovalForAll(operator, true);
         
         vm.warp(block.timestamp + 7 days);
         vm.startPrank(operator);
-        cdtToken.approve(address(bonds), bonds.strikeAmount(tokenId));
+        cdtToken.approve(address(bonds), strike);
         
         // Capture expected STRAT before exercise
         uint256 expectedStrat = bonds.notionalUnderlyingAmount(tokenId);
@@ -682,7 +710,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         cdtToken.approve(address(bonds), bonds.strikeAmount(tokenId));
         bonds.approve(address(bonds), tokenId);
         
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.OptionExpired.selector, user, tokenId));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionExpired.selector, user, tokenId));
         bonds.exercise(tokenId);
         vm.stopPrank();
     }
@@ -700,7 +728,7 @@ contract EthStrategyLongBondsTest is Test, EthUsdPriceOracleProvider, PermitGene
         cdtToken.approve(address(bonds), bonds.notionalUSDAmount(tokenId));
         bonds.approve(address(bonds), tokenId);
         
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyLongBonds.OptionUnexpired.selector, user, tokenId));
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionUnexpired.selector, user, tokenId));
         bonds.redeemCdtForUsdNotional(tokenId);
         vm.stopPrank();
     }
