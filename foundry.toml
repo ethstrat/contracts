@@ -1,4 +1,5 @@
 [profile.default]
+test = "test/unit"
 cache_path = "cache"
 libs = ["lib"]
 names = true
@@ -13,23 +14,16 @@ fs_permissions = [
 # Disable network features to avoid system configuration issues in sandbox
 evm_opts = { verbosity = 1 }
 
-
-[profile.default.invariant]
-runs = 8
-depth = 256
-fail_on_revert = true
+[profile.integration]
+test = "test/integration"
 
 [profile.default.fmt]
 wrap_comments = true
-
 
 [profile.build]
 test = "/dev/null"
 script = "/dev/null"
 
-
-# [profile.test]
-# via-ir = false
-
-
 # See more config options https://github.com/foundry-rs/foundry/tree/master/crates/config
+
+
