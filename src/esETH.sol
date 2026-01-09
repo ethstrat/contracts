@@ -11,18 +11,29 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 interface ILegacyVaultTypes {
     function stEthPerToken() external view returns (uint256);
     function getExchangeRate() external view returns (uint256);
+    function exchangeRateStored() external view returns (uint256);
+    function ratio() external view returns (uint256);
+    function exchangeRate() external view returns (uint256);
+}
+
+interface IAaveV2AToken {
+    function getScaledUserBalance(address user) external view returns (uint256);
+    function getScaledTotalSupply() external view returns (uint256);
+    function totalSupply() external view returns (uint256);
 }
 
 /**
- * @title esETH - ETH Strategy ETH
- * @dev A wrapped token that represents a basket of staked ETH/LSTs.
+ * @title esETH - ETH Strategy's ETH
+ * @dev A wrapped token that represents a basket of staked ETH/LSTs (Eth Strategy's Treasury)
  *      Users can mint esETH by depositing whitelisted LSTs, and redeem esETH
  *      for any whitelisted LST. The token does not rebase and is not yield-bearing.
+ * .    Yield is periodically 'harvested' by minting more esETH if the total backing 
+ * .    exceeds total supply
  */
 contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    enum TokenType { UNSUPPORTED, ERC20, ERC4626, WSTETH, RETH }
+    enum TokenType { UNSUPPORTED, ERC20, ERC4626, WSTETH, RETH, CETH, AETHV2, ANKRETH, CBETH }
 
     /// @dev Structure to store token configuration
     struct TokenConfig {
@@ -37,23 +48,20 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
 
     address public harvestReceiver;
 
-    event Minted(address indexed user, address indexed token, uint256 esETHAmount, uint256 tokenAmount);
-    event Redeemed(address indexed user, address indexed token, uint256 esETHAmount, uint256 tokenAmount);
+    /// @dev Events
+    event Minted(address indexed user, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
+    event Redeemed(address indexed user, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
     event LSTConverted(address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss);
     event DeficitMinted(uint256 esETHAmount);
     event SurplusBurned(uint256 esETHAmount);
     event HarvestReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
 
-    
-
-    /// @dev Events
     event TokenConfigUpdated(
         address indexed token,
         TokenType tokenType,
         bool isMintable,
         bool isRedeemable
     );
-
 
     /// @dev Errors
     error TokenNotWhitelistedForMint(address token);
@@ -74,40 +82,40 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     /**
      * @notice Mint esETH by depositing a whitelisted LST
      * @param token The LST token to deposit
-     * @param amount The amount of LST tokens to deposit
+     * @param tokenAmount The amount of LST tokens to deposit
      * @return esETHAmount The amount of esETH minted
      */
-    function mint(address token, uint256 amount) external nonReentrant returns (uint256 esETHAmount) {
-        if (amount == 0) revert ZeroAmount();
+    function mint(address token, uint256 tokenAmount) external nonReentrant returns (uint256 esETHAmount) {
+        if (tokenAmount == 0) revert ZeroAmount();
         
         TokenConfig memory config = tokenConfigs[token];
         if (!config.isMintable) revert TokenNotWhitelistedForMint(token);
 
         // Transfer tokens from user
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
         // Calculate ETH value of deposited tokens
-        esETHAmount = _convertTokenToETH(token, amount, config.tokenType);
+        esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
         tokenConfigs[token].totalMinted += esETHAmount;
 
         _mint(msg.sender, esETHAmount);
-        emit Minted(msg.sender, token, esETHAmount, amount);
+        emit Minted(msg.sender, token, tokenAmount, esETHAmount);
     }
 
     /**
      * @notice Redeem esETH for a whitelisted LST
      * @param token The LST token to receive
-     * @param amount The amount of esETH to burn
-     * @return tokenAmount The amount of LST tokens received
+     * @param tokenAmount The amount of the given LST token redeemed for esETH
+     * @return esETHAmount The amount of esETH burned
      */
-    function redeem(address token, uint256 amount) external nonReentrant returns (uint256 tokenAmount) {
-        if (amount == 0) revert ZeroAmount();
+    function redeem(address token, uint256 tokenAmount) external nonReentrant returns (uint256 esETHAmount) {
+        if (tokenAmount == 0) revert ZeroAmount();
         
         TokenConfig storage config = tokenConfigs[token];
         if (!config.isRedeemable) revert TokenNotWhitelistedForRedeem(token);
 
-        // Calculate how many tokens to give for the esETH amount (amount is already in ETH terms)
-        uint256 esETHAmount = _convertTokenToETH(token, amount, config.tokenType);
+        // Calculate the ETH value of the LST to be redeemed (this is the amounbt of esETH to burn)
+        esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
 
         // Check contract has enough balance
         uint256 contractBalance = IERC20(token).balanceOf(address(this));
@@ -118,7 +126,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         _burn(msg.sender, esETHAmount);
         IERC20(token).safeTransfer(msg.sender, tokenAmount);
 
-        emit Redeemed(msg.sender, token, esETHAmount, amount);
+        emit Redeemed(msg.sender, token, tokenAmount, esETHAmount);
     }
 
     /**
@@ -183,6 +191,28 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         } else if (tokenType == TokenType.RETH) {
             // rETH: rethPerToken() returns the ETH value of 1 rETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).getExchangeRate() / 1e18;
+        } else if (tokenType == TokenType.CETH) {
+            // cETH: exchangeRateStored() returns the exchange rate (cETH to ETH), scaled by 1e18.
+            // Formula: ETH = cETH * exchangeRateStored() / 1e18
+            return amount * ILegacyVaultTypes(token).exchangeRateStored() / 1e18;
+        } else if (tokenType == TokenType.AETHV2) {
+            // aETHv2: Aave v2 aTokens are rebasing tokens where balance increases over time.
+            // The balance itself represents the underlying ETH value (it's already rebased).
+            // However, to calculate the exchange rate, we use: totalSupply / scaledTotalSupply
+            // This gives us the current exchange rate multiplier.
+            IAaveV2AToken aToken = IAaveV2AToken(token);
+            uint256 scaledTotalSupply = aToken.getScaledTotalSupply();
+            if (scaledTotalSupply == 0) return amount;
+            uint256 totalSupply = aToken.totalSupply();
+            // Calculate the exchange rate: totalSupply / scaledTotalSupply
+            // This represents how much underlying ETH each aToken is worth
+            return amount * totalSupply / scaledTotalSupply;
+        } else if (tokenType == TokenType.ANKRETH) {
+            // ankrETH: ratio() returns the ETH value of 1 ankrETH, scaled by 1e18.
+            return amount * ILegacyVaultTypes(token).ratio() / 1e18;
+        } else if (tokenType == TokenType.CBETH) {
+            // cbETH: exchangeRate() returns the ETH value of 1 cbETH, scaled by 1e18.
+            return amount * ILegacyVaultTypes(token).exchangeRate() / 1e18;
         }
 
         revert UnsupportedToken(token);
@@ -191,7 +221,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     /**
      * @dev Mint deficit esETH based on backing vs total minted
      */
-    function mintDeficit(address[] memory tokens) external {
+    function mintDeficit(address[] memory tokens) external nonReentrant {
         uint256 deficit = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -205,7 +235,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
                     uint256 esETHValueForToken = _convertTokenToETH(t, balance, config.tokenType);
                     if (esETHValueForToken > config.totalMinted) {
                         deficit = deficit + (esETHValueForToken - config.totalMinted);
-                        config.totalMinted = esETHValueForToken;
+                        tokenConfigs[t].totalMinted = esETHValueForToken;
                     }
                 }
             }
@@ -222,7 +252,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      *      This function checks each token and calculates if more esETH is minted than backing,
      *      and burns the surplus amount from the contract's own balance.
      */
-    function burnSurplus(address[] memory tokens) external onlyOwner {
+    function burnSurplus(address[] memory tokens) external nonReentrant {
         uint256 surplus = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -238,6 +268,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
                 }
                 if (config.totalMinted > esETHValueForToken) {
                     surplus = surplus + (config.totalMinted - esETHValueForToken);
+                    tokenConfigs[t].totalMinted = esETHValueForToken;
                 }
             }
         }

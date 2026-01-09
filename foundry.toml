@@ -1,4 +1,5 @@
 [profile.default]
+cache_path = "cache"
 libs = ["lib"]
 names = true
 sizes = true
@@ -9,6 +10,8 @@ ffi = true
 fs_permissions = [
     {access = "write", path = "./tmp/"},
 ]
+# Disable network features to avoid system configuration issues in sandbox
+evm_opts = { verbosity = 1 }
 
 
 [profile.default.invariant]

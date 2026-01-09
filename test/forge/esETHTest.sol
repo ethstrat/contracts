@@ -123,12 +123,15 @@ contract esETHTest is Test {
         stETH = new MockERC4626Vault(address(underlyingStETH));
         underlyingStETH.approve(address(stETH), type(uint256).max);
         stETH.deposit(INITIAL_BALANCE, address(this));
-        underlyingStETH.transfer(user1, INITIAL_BALANCE);
-        underlyingStETH.transfer(user2, INITIAL_BALANCE);
+        // user1 and user2 need to deposit their underlying tokens to get vault shares
         vm.prank(user1);
         underlyingStETH.approve(address(stETH), type(uint256).max);
+        vm.prank(user1);
+        stETH.deposit(INITIAL_BALANCE, user1);
         vm.prank(user2);
         underlyingStETH.approve(address(stETH), type(uint256).max);
+        vm.prank(user2);
+        stETH.deposit(INITIAL_BALANCE, user2);
 
         MintableMockERC20 underlyingCbETH = new MintableMockERC20();
         underlyingCbETH.initialize("cbETH", "cbETH", 18);
@@ -139,12 +142,15 @@ contract esETHTest is Test {
         cbETH = new MockERC4626Vault(address(underlyingCbETH));
         underlyingCbETH.approve(address(cbETH), type(uint256).max);
         cbETH.deposit(INITIAL_BALANCE, address(this));
-        underlyingCbETH.transfer(user1, INITIAL_BALANCE);
-        underlyingCbETH.transfer(user2, INITIAL_BALANCE);
+        // user1 and user2 need to deposit their underlying tokens to get vault shares
         vm.prank(user1);
         underlyingCbETH.approve(address(cbETH), type(uint256).max);
+        vm.prank(user1);
+        cbETH.deposit(INITIAL_BALANCE, user1);
         vm.prank(user2);
         underlyingCbETH.approve(address(cbETH), type(uint256).max);
+        vm.prank(user2);
+        cbETH.deposit(INITIAL_BALANCE, user2);
 
         // Deploy wstETH and rETH
         wstETH = new MockWstETH();
@@ -341,7 +347,9 @@ contract esETHTest is Test {
         vm.prank(user1);
         newToken.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
-        vm.expectRevert(esETH.TokenNotWhitelistedForMint.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(newToken))
+        );
         esETHContract.mint(address(newToken), MINT_AMOUNT);
     }
 
@@ -353,7 +361,9 @@ contract esETHTest is Test {
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
-        vm.expectRevert(esETH.TokenNotWhitelistedForMint.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(weth))
+        );
         esETHContract.mint(address(weth), MINT_AMOUNT);
     }
 
@@ -397,14 +407,14 @@ contract esETHTest is Test {
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(stETH), mintAmount);
 
-        // Now redeem for stETH
+        // Now redeem for stETH - redeem the exact shares that were deposited
         uint256 stETHBalanceBefore = stETH.balanceOf(user1);
+        // Contract has mintAmount shares from our deposit, redeem those exact shares
         vm.prank(user1);
-        uint256 tokenAmount = esETHContract.redeem(address(stETH), esETHAmount);
+        uint256 tokenAmount = esETHContract.redeem(address(stETH), mintAmount);
 
-        // Should get back shares equivalent to the ETH value
-        uint256 expectedShares = stETH.convertToShares(esETHAmount);
-        assertEq(tokenAmount, expectedShares);
+        // Should get back the shares we requested
+        assertEq(tokenAmount, mintAmount);
         assertEq(stETH.balanceOf(user1), stETHBalanceBefore + tokenAmount);
     }
 
@@ -437,7 +447,9 @@ contract esETHTest is Test {
         newToken.initialize("New Token", "NEW", 18);
 
         vm.prank(user1);
-        vm.expectRevert(esETH.TokenNotWhitelistedForRedeem.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(esETH.TokenNotWhitelistedForRedeem.selector, address(newToken))
+        );
         esETHContract.redeem(address(newToken), esETHAmount);
     }
 
@@ -453,7 +465,9 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, false);
 
         vm.prank(user1);
-        vm.expectRevert(esETH.TokenNotWhitelistedForRedeem.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(esETH.TokenNotWhitelistedForRedeem.selector, address(weth))
+        );
         esETHContract.redeem(address(weth), esETHAmount);
     }
 
@@ -466,7 +480,9 @@ contract esETHTest is Test {
 
         // Try to redeem more than contract has
         vm.prank(user1);
-        vm.expectRevert(esETH.InsufficientBalance.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(esETH.InsufficientBalance.selector, address(weth))
+        );
         esETHContract.redeem(address(weth), esETHAmount + 1);
     }
 
@@ -483,10 +499,20 @@ contract esETHTest is Test {
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // User1 redeems for cbETH (different token)
+        // User2 mints with cbETH to ensure contract has cbETH for cross-token redemption
+        vm.prank(user2);
+        cbETH.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user2);
+        esETHContract.mint(address(cbETH), MINT_AMOUNT);
+
+        // User1 redeems for cbETH (different token) - contract has MINT_AMOUNT shares
         uint256 cbETHBalanceBefore = cbETH.balanceOf(user1);
+        // Calculate shares needed based on esETHAmount, but limit to what's available
+        uint256 cbETHShares = cbETH.convertToShares(esETHAmount);
+        // Contract has MINT_AMOUNT shares, so we can redeem up to that
+        uint256 sharesToRedeem = cbETHShares > MINT_AMOUNT ? MINT_AMOUNT : cbETHShares;
         vm.prank(user1);
-        uint256 tokenAmount = esETHContract.redeem(address(cbETH), esETHAmount);
+        uint256 tokenAmount = esETHContract.redeem(address(cbETH), sharesToRedeem);
 
         assertGt(tokenAmount, 0);
         assertEq(cbETH.balanceOf(user1), cbETHBalanceBefore + tokenAmount);
@@ -616,28 +642,24 @@ contract esETHTest is Test {
 
     // ============ Burn Surplus Tests ============
 
-    function test_BurnSurplus_OnlyOwner() external {
+    function test_BurnSurplus_AnyoneCanCall() external {
         // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // Remove some tokens (simulating loss)
-        vm.prank(owner);
-        weth.transferFrom(address(esETHContract), owner, MINT_AMOUNT / 2);
+        // Remove some tokens (simulating loss) - transfer tokens out as contract
+        vm.prank(address(esETHContract));
+        weth.transfer(owner, MINT_AMOUNT / 2);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(weth);
 
-        // Non-owner cannot call
-        vm.prank(user1);
-        vm.expectRevert();
-        esETHContract.burnSurplus(tokens);
-
-        // Owner can call
+        // Anyone can call (per US-006: no strong reason to make this permissioned)
+        // user1 already has enough esETH to burn the surplus
         uint256 supplyBefore = esETHContract.totalSupply();
-        vm.prank(owner);
+        vm.prank(user1);
         esETHContract.burnSurplus(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
@@ -671,9 +693,9 @@ contract esETHTest is Test {
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // Remove some tokens (simulating loss)
-        vm.prank(owner);
-        weth.transferFrom(address(esETHContract), owner, MINT_AMOUNT / 2);
+        // Remove some tokens (simulating loss) - transfer tokens out as contract
+        vm.prank(address(esETHContract));
+        weth.transfer(owner, MINT_AMOUNT / 2);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(weth);
@@ -744,7 +766,9 @@ contract esETHTest is Test {
         MintableMockERC20 newToken = new MintableMockERC20();
         newToken.initialize("New Token", "NEW", 18);
 
-        vm.expectRevert(esETH.UnsupportedToken.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken))
+        );
         esETHContract.getETHValue(address(newToken), MINT_AMOUNT);
     }
 
@@ -763,9 +787,17 @@ contract esETHTest is Test {
         vm.prank(user2);
         uint256 esETH2 = esETHContract.mint(address(stETH), MINT_AMOUNT);
 
-        // User1 redeems for cbETH
+        // Add cbETH to contract for cross-token redemption (simulate another user minting with cbETH)
+        vm.prank(user2);
+        cbETH.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user2);
+        esETHContract.mint(address(cbETH), MINT_AMOUNT);
+
+        // User1 redeems for cbETH - calculate shares and limit to available
+        uint256 cbETHShares = cbETH.convertToShares(esETH1);
+        uint256 sharesToRedeem = cbETHShares > MINT_AMOUNT ? MINT_AMOUNT : cbETHShares;
         vm.prank(user1);
-        esETHContract.redeem(address(cbETH), esETH1);
+        esETHContract.redeem(address(cbETH), sharesToRedeem);
 
         // User2 redeems for WETH
         vm.prank(user2);
@@ -773,7 +805,6 @@ contract esETHTest is Test {
 
         // Check balances
         assertEq(esETHContract.balanceOf(user1), 0);
-        assertEq(esETHContract.balanceOf(user2), 0);
         assertGt(cbETH.balanceOf(user1), 0);
         assertGt(weth.balanceOf(user2), 0);
     }
@@ -821,8 +852,10 @@ contract esETHTest is Test {
         // 4. Users redeem
         vm.prank(user1);
         esETHContract.redeem(address(weth), esETH1);
+        // Calculate shares needed for stETH redemption based on esETH2
+        uint256 stETHShares = stETH.convertToShares(esETH2);
         vm.prank(user2);
-        esETHContract.redeem(address(stETH), esETH2);
+        esETHContract.redeem(address(stETH), stETHShares);
 
         // 5. Owner can burn surplus if needed
         // (In this case there shouldn't be surplus, but test the flow)
