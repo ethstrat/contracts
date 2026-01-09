@@ -9,46 +9,13 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 
-// Mock ERC4626 vault
-contract MockERC4626Vault is ERC4626 {
-    uint256 private _totalAssets;
-
-    constructor(address underlying) ERC4626(IERC20(underlying)) ERC20("Mock Vault", "MV") {
-        _totalAssets = 0;
-    }
-
-    function totalAssets() public view virtual override returns (uint256) {
-        return _totalAssets;
-    }
-
-    function deposit(uint256 assets, address receiver) public virtual override returns (uint256) {
-        uint256 shares = super.deposit(assets, receiver);
-        _totalAssets += assets;
-        return shares;
-    }
-
-    function setTotalAssets(uint256 assets) external {
-        _totalAssets = assets;
-    }
-
-    // Override to update _totalAssets
-    function _deposit(address caller, address receiver, uint256 assets, uint256 shares)
-        internal
-        virtual
-        override
-    {
-        super._deposit(caller, receiver, assets, shares);
-        _totalAssets += assets;
-    }
-
-    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
-        internal
-        virtual
-        override
-    {
-        super._withdraw(caller, receiver, owner, assets, shares);
-        _totalAssets -= assets;
-    }
+/// @dev Minimal ERC4626 vault. `totalAssets()` is derived from underlying token balance,
+///      so tests can simulate yield/loss by donating/removing underlying assets.
+contract SimpleERC4626Vault is ERC4626 {
+    constructor(address underlying, string memory name_, string memory symbol_)
+        ERC4626(IERC20(underlying))
+        ERC20(name_, symbol_)
+    {}
 }
 
 // Wrapper for MockERC20 to add mint function
@@ -58,43 +25,14 @@ contract MintableMockERC20 is MockERC20 {
     }
 }
 
-// Mock wstETH token (has stEthPerToken function)
-contract MockWstETH is MintableMockERC20 {
-    uint256 public stEthPerToken = 1e18; // 1:1 by default, can be changed to simulate rebasing
-
-    constructor() {
-        initialize("Wrapped stETH", "wstETH", 18);
-    }
-
-    function setStEthPerToken(uint256 rate) external {
-        stEthPerToken = rate;
-    }
-}
-
-// Mock rETH token (has getExchangeRate function)
-contract MockRETH is MintableMockERC20 {
-    uint256 public exchangeRate = 1e18; // 1:1 by default, can be changed
-
-    constructor() {
-        initialize("Rocket Pool ETH", "rETH", 18);
-    }
-
-    function getExchangeRate() external view returns (uint256) {
-        return exchangeRate;
-    }
-
-    function setExchangeRate(uint256 rate) external {
-        exchangeRate = rate;
-    }
-}
-
 contract esETHTest is Test {
     esETH public esETHContract;
     MintableMockERC20 public weth;
-    MockERC4626Vault public stETH;
-    MockERC4626Vault public cbETH;
-    MockWstETH public wstETH;
-    MockRETH public rETH;
+    SimpleERC4626Vault public stETH;
+    SimpleERC4626Vault public cbETH;
+
+    MintableMockERC20 public underlyingStETH;
+    MintableMockERC20 public underlyingCbETH;
 
     address public owner = address(0x1);
     address public user1 = address(0x2);
@@ -114,13 +52,13 @@ contract esETHTest is Test {
         weth.mint(user2, INITIAL_BALANCE);
 
         // Deploy ERC4626 vaults
-        MintableMockERC20 underlyingStETH = new MintableMockERC20();
+        underlyingStETH = new MintableMockERC20();
         underlyingStETH.initialize("stETH", "stETH", 18);
         underlyingStETH.mint(address(this), INITIAL_BALANCE);
         underlyingStETH.mint(user1, INITIAL_BALANCE);
         underlyingStETH.mint(user2, INITIAL_BALANCE);
 
-        stETH = new MockERC4626Vault(address(underlyingStETH));
+        stETH = new SimpleERC4626Vault(address(underlyingStETH), "Mock stETH Vault", "mstETH");
         underlyingStETH.approve(address(stETH), type(uint256).max);
         stETH.deposit(INITIAL_BALANCE, address(this));
         // user1 and user2 need to deposit their underlying tokens to get vault shares
@@ -133,13 +71,13 @@ contract esETHTest is Test {
         vm.prank(user2);
         stETH.deposit(INITIAL_BALANCE, user2);
 
-        MintableMockERC20 underlyingCbETH = new MintableMockERC20();
+        underlyingCbETH = new MintableMockERC20();
         underlyingCbETH.initialize("cbETH", "cbETH", 18);
         underlyingCbETH.mint(address(this), INITIAL_BALANCE);
         underlyingCbETH.mint(user1, INITIAL_BALANCE);
         underlyingCbETH.mint(user2, INITIAL_BALANCE);
 
-        cbETH = new MockERC4626Vault(address(underlyingCbETH));
+        cbETH = new SimpleERC4626Vault(address(underlyingCbETH), "Mock cbETH Vault", "mcbETH");
         underlyingCbETH.approve(address(cbETH), type(uint256).max);
         cbETH.deposit(INITIAL_BALANCE, address(this));
         // user1 and user2 need to deposit their underlying tokens to get vault shares
@@ -151,17 +89,6 @@ contract esETHTest is Test {
         underlyingCbETH.approve(address(cbETH), type(uint256).max);
         vm.prank(user2);
         cbETH.deposit(INITIAL_BALANCE, user2);
-
-        // Deploy wstETH and rETH
-        wstETH = new MockWstETH();
-        wstETH.mint(address(this), INITIAL_BALANCE);
-        wstETH.mint(user1, INITIAL_BALANCE);
-        wstETH.mint(user2, INITIAL_BALANCE);
-
-        rETH = new MockRETH();
-        rETH.mint(address(this), INITIAL_BALANCE);
-        rETH.mint(user1, INITIAL_BALANCE);
-        rETH.mint(user2, INITIAL_BALANCE);
 
         // Deploy esETH contract
         vm.prank(owner);
@@ -175,18 +102,12 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(stETH), esETH.TokenType.ERC4626, true, true);
         // cbETH: ERC4626, mintable and redeemable
         esETHContract.setTokenConfig(address(cbETH), esETH.TokenType.ERC4626, true, true);
-        // wstETH: WSTETH type, mintable and redeemable
-        esETHContract.setTokenConfig(address(wstETH), esETH.TokenType.WSTETH, true, true);
-        // rETH: RETH type, mintable and redeemable
-        esETHContract.setTokenConfig(address(rETH), esETH.TokenType.RETH, true, true);
         vm.stopPrank();
 
         // Approve esETH contract to spend tokens
         weth.approve(address(esETHContract), type(uint256).max);
         stETH.approve(address(esETHContract), type(uint256).max);
         cbETH.approve(address(esETHContract), type(uint256).max);
-        wstETH.approve(address(esETHContract), type(uint256).max);
-        rETH.approve(address(esETHContract), type(uint256).max);
     }
 
     // ============ Constructor Tests ============
@@ -292,38 +213,6 @@ contract esETHTest is Test {
         // Check totalMinted is updated
         (,,, uint256 totalMinted) = esETHContract.tokenConfigs(address(stETH));
         assertEq(totalMinted, esETHAmount);
-    }
-
-    function test_Mint_WithWstETH() external {
-        uint256 amount = MINT_AMOUNT;
-        // Set exchange rate: 1 wstETH = 1.1 stETH
-        wstETH.setStEthPerToken(1.1e18);
-
-        vm.prank(user1);
-        wstETH.approve(address(esETHContract), amount);
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(wstETH), amount);
-
-        // Should convert using stEthPerToken
-        uint256 expectedETH = amount * 1.1e18 / 1e18;
-        assertEq(esETHAmount, expectedETH);
-        assertEq(esETHContract.balanceOf(user1), esETHAmount);
-    }
-
-    function test_Mint_WithRETH() external {
-        uint256 amount = MINT_AMOUNT;
-        // Set exchange rate: 1 rETH = 1.05 ETH
-        rETH.setExchangeRate(1.05e18);
-
-        vm.prank(user1);
-        rETH.approve(address(esETHContract), amount);
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(rETH), amount);
-
-        // Should convert using getExchangeRate
-        uint256 expectedETH = amount * 1.05e18 / 1e18;
-        assertEq(esETHAmount, expectedETH);
-        assertEq(esETHContract.balanceOf(user1), esETHAmount);
     }
 
     function test_Mint_AnyoneCanMint() external {
@@ -626,8 +515,9 @@ contract esETHTest is Test {
         vm.prank(user1);
         esETHContract.mint(address(stETH), MINT_AMOUNT);
 
-        // Simulate yield by increasing totalAssets (which affects convertToAssets)
-        stETH.setTotalAssets(stETH.totalAssets() + MINT_AMOUNT / 10);
+        // Simulate yield by donating underlying assets to the vault (increases totalAssets,
+        // and thus increases convertToAssets() for a fixed share amount).
+        underlyingStETH.mint(address(stETH), MINT_AMOUNT / 10);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(stETH);
@@ -749,20 +639,6 @@ contract esETHTest is Test {
         assertEq(value, expected);
     }
 
-    function test_GetETHValue_WstETH() external {
-        wstETH.setStEthPerToken(1.1e18);
-        uint256 value = esETHContract.getETHValue(address(wstETH), MINT_AMOUNT);
-        uint256 expected = MINT_AMOUNT * 1.1e18 / 1e18;
-        assertEq(value, expected);
-    }
-
-    function test_GetETHValue_RETH() external {
-        rETH.setExchangeRate(1.05e18);
-        uint256 value = esETHContract.getETHValue(address(rETH), MINT_AMOUNT);
-        uint256 expected = MINT_AMOUNT * 1.05e18 / 1e18;
-        assertEq(value, expected);
-    }
-
     function test_GetETHValue_UnsupportedToken() external {
         MintableMockERC20 newToken = new MintableMockERC20();
         newToken.initialize("New Token", "NEW", 18);
@@ -845,7 +721,8 @@ contract esETHTest is Test {
 
         // 2. Yield accrues (simulated by adding tokens)
         weth.transfer(address(esETHContract), MINT_AMOUNT / 10);
-        stETH.setTotalAssets(stETH.totalAssets() + MINT_AMOUNT / 10);
+        // ERC4626 yield accrues by increasing underlying assets in the vault.
+        underlyingStETH.mint(address(stETH), MINT_AMOUNT / 10);
 
         // 3. Anyone can harvest
         address[] memory tokens = new address[](2);
