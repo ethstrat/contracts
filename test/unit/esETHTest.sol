@@ -29,7 +29,6 @@ contract esETHTest is Test {
     esETH public esETHContract;
     MintableMockERC20 public weth;
     SimpleERC4626Vault public yieldBearingLST;
-    SimpleERC4626Vault public cbETH;
 
     address public owner = address(0x1);
     address public user1 = address(0x2);
@@ -64,19 +63,6 @@ contract esETHTest is Test {
         vm.prank(user2);
         yieldBearingLST.deposit(INITIAL_BALANCE, user2);
 
-        cbETH = new SimpleERC4626Vault(address(weth), "Mock cbETH Vault", "mcbETH");
-        weth.approve(address(cbETH), type(uint256).max);
-        cbETH.deposit(INITIAL_BALANCE, address(this));
-        // user1 and user2 need to deposit their underlying tokens to get vault shares
-        vm.prank(user1);
-        weth.approve(address(cbETH), type(uint256).max);
-        vm.prank(user1);
-        cbETH.deposit(INITIAL_BALANCE, user1);
-        vm.prank(user2);
-        weth.approve(address(cbETH), type(uint256).max);
-        vm.prank(user2);
-        cbETH.deposit(INITIAL_BALANCE, user2);
-
         // Deploy esETH contract
         vm.prank(owner);
         esETHContract = new esETH(owner);
@@ -87,14 +73,11 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
         // yieldBearingLST: ERC4626, mintable and redeemable
         esETHContract.setTokenConfig(address(yieldBearingLST), esETH.TokenType.ERC4626, true, true);
-        // cbETH: ERC4626, mintable and redeemable
-        esETHContract.setTokenConfig(address(cbETH), esETH.TokenType.ERC4626, true, true);
         vm.stopPrank();
 
         // Approve esETH contract to spend tokens
         weth.approve(address(esETHContract), type(uint256).max);
         yieldBearingLST.approve(address(esETHContract), type(uint256).max);
-        cbETH.approve(address(esETHContract), type(uint256).max);
     }
 
     // ============ Constructor Tests ============
@@ -376,23 +359,23 @@ contract esETHTest is Test {
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
-        // User2 mints with cbETH to ensure contract has cbETH for cross-token redemption
+        // User2 mints with yieldBearingLST to ensure contract has yieldBearingLST for cross-token redemption
         vm.prank(user2);
-        cbETH.approve(address(esETHContract), MINT_AMOUNT);
+        yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user2);
-        esETHContract.mint(address(cbETH), MINT_AMOUNT);
+        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT);
 
-        // User1 redeems for cbETH (different token) - contract has MINT_AMOUNT shares
-        uint256 cbETHBalanceBefore = cbETH.balanceOf(user1);
+        // User1 redeems for yieldBearingLST (different token) - contract has MINT_AMOUNT shares
+        uint256 balanceBefore = yieldBearingLST.balanceOf(user1);
         // Calculate shares needed based on esETHAmount, but limit to what's available
-        uint256 cbETHShares = cbETH.convertToShares(esETHAmount);
+        uint256 shares = yieldBearingLST.convertToShares(esETHAmount);
         // Contract has MINT_AMOUNT shares, so we can redeem up to that
-        uint256 sharesToRedeem = cbETHShares > MINT_AMOUNT ? MINT_AMOUNT : cbETHShares;
+        uint256 sharesToRedeem = shares > MINT_AMOUNT ? MINT_AMOUNT : shares;
         vm.prank(user1);
-        uint256 esETHBurned = esETHContract.redeem(address(cbETH), sharesToRedeem);
+        uint256 esETHBurned = esETHContract.redeem(address(yieldBearingLST), sharesToRedeem);
 
         assertGt(esETHBurned, 0);
-        assertEq(cbETH.balanceOf(user1), cbETHBalanceBefore + sharesToRedeem);
+        assertEq(yieldBearingLST.balanceOf(user1), balanceBefore + sharesToRedeem);
     }
 
     // ============ Mint Deficit / Harvest Tests ============
@@ -651,17 +634,11 @@ contract esETHTest is Test {
         vm.prank(user2);
         uint256 esETH2 = esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT);
 
-        // Add cbETH to contract for cross-token redemption (simulate another user minting with cbETH)
-        vm.prank(user2);
-        cbETH.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user2);
-        esETHContract.mint(address(cbETH), MINT_AMOUNT);
-
-        // User1 redeems for cbETH - calculate shares and limit to available
-        uint256 cbETHShares = cbETH.convertToShares(esETH1);
-        uint256 sharesToRedeem = cbETHShares > MINT_AMOUNT ? MINT_AMOUNT : cbETHShares;
+        // User1 redeems for yieldBearingLST - calculate shares and limit to available
+        uint256 shares = yieldBearingLST.convertToShares(esETH1);
+        uint256 sharesToRedeem = shares > MINT_AMOUNT ? MINT_AMOUNT : shares;
         vm.prank(user1);
-        esETHContract.redeem(address(cbETH), sharesToRedeem);
+        esETHContract.redeem(address(yieldBearingLST), sharesToRedeem);
 
         // User2 redeems for WETH - need to check contract has enough WETH
         // Contract has MINT_AMOUNT WETH from user1, so we can redeem up to that
@@ -672,7 +649,7 @@ contract esETHTest is Test {
 
         // Check balances - user1 should have redeemed (may have tiny remainder due to rounding)
         assertLe(esETHContract.balanceOf(user1), 1); // Allow 1 wei rounding error
-        assertGt(cbETH.balanceOf(user1), 0);
+        assertGt(yieldBearingLST.balanceOf(user1), 0);
         // user2 may have remaining esETH if contract didn't have enough WETH, so just check they got some WETH
         assertGt(weth.balanceOf(user2), 0);
     }
