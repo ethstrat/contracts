@@ -13,9 +13,8 @@
   - ESPN amount must be greater than zero
   - ESPN tokens are burned (not just transferred)
   - NFT is minted to the user
-  - Redemption data is recorded (redemptionsBefore, dollarBacking)
-  - Total redemptions counter increments
-  - Total redemptions value increases
+  - Redemption data is recorded (redemptionsBefore, redemptionAmount)
+  - `totalQueued` increases (always growing, never decreases)
   - Event is emitted with queue details
 
 **US-002: Check redemption eligibility**
@@ -24,10 +23,11 @@
 - **So that** I know when I can redeem for USDS
 - **Acceptance Criteria:**
   - Can call `isEligibleForRedemption(tokenId)` to check status
-  - Returns eligibility boolean and available USDS amount
-  - Eligibility based on: redemptionsBefore < (totalProcessedRedemptions + USDS balance)
-  - Must have sufficient USDS balance in contract
-  - NFT must not be already redeemed or cancelled
+  - Returns eligibility boolean and available position
+  - Eligibility based on: redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)
+  - For active NFTs: must have sufficient USDS balance in contract
+  - For cancelled NFTs: eligible when reaching head of queue (no USDS needed)
+  - NFT must not be already redeemed
 
 **US-003: View redemption data**
 - **As a** user holding a redemption queue NFT
@@ -35,23 +35,28 @@
 - **So that** I can understand my position in the queue
 - **Acceptance Criteria:**
   - Can call `getRedemptionData(tokenId)` to view all redemption info
-  - Returns redemptionsBefore, dollarBacking, redeemed status, cancelled status
+  - Returns redemptionsBefore, redemptionAmount, redeemed status, cancelled status
   - Public mapping allows direct access to redemption data
 
 ### Fulfilling Redemptions
 
-**US-004: Redeem NFT for USDS**
-- **As a** user holding an eligible redemption queue NFT
-- **I want to** redeem my NFT for USDS
+**US-004: Redeem NFT(s) for USDS**
+- **As a** user holding eligible redemption queue NFT(s)
+- **I want to** redeem my NFT(s) for USDS
 - **So that** I can exit my ESPN position and receive the underlying asset
 - **Acceptance Criteria:**
-  - Must be the owner of the NFT
-  - NFT must be eligible for redemption
-  - NFT must not be already redeemed or cancelled
-  - Contract must have sufficient USDS balance
-  - USDS is transferred to the user
+  - Function accepts an array of tokenIds (processed in order)
+  - Must be the owner of each NFT
+  - Each NFT must be eligible for redemption
+  - NFT must not be already redeemed
+  - For active NFTs:
+    - Contract must have sufficient USDS balance
+    - USDS is transferred to the user
+    - `totalRedemptionsProcessed` increases
+  - For cancelled NFTs:
+    - No USDS transfer (ESPN already returned via cancellation)
+    - `totalCancellationsProcessed` increases
   - NFT is burned after redemption
-  - Total processed redemptions increases
   - Event is emitted with redemption details
 
 **US-005: Understand queue position**
@@ -59,9 +64,10 @@
 - **I want to** understand my position relative to other redemptions
 - **So that** I can estimate when my redemption will be fulfilled
 - **Acceptance Criteria:**
-  - `redemptionsBefore` shows cumulative dollar value of prior redemptions
-  - Eligibility depends on available USDS vs redemptionsBefore
+  - `redemptionsBefore` shows cumulative dollar value of prior redemptions at mint time
+  - Eligibility depends on: redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)
   - First-in-first-out (FIFO) queue based on redemptionsBefore value
+  - Cancelled NFTs stay in queue and are processed naturally when they reach the head
 
 ### Cancelling Redemptions
 
@@ -72,14 +78,14 @@
 - **Acceptance Criteria:**
   - Must be the owner of the NFT
   - NFT must not be already redeemed or cancelled
-  - Uses flash loan to get USDS temporarily
-  - Deposits USDS into ESPN to mint new ESPN shares
-  - Returns minted ESPN to the user
-  - Repays flash loan by pulling USDS from a well known address (redemption queue will have an approval to pull USDS from this address)
-  - NFT is burned after cancellation
-  - internal stake needs to be updated such that
-      - any NFTs with a lower tokenID are not effected (as in, will be redeemed in order as expected)
-      - any NFTs with a higher tokenID are now 'bumped up' the queue by the notional de-queued
+  - ESPN tokens are returned to the user (equivalent amount to what was burned)
+  - NFT is marked as cancelled but stays in queue (not burned immediately)
+  - `totalQueued` remains unchanged (always growing)
+  - Queue ordering maintained without loops:
+      - NFTs with lower tokenIDs are not affected
+      - Cancelled NFTs naturally advance when processed via `redeem()` 
+      - No need to update `redemptionsBefore` for other NFTs
+  - Cancelled NFT will be processed via `redeem()` when it reaches the head of the queue (no USDS transfer)
 
 ### NFT Features
 
@@ -110,9 +116,11 @@
 - **I want to** view overall queue statistics
 - **So that** I can understand queue health and activity
 - **Acceptance Criteria:**
-  - Can query `totalRedemptionsValue` (cumulative dollar value queued)
-  - Can query `totalProcessedRedemptions` (cumulative dollar value fulfilled)
-  - Can calculate pending redemptions value
+  - Can query `totalQueued` (cumulative dollar value queued, always growing)
+  - Can query `totalRedemptionsProcessed` (cumulative dollar value fulfilled, always growing)
+  - Can query `totalCancellationsProcessed` (cumulative dollar value cancelled, always growing)
+  - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
+  - Can calculate pending redemptions value: `totalQueued - totalRedemptionsProcessed - totalCancellationsProcessed`
 
 ### Protocol Management (Owner)
 
@@ -149,26 +157,18 @@
   - Sufficient balance checks
   - Clear error messages for each failure case
 
-**US-015: Flash loan security**
-- **As a** user cancelling a redemption
-- **I want** the flash loan mechanism to be secure
-- **So that** my cancellation cannot be exploited or fail unexpectedly
-- **Acceptance Criteria:**
-  - Flash loan callback verifies initiator is contract
-  - Redemption marked as cancelled before flash loan
-  - Temporary storage cleared after use
-  - Verifies sufficient USDS for repayment
-  - ESPN manager must be set correctly
 
 **US-016: Queue ordering integrity**
 - **As a** user in the redemption queue
 - **I want** the queue to maintain proper ordering
 - **So that** redemptions are processed fairly in order
 - **Acceptance Criteria:**
-  - redemptionsBefore captures cumulative value at mint time
-  - Eligibility check ensures FIFO processing
-  - Total processed redemptions tracks fulfilled redemptions
+  - `redemptionsBefore` captures cumulative value at mint time (never updated)
+  - Eligibility check ensures FIFO processing: `redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)`
+  - `totalRedemptionsProcessed` tracks fulfilled active redemptions
+  - `totalCancellationsProcessed` tracks processed cancelled redemptions
   - Cannot redeem out of order
+  - Cancelled NFTs processed naturally when reaching head of queue
 
 ## Technical Notes
 
@@ -176,10 +176,35 @@
 - Uses OpenZeppelin's Ownable2Step for secure ownership management
 - ESPN tokens are burned (not held) when queuing a redemption
 - Dollar backing is calculated using ERC4626 `previewRedeem()` function
-- Queue position is determined by cumulative dollar value (redemptionsBefore)
-- Eligibility requires: redemptionsBefore < (totalProcessedRedemptions + USDS balance)
-- Flash loan cancellation requires ESPN manager to be set to redemption queue contract
+- Queue position is determined by cumulative dollar value (`redemptionsBefore`) at mint time
+- Eligibility requires: `redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)`
+- State variables (all always growing, never decreasing):
+  - `totalQueued`: Cumulative dollar value of all redemptions queued
+  - `totalRedemptionsProcessed`: Cumulative dollar value of fulfilled active redemptions
+  - `totalCancellationsProcessed`: Cumulative dollar value of processed cancelled redemptions
+  - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
+- `redeem()` function accepts an array of tokenIds and processes them in order
+- Cancelled NFTs stay in queue and are processed via `redeem()` when they reach the head
+- Queue ordering maintained without loops - cancelled NFTs naturally advance when processed
 - Sweeper address is immutable and set at construction
-- Supports Aave V3 flash loan interface for cancellations
-- NFT is burned after redemption or cancellation
-- Total redemptions tracks count, totalRedemptionsValue tracks cumulative dollar value
+- NFT is burned after redemption (via `redeem()`), not immediately on cancellation
+
+### Cancellation Implementation Details
+
+When a user cancels their redemption, they need to receive ESPN tokens back. However, since ESPN tokens were burned when queuing the redemption (not held by the contract), the contract must remint ESPN to return it to the user.
+
+ESPN's implementation does not allow direct minting. Instead, ESPN tokens are minted by depositing USDS into the ESPN contract (via the ERC4626 `deposit()` function). To cancel a redemption:
+
+1. The contract temporarily borrows USDS via a flash loan (using Sky protocol for USDS flash loans)
+2. The flashed USDS is deposited into ESPN, which mints ESPN shares
+3. The minted ESPN is transferred to the user
+4. The flash loan is repaid using USDS received from ESPN (when ESPN's manager is set to this contract, ESPN sends the deposited USDS to the manager during the deposit process)
+
+This flash loan mechanism is an implementation detail required by ESPN's architecture - there is no other way to remint ESPN after it has been burned, since ESPN only mints through deposits. The contract uses Sky flash loans specifically for USDS, which typically charge zero fees and have sufficient liquidity.
+
+**Security considerations:**
+- Flash loan callback verifies the initiator is the authorized Sky flash loan contract
+- Redemption is marked as cancelled before initiating the flash loan to prevent reentrancy
+- Temporary storage is cleared after the flash loan completes
+- The contract verifies sufficient USDS balance for repayment before completing the operation
+- ESPN manager must be set to this contract for cancellation to work properly
