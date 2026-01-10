@@ -8,7 +8,7 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 
 /**
  * @title Staked STRAT
- * @dev Users stake STRAT tokens and earn ETH yield proportional to their stake.
+ * @dev Users stake STRAT tokens and earn reward token yield (e.g. esETH) proportional to their stake.
  *      Uses rewardDebt/rewardsPerShare accounting similar to MasterChef.
  *      StakedSTRAT is a non-transferrable ERC20 token.
  */
@@ -21,13 +21,16 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     /// @dev The STRAT token that users stake
     IERC20 public immutable stratToken;
 
+    /// @dev The reward token (e.g. esETH) that users earn
+    IERC20 public immutable rewardToken;
+
     /// @dev Accumulated rewards per share, scaled by PRECISION
     uint256 public rewardsPerShare;
 
     /// @dev Total amount of STRAT staked
     uint256 public totalStaked;
 
-    /// @dev Total amount of ETH that has been synced into rewardsPerShare
+    /// @dev Total amount of reward tokens that have been synced into rewardsPerShare
     uint256 public totalSyncedRewards;
 
     /// @dev Mapping from user address to their staked amount
@@ -46,15 +49,17 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     error TransferDisabled();
     error ZeroAmount();
     error InsufficientStake();
-    error InsufficientBalance();
 
     /**
      * @dev Constructor
      * @param _stratToken The STRAT token address
+     * @param _rewardToken The reward token address (e.g. esETH)
      */
-    constructor(address _stratToken) ERC20("Staked STRAT v2", "sSTRAT-v2") {
+    constructor(address _stratToken, address _rewardToken) ERC20("Staked STRAT v2", "sSTRAT-v2") {
         if (_stratToken == address(0)) revert();
+        if (_rewardToken == address(0)) revert();
         stratToken = IERC20(_stratToken);
+        rewardToken = IERC20(_rewardToken);
     }
 
     /**
@@ -80,11 +85,11 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
     /**
      * @dev Permissionless function to sync rewards.
-     *      Calculates new rewardsPerShare based on ETH balance in contract.
+     *      Calculates new rewardsPerShare based on reward token balance in contract.
      *      Should be called before any stake/unstake/claim/migrateStake operations.
      */
     function syncRewards() public {
-        uint256 currentBalance = address(this).balance;
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
         if (currentBalance == 0 || totalStaked == 0) {
             return;
         }
@@ -141,7 +146,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
             // Set totalSyncedRewards to current balance so old rewards are marked as synced
             // This prevents them from being distributed to new stakers
             // Reset rewardsPerShare to 0 so new stakers start fresh
-            uint256 oldBalance = address(this).balance;
+            uint256 oldBalance = rewardToken.balanceOf(address(this));
             totalSyncedRewards = oldBalance;
             rewardsPerShare = 0;
             // Now sync any new rewards that might have arrived
@@ -196,7 +201,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Claim pending ETH rewards
+     * @dev Claim pending reward tokens
      */
     function claim() external nonReentrant {
         // Sync rewards before updating user state
@@ -213,9 +218,8 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
         totalSyncedRewards -= claimable;
 
-        // Transfer ETH rewards to user
-        (bool success,) = msg.sender.call{value: claimable}("");
-        if (!success) revert();
+        // Transfer reward tokens to user
+        rewardToken.safeTransfer(msg.sender, claimable);
 
         emit RewardsClaimed(msg.sender, claimable);
     }
@@ -264,14 +268,13 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         // Transfer sSTRAT tokens
         _transfer(msg.sender, to, amountToMigrate);
 
-        // Transfer ETH rewards (both recipient's existing and migrated rewards)
+        // Transfer reward tokens (both recipient's existing and migrated rewards)
         uint256 totalRewardsToPay = recipientPendingRewards + rewardsToMigrate;
         if (totalRewardsToPay > 0) {
             if (rewardsToMigrate > 0) {
                 totalSyncedRewards -= rewardsToMigrate;
             }
-            (bool success,) = to.call{value: totalRewardsToPay}("");
-            if (!success) revert();
+            rewardToken.safeTransfer(to, totalRewardsToPay);
         }
 
         emit StakeMigrated(msg.sender, to, amountToMigrate, rewardsToMigrate);
@@ -280,7 +283,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     /**
      * @dev Get pending rewards for a user
      * @param user Address to check pending rewards for
-     * @return Pending ETH rewards
+     * @return Pending reward tokens
      */
     function getPendingRewards(address user) external view returns (uint256) {
         if (staked[user] == 0) {
@@ -289,7 +292,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
         // Calculate current rewardsPerShare if we synced now
         uint256 currentRewardsPerShare = rewardsPerShare;
-        uint256 currentBalance = address(this).balance;
+        uint256 currentBalance = rewardToken.balanceOf(address(this));
         uint256 unsyncedRewards = currentBalance > totalSyncedRewards ? currentBalance - totalSyncedRewards : 0;
         if (unsyncedRewards > 0 && totalStaked > 0) {
             currentRewardsPerShare += (unsyncedRewards * PRECISION) / totalStaked;
@@ -301,27 +304,9 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Internal function to update user's rewards and return claimable amount
-     * @param user Address to update rewards for
-     * @return claimable Amount of ETH rewards claimable
-     */
-    function _updateRewards(address user) internal returns (uint256) {
-        if (staked[user] == 0) {
-            return 0;
-        }
-
-        uint256 pending = _getPendingRewards(user);
-        // Update reward debt to reflect that rewards have been accounted for
-        // This prevents double-counting when user stakes/unstakes
-        rewardDebt[user] = int256((staked[user] * rewardsPerShare) / PRECISION);
-
-        return pending;
-    }
-
-    /**
      * @dev Internal function to get pending rewards for a user
      * @param user Address to check pending rewards for
-     * @return Pending ETH rewards
+     * @return Pending reward tokens
      */
     function _getPendingRewards(address user) internal view returns (uint256) {
         if (staked[user] == 0) {
@@ -333,7 +318,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     }
 
     /**
-     * @dev Receive ETH (rewards)
+     * @dev Receive ETH (kept for backwards compatibility, but rewards should be sent as ERC20 tokens)
      */
     receive() external payable {}
 }
