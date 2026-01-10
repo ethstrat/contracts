@@ -53,15 +53,6 @@ contract esETHTest is Test {
         yieldBearingLST = new SimpleERC4626Vault(address(weth), "Mock Yield Bearing LST Vault", "myLST");
         weth.approve(address(yieldBearingLST), type(uint256).max);
         yieldBearingLST.deposit(INITIAL_BALANCE, address(this));
-        // user1 and user2 need to deposit their underlying tokens to get vault shares
-        vm.prank(user1);
-        weth.approve(address(yieldBearingLST), type(uint256).max);
-        vm.prank(user1);
-        yieldBearingLST.deposit(INITIAL_BALANCE, user1);
-        vm.prank(user2);
-        weth.approve(address(yieldBearingLST), type(uint256).max);
-        vm.prank(user2);
-        yieldBearingLST.deposit(INITIAL_BALANCE, user2);
 
         // Deploy esETH contract
         vm.prank(owner);
@@ -75,9 +66,20 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(yieldBearingLST), esETH.TokenType.ERC4626, true, true);
         vm.stopPrank();
 
-        // Approve esETH contract to spend tokens
+        // user1 and user2 initial token state setup
+        vm.startPrank(user1);
+        weth.approve(address(yieldBearingLST), type(uint256).max);
+        yieldBearingLST.deposit(INITIAL_BALANCE, user1);
         weth.approve(address(esETHContract), type(uint256).max);
         yieldBearingLST.approve(address(esETHContract), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        weth.approve(address(yieldBearingLST), type(uint256).max);
+        yieldBearingLST.deposit(INITIAL_BALANCE, user2);
+        weth.approve(address(esETHContract), type(uint256).max);
+        yieldBearingLST.approve(address(esETHContract), type(uint256).max);
+        vm.stopPrank();
     }
 
     // ============ Constructor Tests ============
@@ -114,7 +116,9 @@ contract esETHTest is Test {
         newToken.initialize("New Token", "NEW", 18);
 
         vm.prank(user1);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1)
+        );
         esETHContract.setTokenConfig(address(newToken), esETH.TokenType.ERC20, true, true);
     }
 
@@ -126,8 +130,6 @@ contract esETHTest is Test {
 
     function test_SetTokenConfig_PreservesTotalMinted() external {
         // First mint some esETH
-        vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT);
 
@@ -148,17 +150,13 @@ contract esETHTest is Test {
 
     function test_Mint_WithERC20() external {
         uint256 amount = MINT_AMOUNT;
-        uint256 balanceBefore = esETHContract.balanceOf(user1);
-        uint256 wethBalanceBefore = weth.balanceOf(address(esETHContract));
 
-        vm.prank(user1);
-        weth.approve(address(esETHContract), amount);
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), amount);
 
         assertEq(esETHAmount, amount); // 1:1 for ERC20
-        assertEq(esETHContract.balanceOf(user1), balanceBefore + esETHAmount);
-        assertEq(weth.balanceOf(address(esETHContract)), wethBalanceBefore + amount);
+        assertEq(esETHContract.balanceOf(user1), esETHAmount);
+        assertEq(weth.balanceOf(address(esETHContract)), amount);
         assertEq(esETHContract.totalSupply(), esETHAmount);
 
         // Check totalMinted is updated
@@ -168,17 +166,15 @@ contract esETHTest is Test {
 
     function test_Mint_WithERC4626() external {
         uint256 amount = MINT_AMOUNT;
-        uint256 balanceBefore = esETHContract.balanceOf(user1);
 
-        vm.prank(user1);
-        yieldBearingLST.approve(address(esETHContract), amount);
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(yieldBearingLST), amount);
 
         // For ERC4626, convertToAssets should return the underlying asset value
         uint256 expectedETH = yieldBearingLST.convertToAssets(amount);
         assertEq(esETHAmount, expectedETH);
-        assertEq(esETHContract.balanceOf(user1), balanceBefore + esETHAmount);
+        assertEq(esETHContract.balanceOf(user1), esETHAmount);
+        assertEq(yieldBearingLST.balanceOf(address(esETHContract)), amount);
 
         // Check totalMinted is updated
         (,,, uint256 totalMinted) = esETHContract.tokenConfigs(address(yieldBearingLST));
@@ -218,8 +214,6 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, true);
 
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(weth))
         );
@@ -237,8 +231,6 @@ contract esETHTest is Test {
     function test_Redeem_ForERC20() external {
         // First mint some esETH
         uint256 mintAmount = MINT_AMOUNT;
-        vm.prank(user1);
-        weth.approve(address(esETHContract), mintAmount);
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), mintAmount);
 
@@ -262,8 +254,6 @@ contract esETHTest is Test {
         // First mint some esETH with yieldBearingLST
         uint256 mintAmount = MINT_AMOUNT;
         vm.prank(user1);
-        yieldBearingLST.approve(address(esETHContract), mintAmount);
-        vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(yieldBearingLST), mintAmount);
 
         // Now redeem for yieldBearingLST - redeem the exact shares that were deposited
@@ -281,8 +271,6 @@ contract esETHTest is Test {
     function test_Redeem_AnyoneCanRedeem() external {
         // Mint esETH
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
         // Random user can redeem if they have esETH
@@ -299,8 +287,6 @@ contract esETHTest is Test {
     function test_Redeem_NotWhitelisted() external {
         // First mint some esETH
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
         MintableMockERC20 newToken = new MintableMockERC20();
@@ -315,8 +301,6 @@ contract esETHTest is Test {
 
     function test_Redeem_NotRedeemable() external {
         // Mint esETH
-        vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
@@ -333,8 +317,6 @@ contract esETHTest is Test {
 
     function test_Redeem_InsufficientBalance() external {
         // Mint esETH
-        vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
@@ -355,13 +337,9 @@ contract esETHTest is Test {
     function test_Redeem_CrossToken() external {
         // User1 mints with WETH
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
 
         // User2 mints with yieldBearingLST to ensure contract has yieldBearingLST for cross-token redemption
-        vm.prank(user2);
-        yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user2);
         esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT);
 
