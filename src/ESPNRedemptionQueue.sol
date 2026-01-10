@@ -88,6 +88,10 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
     error InsufficientUSDS();
     error FlashLoanFailed();
     error InvalidSweeper();
+    error ZeroAmount();
+    error InvalidFlashLoanInitiator();
+    error InvalidFlashLoanAsset();
+    error RedemptionNotCancelled();
 
     /**
      * @dev Constructor
@@ -112,7 +116,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * @return tokenId The minted NFT token ID
      */
     function queueRedemption(uint256 espnAmount) external nonReentrant returns (uint256) {
-        if (espnAmount == 0) revert();
+        if (espnAmount == 0) revert ZeroAmount();
 
         // Calculate dollar backing using ERC4626 math
         // This is the amount of USDS that would be received if redeeming the ESPN
@@ -194,6 +198,9 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * When USDS is deposited into ESPN, ESPN sends it to the manager (this contract),
      * allowing us to repay the flash loan.
      * 
+     * When a redemption is cancelled, NFTs with higher tokenIDs have their redemptionsBefore
+     * reduced by the cancelled redemption's dollarBacking to maintain queue ordering.
+     * 
      * @param tokenId The NFT token ID to cancel
      * @param flashLoanProvider The address of the flash loan provider contract
      * @param flashLoanAmount The amount of USDS to flash loan (should be >= dollarBacking + premium)
@@ -217,6 +224,36 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
 
         // Mark as cancelled before flash loan to prevent reentrancy
         redemption.cancelled = true;
+
+        // Update queue ordering: reduce redemptionsBefore for NFTs with higher tokenIDs
+        // This "bumps up" higher tokenIDs in the queue by reducing their redemptionsBefore
+        uint256 dollarBackingToRemove = redemption.dollarBacking;
+        uint256 currentTokenId = tokenId + 1;
+        uint256 maxTokenId = _tokenIdCounter;
+        
+        // Iterate through all higher tokenIDs and update their redemptionsBefore
+        while (currentTokenId < maxTokenId) {
+            RedemptionData storage higherRedemption = redemptions[currentTokenId];
+            // Only update if not already redeemed or cancelled
+            if (!higherRedemption.redeemed && !higherRedemption.cancelled) {
+                // Reduce redemptionsBefore by the cancelled redemption's dollarBacking
+                // This effectively moves them up in the queue
+                if (higherRedemption.redemptionsBefore >= dollarBackingToRemove) {
+                    higherRedemption.redemptionsBefore -= dollarBackingToRemove;
+                } else {
+                    // Should not happen in normal operation, but handle gracefully
+                    higherRedemption.redemptionsBefore = 0;
+                }
+            }
+            currentTokenId++;
+        }
+        
+        // Reduce total redemptions value to reflect the cancellation
+        if (totalRedemptionsValue >= dollarBackingToRemove) {
+            totalRedemptionsValue -= dollarBackingToRemove;
+        } else {
+            totalRedemptionsValue = 0;
+        }
 
         // Prepare and store callback data
         _activeFlashLoan = FlashLoanCallbackData({
@@ -267,7 +304,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
         bytes calldata params
     ) external returns (bool) {
         // Verify this contract initiated the flash loan
-        if (initiator != address(this)) revert();
+        if (initiator != address(this)) revert InvalidFlashLoanInitiator();
 
         // Get callback data from params or temporary storage
         FlashLoanCallbackData memory data;
@@ -278,7 +315,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
         }
 
         // Verify the asset is USDS
-        if (assets.length == 0 || assets[0] != address(usds)) revert();
+        if (assets.length == 0 || assets[0] != address(usds)) revert InvalidFlashLoanAsset();
         
         uint256 flashLoanAmount = amounts[0];
         uint256 premium = premiums[0];
@@ -286,15 +323,15 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
 
         // Verify the redemption hasn't been processed
         RedemptionData storage redemption = redemptions[data.tokenId];
-        if (!redemption.cancelled) revert(); // Should be marked as cancelled in cancelRedemption
+        if (!redemption.cancelled) revert RedemptionNotCancelled(); // Should be marked as cancelled in cancelRedemption
 
         // Use flashed USDS to mint ESPN by depositing into ESPN
         // NOTE: The ESPN manager must be set to this contract for this to work properly.
         // When USDS is deposited, ESPN's _deposit function sends it to the manager (this contract),
         // allowing us to repay the flash loan.
-        usds.forceApprove(address(espn), flashLoanAmount);
+        SafeERC20.forceApprove(usds, address(espn), flashLoanAmount);
         uint256 espnMinted = espn.deposit(flashLoanAmount, address(this));
-        usds.forceApprove(address(espn), 0);
+        SafeERC20.forceApprove(usds, address(espn), 0);
 
         // ESPN sends the USDS to the manager (this contract) as part of _deposit
         // Verify we have enough USDS to repay (including premium)
@@ -307,7 +344,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
         IERC20(address(espn)).safeTransfer(data.user, espnMinted);
 
         // Approve the flash loan provider to take back the USDS + premium
-        usds.forceApprove(msg.sender, totalToRepay);
+        SafeERC20.forceApprove(usds, msg.sender, totalToRepay);
 
         // Burn the NFT
         _burn(data.tokenId);
@@ -319,9 +356,19 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
 
     /**
      * @dev Helper function to generate flash loan calldata for Aave V3
+     * 
+     * NOTE: For production, consider using a well-trodden flash loan provider with:
+     * - No fees or low fees
+     * - Sufficient USDS liquidity
+     * - Standard flash loan interface (Aave V3 compatible)
+     * 
+     * Aave V3 is widely used but charges ~0.09% premium. For no-fee alternatives,
+     * consider providers like Jupiter Lend or other zero-fee flash loan services
+     * that support USDS and have sufficient liquidity.
+     * 
      * @param tokenId The NFT token ID to cancel
      * @param flashLoanAmount The amount of USDS to flash loan
-     * @param premium The premium to pay (typically 0.09% = 9e14 for Aave)
+     * @param premium The premium to pay (typically 0.09% = 9e14 for Aave, 0 for no-fee providers)
      * @return The calldata to pass to cancelRedemption
      */
     function generateAaveV3FlashLoanCalldata(
