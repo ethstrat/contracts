@@ -2,6 +2,19 @@
 
 ## User Stories
 
+### Roles & Permissions
+
+**US-000: Roles are explicit and owner-managed**
+- **As a** protocol operator
+- **I want** explicit roles for where privileged behavior occurs
+- **So that** governance can tighten or expand permissions cleanly over time
+- **Acceptance Criteria:**
+  - `owner` can update token configs and role addresses
+  - `harvestReceiver` is initialized to `owner` and is owner-settable
+  - `treasuryManager` is initialized to `owner` and is owner-settable
+  - `treasuryManager` can mint/redeem any **supported** token regardless of `isMintable/isRedeemable`
+  - **Unsupported tokens never work for anyone** (users or `treasuryManager`)
+
 ### Minting esETH
 
 **US-001: Mint esETH with LST**
@@ -9,7 +22,8 @@
 - **I want to** deposit my LST tokens (wstETH, rETH, cETH, aETHv2, ankrETH, cbETH, or ERC4626 tokens) to mint esETH
 - **So that** I can get a unified token representing a basket of staked ETH positions
 - **Acceptance Criteria:**
-  - Token must be whitelisted for minting
+  - Token must be **supported** (`TokenType != UNSUPPORTED`)
+  - Token must be **whitelisted for minting** (`isMintable == true`)
   - Amount must be greater than zero
   - esETH amount minted is calculated based on ETH value of the deposited LST
   - User receives esETH tokens in their wallet
@@ -21,7 +35,7 @@
 - **So that** I can understand how much esETH I will receive
 - **Acceptance Criteria:**
   - Can call `getETHValue(token, amount)` to get ETH equivalent
-  - Works for all supported token types
+  - Reverts for unsupported tokens
 
 ### Redeeming esETH
 
@@ -30,7 +44,8 @@
 - **I want to** redeem my esETH for any whitelisted LST token
 - **So that** I can exit my position and receive the underlying LST of my choice
 - **Acceptance Criteria:**
-  - Token must be whitelisted for redemption
+  - Token must be **supported** (`TokenType != UNSUPPORTED`)
+  - Token must be **whitelisted for redemption** (`isRedeemable == true`)
   - Amount must be greater than zero
   - Contract must have sufficient balance of the requested LST
   - esETH is burned proportional to the ETH value of the redeemed LST
@@ -53,9 +68,9 @@
 - **So that** yield generated from staked positions is captured and distributed to the harvest receiver
 - **Acceptance Criteria:**
   - Can call `mintDeficit(tokens)` with array of token addresses
-  - Calculates deficit for each token (backing - totalMinted)
+  - Calculates deficit for each token (backing - `totalMinted`)
   - Mints deficit esETH to harvest receiver
-  - Updates totalMinted for each token
+  - Updates `totalMinted` for each token
   - Event is emitted when deficit is minted
 
 **US-006: Burn surplus esETH**
@@ -63,9 +78,9 @@
 - **I want to** burn surplus esETH when total supply exceeds backing
 - **So that** the token maintains proper backing ratio and user confidence
 - **Acceptance Criteria:**
-  - Calculates surplus for each token (totalMinted - backing)
+  - Calculates surplus for each token (`totalMinted` - backing)
   - Burns surplus esETH from caller's balance
-  - Updates totalMinted for each token
+  - Updates `totalMinted` for each token
   - Event is emitted when surplus is burned
 
 ### Token Management (Owner)
@@ -90,9 +105,18 @@
   - Cannot set to zero address
   - Event is emitted on update
 
+**US-009: Set treasury manager**
+- **As a** contract owner
+- **I want to** set the `treasuryManager`
+- **So that** the protocol can delegate supported-token mint/redeem operations without granting full ownership
+- **Acceptance Criteria:**
+  - Can update treasury manager address
+  - Cannot set to zero address
+  - Event is emitted on update
+
 ### Token Features
 
-**US-009: Non-rebasing token**
+**US-010: Non-rebasing token**
 - **As a** user holding esETH
 - **I want** esETH to be a non-rebasing token
 - **So that** my token balance remains stable and predictable (unlike stETH which rebases)
@@ -100,7 +124,7 @@
   - Token balance does not change automatically
   - Yield is captured through harvest mechanism instead
 
-**US-010: Unified LST representation**
+**US-011: Unified LST representation**
 - **As a** user
 - **I want** esETH to represent a basket of different LST types
 - **So that** I can have a single token that abstracts away the complexity of managing multiple LST positions
@@ -109,9 +133,19 @@
   - Can redeem for multiple LST types
   - All LSTs are converted to ETH value for consistency
 
+**US-012: Treasury manager can mint/redeem supported tokens regardless of allowlist flags**
+- **As a** protocol treasury operator (`treasuryManager`)
+- **I want to** mint and redeem any supported token (configured with a non-`UNSUPPORTED` `TokenType`), regardless of `isMintable/isRedeemable`
+- **So that** the treasury can operationally rebalance the backing without opening up public mint/redeem on those tokens
+- **Acceptance Criteria:**
+  - `treasuryManager` calling `mint()` does not require `isMintable == true`
+  - `treasuryManager` calling `redeem()` does not require `isRedeemable == true`
+  - Calls still revert for unsupported tokens
+  - All normal balance and amount checks still apply (zero amount, sufficient backing for redeem, etc.)
+
 ### Security & Safety
 
-**US-011: Reentrancy protection**
+**US-013: Reentrancy protection**
 - **As a** user interacting with the contract
 - **I want** mint and redeem functions to be protected against reentrancy attacks
 - **So that** my transactions are secure and cannot be exploited
@@ -119,14 +153,15 @@
   - `nonReentrant` modifier on mint and redeem functions
   - Uses ReentrancyGuard from OpenZeppelin
 
-**US-012: Input validation**
+**US-014: Input validation**
 - **As a** user or contract owner
 - **I want** the contract to validate all inputs
 - **So that** invalid transactions are rejected with clear errors
 - **Acceptance Criteria:**
   - Zero amount checks
   - Zero address checks
-  - Token whitelist validation
+  - Token supported-type validation (`UnsupportedToken`)
+  - Token whitelist validation (`TokenNotWhitelistedForMint` / `TokenNotWhitelistedForRedeem`)
   - Sufficient balance checks
   - Clear error messages for each failure case
 
