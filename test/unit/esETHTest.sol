@@ -35,6 +35,7 @@ contract esETHTest is Test {
     address public user2 = address(0x3);
     address public harvestReceiver = address(0x4);
     address public randomUser = address(0x5);
+    address public treasuryManager = address(0x6);
 
     uint256 public constant INITIAL_BALANCE = 10000 * 1e18;
     uint256 public constant MINT_AMOUNT = 1000 * 1e18;
@@ -92,6 +93,8 @@ contract esETHTest is Test {
         assertEq(esETHContract.totalSupply(), 0);
         // harvestReceiver should be initialized to owner
         assertEq(esETHContract.harvestReceiver(), owner);
+        // treasuryManager should be initialized to owner
+        assertEq(esETHContract.treasuryManager(), owner);
     }
 
     // ============ Token Configuration Tests ============
@@ -146,7 +149,109 @@ contract esETHTest is Test {
         assertEq(totalMintedAfter, totalMintedBefore);
     }
 
+    // ============ Treasury Manager Tests ============
+
+    function test_SetTreasuryManager() external {
+        vm.prank(owner);
+        esETHContract.setTreasuryManager(treasuryManager);
+        assertEq(esETHContract.treasuryManager(), treasuryManager);
+    }
+
+    function test_SetTreasuryManager_OnlyOwner() external {
+        vm.prank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1)
+        );
+        esETHContract.setTreasuryManager(treasuryManager);
+    }
+
+    function test_SetTreasuryManager_ZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(esETH.ZeroAddress.selector);
+        esETHContract.setTreasuryManager(address(0));
+    }
+
+    function test_TreasuryManager_CanMint_WhenNotMintable() external {
+        // Set token as not mintable for regular users
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, true);
+
+        // Set treasury manager
+        vm.prank(owner);
+        esETHContract.setTreasuryManager(treasuryManager);
+
+        // Fund + approve
+        weth.mint(treasuryManager, MINT_AMOUNT);
+        vm.startPrank(treasuryManager);
+        weth.approve(address(esETHContract), type(uint256).max);
+
+        // Should succeed for treasury manager even though isMintable=false
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
+        assertEq(esETHAmount, MINT_AMOUNT);
+        assertEq(esETHContract.balanceOf(treasuryManager), MINT_AMOUNT);
+        vm.stopPrank();
+    }
+
+    function test_TreasuryManager_CanRedeem_WhenNotRedeemable() external {
+        // Set token as not mintable AND not redeemable for regular users
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, false);
+
+        // Set treasury manager
+        vm.prank(owner);
+        esETHContract.setTreasuryManager(treasuryManager);
+
+        // Fund + approve
+        weth.mint(treasuryManager, MINT_AMOUNT);
+        vm.startPrank(treasuryManager);
+        weth.approve(address(esETHContract), type(uint256).max);
+
+        // Mint then redeem should both succeed for treasury manager
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+        uint256 esETHBurned = esETHContract.redeem(address(weth), MINT_AMOUNT);
+        assertEq(esETHBurned, MINT_AMOUNT);
+        assertEq(esETHContract.balanceOf(treasuryManager), 0);
+        assertEq(weth.balanceOf(treasuryManager), MINT_AMOUNT);
+        vm.stopPrank();
+    }
+
+    function test_TreasuryManager_RevertsOnUnsupportedToken() external {
+        // Set treasury manager
+        vm.prank(owner);
+        esETHContract.setTreasuryManager(treasuryManager);
+
+        MintableMockERC20 newToken = new MintableMockERC20();
+        newToken.initialize("New Token", "NEW", 18);
+        newToken.mint(treasuryManager, MINT_AMOUNT);
+
+        vm.startPrank(treasuryManager);
+        newToken.approve(address(esETHContract), type(uint256).max);
+
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken)));
+        esETHContract.mint(address(newToken), MINT_AMOUNT);
+
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken)));
+        esETHContract.redeem(address(newToken), MINT_AMOUNT);
+        vm.stopPrank();
+    }
+
     // ============ Mint Tests ============
+
+    function test_Mint_UnsupportedTokenTypeConfigured_Reverts() external {
+        MintableMockERC20 newToken = new MintableMockERC20();
+        newToken.initialize("New Token", "NEW", 18);
+        newToken.mint(user1, MINT_AMOUNT);
+
+        // Configure as UNSUPPORTED but mintable=true to ensure the revert is due to unsupported type
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(newToken), esETH.TokenType.UNSUPPORTED, true, false);
+
+        vm.startPrank(user1);
+        newToken.approve(address(esETHContract), MINT_AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken)));
+        esETHContract.mint(address(newToken), MINT_AMOUNT);
+        vm.stopPrank();
+    }
 
     function test_Mint_WithERC20() external {
         uint256 amount = MINT_AMOUNT;
@@ -182,20 +287,6 @@ contract esETHTest is Test {
     }
 
     function test_Mint_NotWhitelisted() external {
-        MintableMockERC20 newToken = new MintableMockERC20();
-        newToken.initialize("New Token", "NEW", 18);
-        newToken.mint(user1, MINT_AMOUNT);
-
-        vm.startPrank(user1);
-        newToken.approve(address(esETHContract), MINT_AMOUNT);
-        vm.expectRevert(
-            abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(newToken))
-        );
-        esETHContract.mint(address(newToken), MINT_AMOUNT);
-        vm.stopPrank();
-    }
-
-    function test_Mint_NotMintable() external {
         // Set token as not mintable
         vm.prank(owner);
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, true);
@@ -214,6 +305,20 @@ contract esETHTest is Test {
     }
 
     // ============ Redeem Tests ============
+
+    function test_Redeem_UnsupportedTokenTypeConfigured_Reverts() external {
+        MintableMockERC20 newToken = new MintableMockERC20();
+        newToken.initialize("New Token", "NEW", 18);
+
+        // Configure as UNSUPPORTED but redeemable=true to ensure the revert is due to unsupported type
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(newToken), esETH.TokenType.UNSUPPORTED, false, true);
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken)));
+        esETHContract.redeem(address(newToken), MINT_AMOUNT);
+        vm.stopPrank();
+    }
 
     function test_Redeem_ForERC20() external {
         // First mint some esETH
@@ -256,21 +361,6 @@ contract esETHTest is Test {
     }
 
     function test_Redeem_NotWhitelisted() external {
-        // First mint some esETH
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
-
-        MintableMockERC20 newToken = new MintableMockERC20();
-        newToken.initialize("New Token", "NEW", 18);
-
-        vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(esETH.TokenNotWhitelistedForRedeem.selector, address(newToken))
-        );
-        esETHContract.redeem(address(newToken), esETHAmount);
-    }
-
-    function test_Redeem_NotRedeemable() external {
         // Mint esETH
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);

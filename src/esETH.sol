@@ -47,6 +47,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     mapping(address token => TokenConfig) public tokenConfigs;
 
     address public harvestReceiver;
+    address public treasuryManager;
 
     /// @dev Events
     event Minted(address indexed user, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
@@ -55,6 +56,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     event DeficitMinted(uint256 esETHAmount);
     event SurplusBurned(uint256 esETHAmount);
     event HarvestReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
+    event TreasuryManagerUpdated(address indexed oldManager, address indexed newManager);
 
     event TokenConfigUpdated(
         address indexed token,
@@ -77,6 +79,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      */
     constructor(address _owner) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {
         harvestReceiver = _owner;
+        treasuryManager = _owner;
     }
 
     /**
@@ -89,7 +92,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         if (tokenAmount == 0) revert ZeroAmount();
         
         TokenConfig memory config = tokenConfigs[token];
-        if (!config.isMintable) revert TokenNotWhitelistedForMint(token);
+        if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
+        if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
 
         // Transfer tokens from user
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
@@ -112,7 +116,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         if (tokenAmount == 0) revert ZeroAmount();
         
         TokenConfig storage config = tokenConfigs[token];
-        if (!config.isRedeemable) revert TokenNotWhitelistedForRedeem(token);
+        if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
+        if (msg.sender != treasuryManager && !config.isRedeemable) revert TokenNotWhitelistedForRedeem(token);
 
         // Calculate the ETH value of the LST to be redeemed (this is the amounbt of esETH to burn)
         esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
@@ -289,5 +294,17 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         address old = harvestReceiver;
         harvestReceiver = _receiver;
         emit HarvestReceiverUpdated(old, _receiver);
+    }
+
+    /**
+     * @notice Set the treasury manager address
+     * @dev Only the owner can set the treasury manager
+     * @param _manager The new treasury manager address
+     */
+    function setTreasuryManager(address _manager) external onlyOwner {
+        if (_manager == address(0)) revert ZeroAddress();
+        address old = treasuryManager;
+        treasuryManager = _manager;
+        emit TreasuryManagerUpdated(old, _manager);
     }
 }
