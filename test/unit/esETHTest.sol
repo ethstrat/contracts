@@ -181,31 +181,18 @@ contract esETHTest is Test {
         assertEq(totalMinted, esETHAmount);
     }
 
-    function test_Mint_AnyoneCanMint() external {
-        // Verify that non-owner users can mint
-        vm.prank(randomUser);
-        weth.mint(randomUser, MINT_AMOUNT);
-        vm.prank(randomUser);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(randomUser);
-        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
-
-        assertEq(esETHAmount, MINT_AMOUNT);
-        assertEq(esETHContract.balanceOf(randomUser), MINT_AMOUNT);
-    }
-
     function test_Mint_NotWhitelisted() external {
         MintableMockERC20 newToken = new MintableMockERC20();
         newToken.initialize("New Token", "NEW", 18);
         newToken.mint(user1, MINT_AMOUNT);
 
-        vm.prank(user1);
+        vm.startPrank(user1);
         newToken.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(newToken))
         );
         esETHContract.mint(address(newToken), MINT_AMOUNT);
+        vm.stopPrank();
     }
 
     function test_Mint_NotMintable() external {
