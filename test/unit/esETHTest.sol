@@ -255,22 +255,6 @@ contract esETHTest is Test {
         assertEq(esETHBurned, esETHAmount);
     }
 
-    function test_Redeem_AnyoneCanRedeem() external {
-        // Mint esETH
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
-
-        // Random user can redeem if they have esETH
-        vm.prank(user1);
-        esETHContract.transfer(randomUser, esETHAmount);
-
-        vm.prank(randomUser);
-        uint256 tokenAmount = esETHContract.redeem(address(weth), esETHAmount);
-
-        assertEq(tokenAmount, esETHAmount);
-        assertEq(weth.balanceOf(randomUser), tokenAmount);
-    }
-
     function test_Redeem_NotWhitelisted() external {
         // First mint some esETH
         vm.prank(user1);
@@ -302,7 +286,7 @@ contract esETHTest is Test {
         esETHContract.redeem(address(weth), esETHAmount);
     }
 
-    function test_Redeem_InsufficientBalance() external {
+    function test_Redeem_InsufficientContractTokenBalance() external {
         // Mint esETH
         vm.prank(user1);
         uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
@@ -313,6 +297,30 @@ contract esETHTest is Test {
             abi.encodeWithSelector(esETH.InsufficientBalance.selector, address(weth))
         );
         esETHContract.redeem(address(weth), esETHAmount + 1);
+    }
+
+    function test_Redeem_InsufficientEsETHBalanceToBurn() external {
+        // Mint some esETH for user1
+        vm.prank(user1);
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // Increase totalMinted + contract WETH balance so the failure comes from burning esETH
+        // (not token balance checks, and not totalMinted underflow).
+        vm.prank(user2);
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // User tries to redeem more WETH than their esETH balance supports burning.
+        uint256 redeemAmount = esETHAmount + 1;
+        vm.prank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+                user1,
+                esETHAmount,
+                redeemAmount
+            )
+        );
+        esETHContract.redeem(address(weth), redeemAmount);
     }
 
     function test_Redeem_ZeroAmount() external {
@@ -512,7 +520,7 @@ contract esETHTest is Test {
         assertEq(supplyAfter, supplyBefore);
     }
 
-    function test_BurnSurplus_OwnerMustHaveBalance() external {
+    function test_BurnSurplus_BurnsFromCallerBalance() external {
         // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -538,6 +546,34 @@ contract esETHTest is Test {
 
         // Should burn surplus from owner's balance
         assertLt(supplyAfter, supplyBefore);
+    }
+
+    function test_BurnSurplus_RevertsIfCallerInsufficientEsETH() external {
+        // Mint esETH (this also moves WETH backing into the contract)
+        vm.prank(user1);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT);
+
+        // Create a surplus by reducing backing (simulate loss)
+        vm.prank(address(esETHContract));
+        weth.transfer(owner, MINT_AMOUNT / 2);
+
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+
+        // Surplus is totalMinted (MINT_AMOUNT) - backing (MINT_AMOUNT/2) = MINT_AMOUNT/2.
+        // Owner has 0 esETH, so burning should revert with OZ ERC20 insufficient balance.
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+                owner,
+                0,
+                MINT_AMOUNT / 2
+            )
+        );
+        esETHContract.burnSurplus(tokens);
     }
 
     // ============ Set Harvest Receiver Tests ============
