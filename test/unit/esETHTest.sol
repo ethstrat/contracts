@@ -309,20 +309,6 @@ contract esETHTest is Test {
         esETHContract.wrapAndMint{value: 0}(user1);
     }
 
-    function test_MintAndWrap_Alias_Works() external {
-        uint256 amount = 3 ether;
-        vm.deal(user1, amount);
-
-        uint256 esETHBefore = esETHContract.balanceOf(user2);
-        uint256 wethBackingBefore = weth.balanceOf(address(esETHContract));
-
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mintAndWrap{value: amount}(user2);
-
-        assertEq(esETHAmount, amount);
-        assertEq(esETHContract.balanceOf(user2), esETHBefore + amount);
-        assertEq(weth.balanceOf(address(esETHContract)), wethBackingBefore + amount);
-    }
 
     function test_Mint_WithERC4626() external {
         uint256 amount = MINT_AMOUNT;

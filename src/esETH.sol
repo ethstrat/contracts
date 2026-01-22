@@ -120,22 +120,11 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         nonReentrant
         returns (uint256 esETHAmount)
     {
-        if (tokenAmount == 0) revert ZeroAmount();
-        if (receiver == address(0)) revert ZeroAddress();
-
-        TokenConfig memory config = tokenConfigs[token];
-        if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
-        if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
-
         // Transfer tokens from user
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
-        // Calculate ETH value of deposited tokens
-        esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
-        tokenConfigs[token].totalMinted += esETHAmount;
-
-        _mint(receiver, esETHAmount);
-        emit Minted(msg.sender, receiver, token, tokenAmount, esETHAmount);
+        // Validate and mint
+        esETHAmount = _mintInternal(token, tokenAmount, receiver);
     }
 
     /**
@@ -145,36 +134,40 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @return esETHAmount The amount of esETH minted
      */
     function wrapAndMint(address receiver) external payable nonReentrant returns (uint256 esETHAmount) {
-        return _wrapAndMint(receiver, msg.value);
+        // Wrap into WETH (WETH is minted to this contract)
+        IWETH(WETH).deposit{value: msg.value}();
+
+        // Validate and mint
+        esETHAmount = _mintInternal(WETH, msg.value, receiver);
     }
 
     /**
-     * @notice Alias for {wrapAndMint}. Wrap raw ETH into WETH, then mint esETH.
+     * @dev Internal helper to mint esETH after tokens are already in the contract
+     * @param token The token address used for backing
+     * @param tokenAmount The amount of tokens backing this mint
      * @param receiver The address to receive minted esETH
      * @return esETHAmount The amount of esETH minted
      */
-    function mintAndWrap(address receiver) external payable nonReentrant returns (uint256 esETHAmount) {
-        return _wrapAndMint(receiver, msg.value);
-    }
-
-    function _wrapAndMint(address receiver, uint256 value) internal returns (uint256 esETHAmount) {
-        if (value == 0) revert ZeroAmount();
+    function _mintInternal(
+        address token,
+        uint256 tokenAmount,
+        address receiver
+    ) internal returns (uint256 esETHAmount) {
+        // Validate inputs
+        if (tokenAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
-        address token = WETH;
-        TokenConfig memory config = tokenConfigs[token];
+        // Validate token configuration
+        TokenConfig storage config = tokenConfigs[token];
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
         if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
 
-        // Wrap into WETH (WETH is minted to this contract)
-        IWETH(token).deposit{value: value}();
-
-        // Calculate ETH value of deposited WETH (1:1 when configured as ERC20)
-        esETHAmount = _convertTokenToETH(token, value, config.tokenType);
-        tokenConfigs[token].totalMinted += esETHAmount;
+        // Calculate ETH value of deposited tokens
+        esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
+        config.totalMinted += esETHAmount;
 
         _mint(receiver, esETHAmount);
-        emit Minted(msg.sender, receiver, token, value, esETHAmount);
+        emit Minted(msg.sender, receiver, token, tokenAmount, esETHAmount);
     }
 
     /**

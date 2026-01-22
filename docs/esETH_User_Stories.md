@@ -35,7 +35,7 @@
 - **I want to** deposit ETH directly to mint esETH
 - **So that** I can mint esETH without first manually wrapping to WETH
 - **Acceptance Criteria:**
-  - User calls `wrapAndMint(receiver)` (or the alias `mintAndWrap(receiver)`) with `msg.value > 0`
+  - User calls `wrapAndMint(receiver)` with `msg.value > 0`
   - Contract wraps `msg.value` into the configured `WETH`
   - `WETH` must be **supported** and **whitelisted for minting** (`isMintable == true`) unless caller is `treasuryManager`
   - esETH minted is based on the ETH value of the wrapped `WETH` backing
