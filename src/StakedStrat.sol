@@ -101,7 +101,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
             totalSyncedRewards = currentBalance;
             return;
         }
-        
+
         uint256 newRewards = currentBalance - totalSyncedRewards;
         if (newRewards == 0) {
             return;
@@ -132,7 +132,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
         // Calculate current pending rewards to preserve them
         int256 currentRewardDebt = rewardDebt[msg.sender];
-        
+
         // Transfer STRAT from user
         stratToken.safeTransferFrom(msg.sender, address(this), amount);
 

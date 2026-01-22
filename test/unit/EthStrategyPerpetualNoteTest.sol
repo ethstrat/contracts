@@ -259,7 +259,7 @@ contract EthStrategyPerpetualNoteTest is Test {
         // Check that totalAssets decreased (allowing for rounding in ERC4626 calculations)
         assertEq(pb.totalAssets(), totalAssetsAfterIncrease - assetsReceived);
     }
-    
+
     function test_OnlyShareOwnerCanRedeemOrWithdraw() public {
         // First deposit and add assets
         uint256 shares = pb.deposit(DEPOSIT_AMOUNT, user1);

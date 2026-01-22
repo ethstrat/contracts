@@ -31,13 +31,23 @@ interface IAaveV2AToken {
  * @dev A wrapped token that represents a basket of staked ETH/LSTs (Eth Strategy's Treasury)
  *      Users can mint esETH by depositing whitelisted LSTs, and redeem esETH
  *      for any whitelisted LST. The token does not rebase and is not yield-bearing.
- * .    Yield is periodically 'harvested' by minting more esETH if the total backing 
+ * .    Yield is periodically 'harvested' by minting more esETH if the total backing
  * .    exceeds total supply
  */
 contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    enum TokenType { UNSUPPORTED, ERC20, ERC4626, WSTETH, RETH, CETH, AETHV2, ANKRETH, CBETH }
+    enum TokenType {
+        UNSUPPORTED,
+        ERC20,
+        ERC4626,
+        WSTETH,
+        RETH,
+        CETH,
+        AETHV2,
+        ANKRETH,
+        CBETH
+    }
 
     /// @dev Structure to store token configuration
     struct TokenConfig {
@@ -55,20 +65,29 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     address public treasuryManager;
 
     /// @dev Events
-    event Minted(address indexed caller, address indexed receiver, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
-    event Redeemed(address indexed caller, address indexed receiver, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
-    event LSTConverted(address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss);
+    event Minted(
+        address indexed caller,
+        address indexed receiver,
+        address indexed token,
+        uint256 tokenAmount,
+        uint256 esETHAmount
+    );
+    event Redeemed(
+        address indexed caller,
+        address indexed receiver,
+        address indexed token,
+        uint256 tokenAmount,
+        uint256 esETHAmount
+    );
+    event LSTConverted(
+        address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss
+    );
     event YieldHarvested(uint256 esETHAmount);
     event ExcessBurned(uint256 esETHAmount);
     event YieldReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
     event TreasuryManagerUpdated(address indexed oldManager, address indexed newManager);
 
-    event TokenConfigUpdated(
-        address indexed token,
-        TokenType tokenType,
-        bool isMintable,
-        bool isRedeemable
-    );
+    event TokenConfigUpdated(address indexed token, TokenType tokenType, bool isMintable, bool isRedeemable);
 
     /// @dev Errors
     error TokenNotWhitelistedForMint(address token);
@@ -96,13 +115,17 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @param receiver The address to receive minted esETH
      * @return esETHAmount The amount of esETH minted
      */
-    function mint(address token, uint256 tokenAmount, address receiver) external nonReentrant returns (uint256 esETHAmount) {
+    function mint(address token, uint256 tokenAmount, address receiver)
+        external
+        nonReentrant
+        returns (uint256 esETHAmount)
+    {
         if (tokenAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
-        
+
         TokenConfig memory config = tokenConfigs[token];
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
-        if (msg.sender !=treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
+        if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
 
         // Transfer tokens from user
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
@@ -161,10 +184,14 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @param receiver The address to receive redeemed tokens
      * @return esETHAmount The amount of esETH burned
      */
-    function redeem(address token, uint256 tokenAmount, address receiver) external nonReentrant returns (uint256 esETHAmount) {
+    function redeem(address token, uint256 tokenAmount, address receiver)
+        external
+        nonReentrant
+        returns (uint256 esETHAmount)
+    {
         if (tokenAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
-        
+
         TokenConfig storage config = tokenConfigs[token];
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
         if (msg.sender != treasuryManager && !config.isRedeemable) revert TokenNotWhitelistedForRedeem(token);
@@ -191,12 +218,10 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @param isMintable Whether this token can be used to mint esETH
      * @param isRedeemable Whether this token can be redeemed for esETH
      */
-    function setTokenConfig(
-        address token,
-        TokenType tokenType,
-        bool isMintable,
-        bool isRedeemable
-    ) external onlyOwner {
+    function setTokenConfig(address token, TokenType tokenType, bool isMintable, bool isRedeemable)
+        external
+        onlyOwner
+    {
         if (token == address(0)) {
             revert ZeroAddress();
         }
@@ -282,7 +307,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         for (uint256 i = 0; i < tokens.length; i++) {
             address t = tokens[i];
             TokenConfig memory config = tokenConfigs[t];
-            
+
             // Only count tokens that are supported
             if (config.tokenType != TokenType.UNSUPPORTED) {
                 uint256 balance = IERC20(t).balanceOf(address(this));
@@ -313,7 +338,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         for (uint256 i = 0; i < tokens.length; i++) {
             address t = tokens[i];
             TokenConfig memory config = tokenConfigs[t];
-            
+
             // Only count tokens that are supported
             if (config.tokenType != TokenType.UNSUPPORTED) {
                 uint256 balance = IERC20(t).balanceOf(address(this));

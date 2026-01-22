@@ -32,11 +32,13 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public amountOwedCdt;
 
-    /// @notice The amount of STRAT the note holder is entitled to receive on conversion (remaining if partially exercised)
+    /// @notice The amount of STRAT the note holder is entitled to receive on conversion (remaining if partially
+    /// exercised)
     /// @dev    Scale: SCALE
     mapping(uint256 tokenId => uint256) public conversionEntitlementStrat;
 
-    /// @notice The amount of ETH the note holder is entitled to receive on conversion to ETH (remaining if partially converted)
+    /// @notice The amount of ETH the note holder is entitled to receive on conversion to ETH (remaining if partially
+    /// converted)
     /// @dev    Scale: 1e18 (wei)
     mapping(uint256 tokenId => uint256) public conversionEntitlementEth;
 
@@ -77,7 +79,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 remainingEth,
         uint256 remainingUsd
     );
-    event Redemption(address indexed optionOwner, uint256 indexed tokenId, uint256 notionalUSDAmount, uint256 ethAmount);
+    event Redemption(
+        address indexed optionOwner, uint256 indexed tokenId, uint256 notionalUSDAmount, uint256 ethAmount
+    );
 
     error NoEthSent();
     error ZeroAddress();
@@ -137,7 +141,10 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         emit RendererUpdated(renderer);
     }
 
-    function bond(address bonder, uint256 minConversionAmountStrat, uint256 minConversionAmountEth, uint256 deadline) external payable {
+    function bond(address bonder, uint256 minConversionAmountStrat, uint256 minConversionAmountEth, uint256 deadline)
+        external
+        payable
+    {
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
         if (deadline < block.timestamp) revert TransactionStale(deadline);
@@ -186,10 +193,10 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         emit LongBond(
             bonder,
             tokenId,
-            settlementAmountUsd_,       // strike / CDT owed
-            conversionAmountStrat_,     // notional underlying (STRAT)
-            settlementAmountUsd_,       // notional USD
-            msg.value,                  // ETH bonded
+            settlementAmountUsd_, // strike / CDT owed
+            conversionAmountStrat_, // notional underlying (STRAT)
+            settlementAmountUsd_, // notional USD
+            msg.value, // ETH bonded
             expiry_,
             timelock_
         );
@@ -275,13 +282,13 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             _burn(tokenId);
         }
         emit Conversion(
-            optionOwner, 
-            tokenId, 
-            cdtToBurn, 
-            stratOut, 
-            ethOut, 
-            remainingConversionEntitlementStrat_, 
-            remainingConversionEntitlementEth_, 
+            optionOwner,
+            tokenId,
+            cdtToBurn,
+            stratOut,
+            ethOut,
+            remainingConversionEntitlementStrat_,
+            remainingConversionEntitlementEth_,
             remainingSettlementEntitlementUsd_
         );
     }
@@ -390,7 +397,6 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         view
         returns (uint256 stratAmount, uint256 ethAmount)
     {
-
         uint256 ethPriceUSD = _getEthUsdPrice();
         uint256 totalEth = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
         uint256 gav = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
@@ -418,18 +424,16 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
-            return TokenURIRenderer(tokenURIRenderer)
-                .render(
-                    tokenId,
-                    amountOwedCdt[tokenId],
-                    conversionEntitlementStrat[tokenId],
-                    settlementEntitlementUsd[tokenId],
-                    expiry[tokenId],
-                    timelock[tokenId]
-                );
+            return TokenURIRenderer(tokenURIRenderer).render(
+                tokenId,
+                amountOwedCdt[tokenId],
+                conversionEntitlementStrat[tokenId],
+                settlementEntitlementUsd[tokenId],
+                expiry[tokenId],
+                timelock[tokenId]
+            );
         } else {
             return "";
         }
     }
 }
-

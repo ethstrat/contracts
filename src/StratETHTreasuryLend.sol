@@ -13,7 +13,8 @@ import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
  * - Positions are transferable NFTs; the NFT owner controls repay/roll.
  * - Interest accrues linearly over time using a fixed per-position rate snapshot.
  * - Positions are unliquidatable until expiry; after expiry anyone can liquidate (permissionless cleanup).
- * - Borrow capacity is derived from STRAT backing value (via esETH balances in holdings addresses) and a maxLTV parameter.
+ * - Borrow capacity is derived from STRAT backing value (via esETH balances in holdings addresses) and a maxLTV
+ * parameter.
  * - Borrow amount is net of the maximum term interest (reserved) and a configurable fee (also reserved).
  */
 contract StratETHTreasuryLend is Ownable2Step, ERC721 {
@@ -92,11 +93,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     );
 
     event Repaid(
-        address indexed payer,
-        uint256 indexed tokenId,
-        uint256 principalRepaid,
-        uint256 interestPaid,
-        uint256 timestamp
+        address indexed payer, uint256 indexed tokenId, uint256 principalRepaid, uint256 interestPaid, uint256 timestamp
     );
 
     event Rolled(
@@ -270,7 +267,8 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     }
 
     // ======== Core flows ========
-    /// @notice Borrow by supplying up to `stratIn` and `cdtIn` as collateral. Only the covered portion is pulled (US-100).
+    /// @notice Borrow by supplying up to `stratIn` and `cdtIn` as collateral. Only the covered portion is pulled
+    /// (US-100).
     function borrow(uint256 stratIn, uint256 cdtIn, uint256 minBorrowAmount, uint256 deadline) external {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (stratIn == 0 || cdtIn == 0) revert ZeroAmount();
@@ -412,13 +410,8 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         }
 
         // Compute new terms from covered collateral under current params.
-        (
-            ,
-            uint256 maxTermInterestAmount,
-            uint256 newPrincipal,
-            uint256 feeAmount,
-            uint256 rateSnapshot
-        ) = _computeBorrowTerms(newStratCollateral);
+        (, uint256 maxTermInterestAmount, uint256 newPrincipal, uint256 feeAmount, uint256 rateSnapshot) =
+            _computeBorrowTerms(newStratCollateral);
 
         // Adjust principal (US-301). If increasing, pay out delta; if decreasing, require pay-in delta.
         if (newPrincipal > p.principal) {

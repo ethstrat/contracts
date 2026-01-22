@@ -127,7 +127,8 @@ pragma solidity ^0.8.20;
 //         // = STRAT_PRICE^2 * 1000 / 1998500
 //         uint256 expectedStrikePrice = stratPrice * stratPrice / 1998500e18 * 1000e18 / 1e18;
 //         uint256 calculatedStrikePrice = bonds.strikePrice(amount);
-//         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
+//         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is
+// incorrect");
 //     }
 
 //     function testStrikePrice_priceNotEqual() public {
@@ -144,7 +145,8 @@ pragma solidity ^0.8.20;
 //         // = STRAT_PRICE^2 * 1000 / 1998500
 //         uint256 expectedStrikePrice = stratPrice * stratPrice / 1998500e18 * 1000e18 / 1e18;
 //         uint256 calculatedStrikePrice = bonds.strikePrice(amount);
-//         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is incorrect");
+//         assertApproxEqAbs(calculatedStrikePrice, expectedStrikePrice, 100000, "Strike price calculation is
+// incorrect");
 //     }
 
 //     function testBond() public {

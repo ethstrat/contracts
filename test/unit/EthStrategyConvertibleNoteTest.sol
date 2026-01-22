@@ -11,7 +11,8 @@ import "../mocks/MockWETH.sol";
 import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
 
-/// @dev Unit tests aligned to docs/EthStrategyConvertibleNote_User_Stories.md and current src/EthStrategyConvertibleNote.sol.
+/// @dev Unit tests aligned to docs/EthStrategyConvertibleNote_User_Stories.md and current
+/// src/EthStrategyConvertibleNote.sol.
 contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, PermitGenerator {
     EthStrategyConvertibleNote public bonds;
     CdtToken public cdtToken;
@@ -146,7 +147,9 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
     function testBondRevertsOnStaleDeadline() public {
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.TransactionStale.selector, block.timestamp - 1));
+        vm.expectRevert(
+            abi.encodeWithSelector(EthStrategyConvertibleNote.TransactionStale.selector, block.timestamp - 1)
+        );
         bonds.bond{value: 1 ether}(user, 0, 0, block.timestamp - 1);
     }
 
@@ -156,11 +159,17 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         (uint256 expectedStrat, uint256 expectedEth) = bonds.conversionEntitlements(settlementUsd);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.InsufficientOutput.selector, expectedStrat + 1, expectedStrat));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.InsufficientOutput.selector, expectedStrat + 1, expectedStrat
+            )
+        );
         bonds.bond{value: ethAmount}(user, expectedStrat + 1, 0, block.timestamp);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.InsufficientOutput.selector, expectedEth + 1, expectedEth));
+        vm.expectRevert(
+            abi.encodeWithSelector(EthStrategyConvertibleNote.InsufficientOutput.selector, expectedEth + 1, expectedEth)
+        );
         bonds.bond{value: ethAmount}(user, 0, expectedEth + 1, block.timestamp);
     }
 
@@ -298,8 +307,9 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         uint256 strike = bonds.amountOwedCdt(tokenId);
         uint256 deadline = block.timestamp + 1 hours;
-        Permit.IPermitApproval memory approval =
-            _getPermitOwnerSignature(permitOwner, permitPk, address(bonds), deadline, strike, cdtToken.DOMAIN_SEPARATOR());
+        Permit.IPermitApproval memory approval = _getPermitOwnerSignature(
+            permitOwner, permitPk, address(bonds), deadline, strike, cdtToken.DOMAIN_SEPARATOR()
+        );
 
         vm.prank(permitOwner);
         bonds.convertWithPermit(tokenId, approval);
@@ -381,4 +391,3 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
     }
 }
-

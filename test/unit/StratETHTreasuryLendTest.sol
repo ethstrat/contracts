@@ -35,7 +35,7 @@ contract StratETHTreasuryLendTest is Test {
 
         // 10% APR
         lend = new StratETHTreasuryLend(
-            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.10e18, owner
+            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.1e18, owner
         );
 
         // Allow owner + lend to mint STRAT/CDT (lend needs this to return collateral on repay/roll).
@@ -81,7 +81,7 @@ contract StratETHTreasuryLendTest is Test {
     function test_Constructor_DefaultsAndRoles() public view {
         assertEq(lend.maxLTV(), 0.9e18);
         assertEq(lend.loanDuration(), 180 days);
-        assertEq(lend.borrowRate(), 0.10e18);
+        assertEq(lend.borrowRate(), 0.1e18);
         assertEq(lend.debtPerStrat(), 1e18);
         assertEq(lend.rateSetter(), owner);
         assertEq(lend.feeSetter(), owner);
@@ -317,4 +317,3 @@ contract StratETHTreasuryLendTest is Test {
         lend.ownerOf(tokenId);
     }
 }
-

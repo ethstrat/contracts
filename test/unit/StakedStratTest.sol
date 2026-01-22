@@ -145,7 +145,7 @@ contract StakedStratTest is Test {
         address newUser = address(0x99);
         vm.prank(owner);
         stratToken.mint(newUser, 10000 * 1e18);
-        
+
         // Attempt to stake without approval should fail
         vm.prank(newUser);
         vm.expectRevert();
@@ -616,11 +616,11 @@ contract StakedStratTest is Test {
         // So it will show rewards even before sync. However, rewards cannot be CLAIMED
         // until syncRewards() is called (which happens automatically in claim()).
         // Verify that claim() without sync doesn't work (but claim() calls syncRewards internally)
-        
+
         // Actually, claim() calls syncRewards() internally, so it will work.
         // The key is that syncRewards() must be called (either manually or via claim).
         // Let's verify that syncRewards() is what makes rewards distributable:
-        
+
         // Before sync, rewardsPerShare should be 0
         assertEq(stakedStrat.rewardsPerShare(), 0);
         assertEq(stakedStrat.totalSyncedRewards(), 0);
@@ -631,7 +631,7 @@ contract StakedStratTest is Test {
         // After sync, rewardsPerShare should be updated
         assertGt(stakedStrat.rewardsPerShare(), 0);
         assertEq(stakedStrat.totalSyncedRewards(), REWARD_AMOUNT_1);
-        
+
         // Now rewards should be claimable
         assertEq(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1);
     }
@@ -683,7 +683,7 @@ contract StakedStratTest is Test {
         // US-011: Verify nonReentrant modifiers are present
         // This is a compile-time check - if modifiers weren't present, tests would fail
         // We verify by checking the contract compiles and functions exist
-        
+
         // The nonReentrant modifier is applied via ReentrancyGuard inheritance
         // We can't easily test reentrancy with ERC20 transfers since SafeERC20
         // doesn't support hooks, but the modifier presence is verified by compilation

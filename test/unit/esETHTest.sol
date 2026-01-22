@@ -125,9 +125,7 @@ contract esETHTest is Test {
         newToken.initialize("New Token", "NEW", 18);
 
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1)
-        );
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1));
         esETHContract.setTokenConfig(address(newToken), esETH.TokenType.ERC20, true, true);
     }
 
@@ -165,9 +163,7 @@ contract esETHTest is Test {
 
     function test_SetTreasuryManager_OnlyOwner() external {
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1)
-        );
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1));
         esETHContract.setTreasuryManager(treasuryManager);
     }
 
@@ -351,9 +347,7 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, true);
 
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(weth))
-        );
+        vm.expectRevert(abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(weth)));
         esETHContract.mint(address(weth), MINT_AMOUNT, user1);
     }
 
@@ -446,9 +440,7 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, false);
 
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(esETH.TokenNotWhitelistedForRedeem.selector, address(weth))
-        );
+        vm.expectRevert(abi.encodeWithSelector(esETH.TokenNotWhitelistedForRedeem.selector, address(weth)));
         esETHContract.redeem(address(weth), esETHAmount, user1);
     }
 
@@ -459,9 +451,7 @@ contract esETHTest is Test {
 
         // Try to redeem more than contract has
         vm.prank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(esETH.InsufficientBalance.selector, address(weth))
-        );
+        vm.expectRevert(abi.encodeWithSelector(esETH.InsufficientBalance.selector, address(weth)));
         esETHContract.redeem(address(weth), esETHAmount + 1, user1);
     }
 
@@ -480,10 +470,7 @@ contract esETHTest is Test {
         vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
-                user1,
-                esETHAmount,
-                redeemAmount
+                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")), user1, esETHAmount, redeemAmount
             )
         );
         esETHContract.redeem(address(weth), redeemAmount, user1);
@@ -738,10 +725,7 @@ contract esETHTest is Test {
         vm.prank(owner);
         vm.expectRevert(
             abi.encodeWithSelector(
-                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
-                owner,
-                0,
-                MINT_AMOUNT / 2
+                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")), owner, 0, MINT_AMOUNT / 2
             )
         );
         esETHContract.burnExcess(tokens);
@@ -785,9 +769,7 @@ contract esETHTest is Test {
         MintableMockERC20 newToken = new MintableMockERC20();
         newToken.initialize("New Token", "NEW", 18);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken))
-        );
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(newToken)));
         esETHContract.getETHValue(address(newToken), MINT_AMOUNT);
     }
 
