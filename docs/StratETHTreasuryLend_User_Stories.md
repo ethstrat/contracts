@@ -10,6 +10,9 @@
 - **Owner**: The contract owner (governance root).
 - **Rate Setter**: An address delegated to update the borrow interest rate parameter (initially the `owner`, but changeable).
 - **Fee Setter**: An address delegated to update the delinquent fee parameter (initially the `owner`, but changeable).
+- **Unencumbered Holdings**: An address holding unencumbered `esETH` used as the source of all loan payouts and the destination of all principal repayments.
+- **Encumbered Holdings**: An address holding encumbered `esETH` (included in total backing for STRAT valuation).
+- **Interest Revenue Recipient**: An address that receives paid interest (e.g. a staking rewards pool).
 - **STRAT Stakers**: Users staking STRAT (e.g. via `StakedStrat`) who should receive TreasuryLend interest revenue.
 
 ---
@@ -77,11 +80,15 @@
   - Borrower deposits STRAT and CDT as collateral.
   - The protocol determines how much of the STRAT collateral is actively backed by CDT (the "covered" portion) according to protocol rules.
   - Only this covered STRAT is used to calculate how much can be borrowed, and pulled from the user (with associated CDT)
-  - The protocol values the collateral using the backing value for STRAT (use iTreasury as an abstraction)
-  - The maximum amount available to borrow is calculated as total available Borrow - diliquentFee - maxInterestPayable (if user held to term)
+  - The protocol values the collateral using the backing value for STRAT derived from holdings:
+    - `totalHoldingsInETH = esETH.balanceOf(unencumberedHoldings) + esETH.balanceOf(encumberedHoldings)`
+    - `stratBackingValue = totalHoldingsInETH * coveredStrat / STRAT.totalSupply()`
+  - The maximum amount available to borrow is calculated as maxLTV of backing value, net of reserved amounts:
+    - `maxBorrowBeforeInterest = stratBackingValue * maxLTV`
+    - `borrowAmount` is computed such that `borrowAmount + maxTermInterest + delinquentFee = maxBorrowBeforeInterest`
   - An interest rate for the position is set when the loan is opened and does not change for that position.
   - Borrowing costs (interest for the full term) are subtracted upfront from the borrowable amount, but are charged linearly over the loan term
-  - The user receives esETH when the loan is opened (the contract should be configured with a wrappedETH erc20 on construction)
+  - The user receives `esETH` when the loan is opened, transferred from `unencumberedHoldings`
   - A position NFT is minted that records all terms relevant to the position (collateral amounts, borrowed amount, rate, times, etc).
 
 **US-101: Preview borrow outcome**
@@ -119,7 +126,8 @@
   - On repay:
     - The position NFT is burned
     - The borrower receives back their deposited STRAT and CDT
-    - The protocol records/escrows the paid interest as protocol revenue (see “Interest Distribution”)
+    - Principal repayment is transferred to `unencumberedHoldings`
+    - Interest is transferred to `interestRevenueRecipient` (see “Interest Distribution”)
 
 ### Rolling (Modify an existing position NFT)
 
@@ -210,7 +218,7 @@
 - **I want** interest paid by TreasuryLend borrowers to accrue to STRAT stakers
 - **So that** staking STRAT captures the protocol’s lending revenue
 - **Acceptance Criteria:**
-  - Interest paid on repay/roll is accounted for as “distributable revenue”
+  - Interest paid on repay/roll is transferred to `interestRevenueRecipient` (in `esETH`)
   - The system provides a mechanism to deliver that revenue to stakers (method TBD), e.g.:
     - transfer/mint `esETH` to the staked-STRAT rewards pool, or
     - send ETH to a distributor that converts to `esETH` and funds staker rewards

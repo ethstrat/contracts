@@ -4,12 +4,6 @@ pragma solidity ^0.8.24;
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
-import {ITreasury} from "./interfaces/ITreasury.sol";
-
-interface IWETH is IERC20 {
-    function deposit() external payable;
-    function withdraw(uint256 amount) external;
-}
 
 /**
  * @title StratETHTreasuryLend
@@ -19,7 +13,7 @@ interface IWETH is IERC20 {
  * - Positions are transferable NFTs; the NFT owner controls repay/roll.
  * - Interest accrues linearly over time using a fixed per-position rate snapshot.
  * - Positions are unliquidatable until expiry; after expiry anyone can liquidate (permissionless cleanup).
- * - Borrow capacity is derived from STRAT backing value (via ITreasury.total()) and a maxLTV parameter.
+ * - Borrow capacity is derived from STRAT backing value (via esETH balances in holdings addresses) and a maxLTV parameter.
  * - Borrow amount is net of the maximum term interest (reserved) and a configurable fee (also reserved).
  */
 contract StratETHTreasuryLend is Ownable2Step, ERC721 {
@@ -27,7 +21,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     struct Position {
         uint256 stratCollateral;
         uint256 cdtCollateral;
-        uint256 principal; // amount borrowed (WETH / ETH-representation) sent to borrower
+        uint256 principal; // amount borrowed (esETH) sent to borrower
         uint256 maxTermInterest; // full-term interest amount for this position (principal * rate * duration / 365d)
         uint256 rate; // per-position APR, scaled by 1e18
         uint256 fee; // per-position fee snapshot (reserved at origination/roll)
@@ -38,8 +32,9 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     // ======== Immutable config ========
     IERC20MintableBurnable public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
-    ITreasury public immutable treasury;
-    IWETH public immutable wrappedETH;
+    IERC20 public immutable esETHToken;
+    address public immutable unencumberedHoldings;
+    address public immutable encumberedHoldings;
 
     // ======== Global parameters ========
     uint256 public constant SCALE = 1e18;
@@ -57,11 +52,11 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     /// @notice CDT required per STRAT of covered collateral (scaled by 1e18).
     uint256 public debtPerStrat;
 
-    /// @notice Reserved fee deducted from borrow capacity for new borrows/rolls (in wei of wrappedETH).
+    /// @notice Reserved fee deducted from borrow capacity for new borrows/rolls (in wei of esETH).
     uint256 public delinquentFee;
 
     /// @notice Address that receives interest revenue (e.g. a staking rewards pool).
-    address public revenueRecipient;
+    address public interestRevenueRecipient;
 
     /// @notice Delegated roles for parameter updates (owner-managed).
     address public rateSetter;
@@ -80,7 +75,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     event BorrowRateUpdated(uint256 oldVal, uint256 newVal);
     event DebtPerStratUpdated(uint256 oldVal, uint256 newVal);
     event DelinquentFeeUpdated(uint256 oldVal, uint256 newVal);
-    event RevenueRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
+    event InterestRevenueRecipientUpdated(address indexed oldRecipient, address indexed newRecipient);
 
     event Borrowed(
         address indexed borrower,
@@ -136,27 +131,33 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     /**
      * @param _cdtToken     The CDT token (mintable/burnable)
      * @param _stratToken   The STRAT token (mintable/burnable)
-     * @param _treasury     Treasury (ETH backing source)
-     * @param _wrappedETH   ERC20 wrapper for ETH payouts/repayments (e.g. WETH-like)
+     * @param _esETHToken   The esETH token used for payouts/repayments
+     * @param _unencumberedHoldings Address holding unencumbered esETH (source of all loan payouts)
+     * @param _encumberedHoldings Address holding encumbered esETH (included in total backing for STRAT valuation)
      * @param _borrowRate   Initial borrow APR for new positions (scaled by 1e18)
      * @param owner         Contract owner
      */
     constructor(
         address _cdtToken,
         address _stratToken,
-        address _treasury,
-        address _wrappedETH,
+        address _esETHToken,
+        address _unencumberedHoldings,
+        address _encumberedHoldings,
         uint256 _borrowRate,
         address owner
     ) Ownable(owner) ERC721("STRAT Treasury Lend", "tlSTRAT") {
-        if (_cdtToken == address(0) || _stratToken == address(0) || _treasury == address(0) || _wrappedETH == address(0)) {
+        if (
+            _cdtToken == address(0) || _stratToken == address(0) || _esETHToken == address(0)
+                || _unencumberedHoldings == address(0) || _encumberedHoldings == address(0)
+        ) {
             revert ZeroAddress();
         }
 
         cdtToken = IERC20MintableBurnable(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
-        treasury = ITreasury(_treasury);
-        wrappedETH = IWETH(_wrappedETH);
+        esETHToken = IERC20(_esETHToken);
+        unencumberedHoldings = _unencumberedHoldings;
+        encumberedHoldings = _encumberedHoldings;
 
         // Defaults per user stories (targets).
         maxLTV = 0.9e18;
@@ -169,7 +170,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         feeSetter = owner;
 
         // Revenue recipient defaults to owner (governance can later point to a staking rewards pool).
-        revenueRecipient = owner;
+        interestRevenueRecipient = owner;
     }
 
     // ======== Owner-managed role delegation (US-000) ========
@@ -221,11 +222,11 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         emit DelinquentFeeUpdated(old, newFee);
     }
 
-    function setRevenueRecipient(address newRecipient) external onlyOwner {
+    function setInterestRevenueRecipient(address newRecipient) external onlyOwner {
         if (newRecipient == address(0)) revert ZeroAddress();
-        address old = revenueRecipient;
-        revenueRecipient = newRecipient;
-        emit RevenueRecipientUpdated(old, newRecipient);
+        address old = interestRevenueRecipient;
+        interestRevenueRecipient = newRecipient;
+        emit InterestRevenueRecipientUpdated(old, newRecipient);
     }
 
     // ======== Views ========
@@ -310,10 +311,8 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         // Mint position NFT (US-010).
         _mint(msg.sender, tokenId);
 
-        // Withdraw ETH from treasury, wrap, and send to borrower (US-100).
-        treasury.withdraw(principalAmount, address(this));
-        wrappedETH.deposit{value: principalAmount}();
-        if (!wrappedETH.transfer(msg.sender, principalAmount)) revert TransferFailed();
+        // Payout is esETH sourced from the unencumbered holdings address (US-100).
+        if (!esETHToken.transferFrom(unencumberedHoldings, msg.sender, principalAmount)) revert TransferFailed();
 
         emit Borrowed(
             msg.sender,
@@ -333,7 +332,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         maxBorrowBeforeInterest;
     }
 
-    /// @notice Repay before expiry (US-201). Pays accrued interest to `revenueRecipient`.
+    /// @notice Repay before expiry (US-201). Pays accrued interest to `interestRevenueRecipient`.
     function repay(uint256 tokenId) external {
         address posOwner = ownerOf(tokenId);
         if (msg.sender != posOwner) revert NotPositionOwner(msg.sender, tokenId);
@@ -342,20 +341,13 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         if (block.timestamp >= p.expiry) revert LoanExpired(tokenId);
 
         uint256 interest = accruedInterest(tokenId);
-        uint256 totalPay = p.principal + interest;
+        // Route principal + delinquent fee (reserved at origination) back to unencumbered holdings.
+        if (!esETHToken.transferFrom(msg.sender, unencumberedHoldings, p.principal)) revert TransferFailed();
 
-        // Pull wrappedETH from payer.
-        if (!wrappedETH.transferFrom(msg.sender, address(this), totalPay)) revert TransferFailed();
-
-        // Route interest to revenue recipient (US-600 intent).
+        // Route interest to interest revenue recipient.
         if (interest > 0) {
-            if (!wrappedETH.transfer(revenueRecipient, interest)) revert TransferFailed();
+            if (!esETHToken.transferFrom(msg.sender, interestRevenueRecipient, interest)) revert TransferFailed();
         }
-
-        // Unwrap and return principal to treasury (ETH).
-        wrappedETH.withdraw(p.principal);
-        (bool ok,) = address(treasury).call{value: p.principal}("");
-        if (!ok) revert TransferFailed();
 
         // Close: burn NFT and restore collateral (mint back).
         _burn(tokenId);
@@ -382,7 +374,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         // Settle accrued interest up to now.
         uint256 interest = accruedInterest(tokenId);
         if (interest > 0) {
-            if (!wrappedETH.transferFrom(msg.sender, revenueRecipient, interest)) revert TransferFailed();
+            if (!esETHToken.transferFrom(msg.sender, interestRevenueRecipient, interest)) revert TransferFailed();
         }
 
         // Adjust collateral (burn/mint to match target amounts).
@@ -431,15 +423,10 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         // Adjust principal (US-301). If increasing, pay out delta; if decreasing, require pay-in delta.
         if (newPrincipal > p.principal) {
             uint256 delta = newPrincipal - p.principal;
-            treasury.withdraw(delta, address(this));
-            wrappedETH.deposit{value: delta}();
-            if (!wrappedETH.transfer(msg.sender, delta)) revert TransferFailed();
+            if (!esETHToken.transferFrom(unencumberedHoldings, msg.sender, delta)) revert TransferFailed();
         } else if (newPrincipal < p.principal) {
             uint256 delta = p.principal - newPrincipal;
-            if (!wrappedETH.transferFrom(msg.sender, address(this), delta)) revert TransferFailed();
-            wrappedETH.withdraw(delta);
-            (bool ok,) = address(treasury).call{value: delta}("");
-            if (!ok) revert TransferFailed();
+            if (!esETHToken.transferFrom(msg.sender, unencumberedHoldings, delta)) revert TransferFailed();
         }
 
         // Update outstanding principal accounting.
@@ -497,8 +484,12 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     function _stratBackingValue(uint256 stratAmount) internal view returns (uint256) {
         uint256 stratSupply = stratToken.totalSupply();
         if (stratSupply == 0) revert StratSupplyIsZero();
-        // backing value in ETH wei: treasury.total() * stratAmount / totalSupply
-        return (treasury.total() * stratAmount) / stratSupply;
+        // backing value in ETH wei: totalHoldings * stratAmount / totalSupply
+        return (_totalHoldingsInETH() * stratAmount) / stratSupply;
+    }
+
+    function _totalHoldingsInETH() internal view returns (uint256) {
+        return esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
     }
 
     function _coveredStratAndRequiredCdt(uint256 stratIn, uint256 cdtIn)
@@ -543,5 +534,5 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         if (principalAmount == 0) revert BorrowTooSmall();
     }
 
-    receive() external payable {}
+    // No ETH is expected to be received directly; all payouts/repayments are done in esETH.
 }
