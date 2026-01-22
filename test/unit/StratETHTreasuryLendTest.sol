@@ -290,6 +290,10 @@ contract StratETHTreasuryLendTest is Test {
     }
 
     function test_US400_401_Liquidation_Rules() public {
+        address revenue = address(0xD00D);
+        vm.prank(owner);
+        lend.setInterestRevenueRecipient(revenue);
+
         uint256 tokenId = _borrow(100 ether, 100 ether);
         StratETHTreasuryLend.Position memory p = lend.getPosition(tokenId);
 
@@ -297,9 +301,16 @@ contract StratETHTreasuryLendTest is Test {
         vm.expectRevert(abi.encodeWithSelector(StratETHTreasuryLend.LoanUnexpired.selector, tokenId));
         lend.liquidate(tokenId);
 
+        uint256 unencBefore = esEth.balanceOf(unencumberedHoldings);
+        uint256 revenueBefore = esEth.balanceOf(revenue);
+
         vm.warp(p.expiry);
         vm.prank(other);
         lend.liquidate(tokenId);
+
+        // Reserved full-term interest should be routed on liquidation.
+        assertEq(esEth.balanceOf(unencumberedHoldings), unencBefore - p.maxTermInterest);
+        assertEq(esEth.balanceOf(revenue), revenueBefore + p.maxTermInterest);
 
         // NFT burned
         vm.expectRevert();

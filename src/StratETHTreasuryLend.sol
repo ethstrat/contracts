@@ -471,6 +471,14 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
 
         address prevOwner = ownerOf(tokenId);
 
+        // On default (expiry), route the unpaid full-term interest that was reserved at origination/roll
+        // from unencumbered holdings to the interest revenue recipient.
+        if (p.maxTermInterest > 0) {
+            if (!esETHToken.transferFrom(unencumberedHoldings, interestRevenueRecipient, p.maxTermInterest)) {
+                revert TransferFailed();
+            }
+        }
+
         // Burn the position NFT; collateral was already burned at origination (forfeited).
         _burn(tokenId);
 
