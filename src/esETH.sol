@@ -51,16 +51,16 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     mapping(address token => TokenConfig) public tokenConfigs;
 
     address public immutable WETH;
-    address public harvestReceiver;
+    address public yieldReceiver;
     address public treasuryManager;
 
     /// @dev Events
     event Minted(address indexed caller, address indexed receiver, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
     event Redeemed(address indexed caller, address indexed receiver, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
     event LSTConverted(address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss);
-    event DeficitMinted(uint256 esETHAmount);
-    event SurplusBurned(uint256 esETHAmount);
-    event HarvestReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
+    event YieldHarvested(uint256 esETHAmount);
+    event ExcessBurned(uint256 esETHAmount);
+    event YieldReceiverUpdated(address indexed oldReceiver, address indexed newReceiver);
     event TreasuryManagerUpdated(address indexed oldManager, address indexed newManager);
 
     event TokenConfigUpdated(
@@ -85,7 +85,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     constructor(address _owner, address _weth) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {
         if (_weth == address(0)) revert ZeroAddress();
         WETH = _weth;
-        harvestReceiver = _owner;
+        yieldReceiver = _owner;
         treasuryManager = _owner;
     }
 
@@ -102,7 +102,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         
         TokenConfig memory config = tokenConfigs[token];
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
-        if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
+        if (msg.sender !=treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
 
         // Transfer tokens from user
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
@@ -274,10 +274,10 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     }
 
     /**
-     * @dev Mint deficit esETH based on backing vs total minted
+     * @dev Harvest yield by minting esETH when backing exceeds total minted
      */
-    function mintDeficit(address[] memory tokens) external nonReentrant {
-        uint256 deficit = 0;
+    function harvestYield(address[] memory tokens) external nonReentrant {
+        uint256 yield = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
             address t = tokens[i];
@@ -289,26 +289,26 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
                 if (balance > 0) {
                     uint256 esETHValueForToken = _convertTokenToETH(t, balance, config.tokenType);
                     if (esETHValueForToken > config.totalMinted) {
-                        deficit = deficit + (esETHValueForToken - config.totalMinted);
+                        yield = yield + (esETHValueForToken - config.totalMinted);
                         tokenConfigs[t].totalMinted = esETHValueForToken;
                     }
                 }
             }
         }
 
-        if (deficit > 0) {
-            _mint(harvestReceiver, deficit);
-            emit DeficitMinted(deficit);
+        if (yield > 0) {
+            _mint(yieldReceiver, yield);
+            emit YieldHarvested(yield);
         }
     }
 
     /**
-     * @dev Burn surplus esETH if total minted exceeds backing.
+     * @dev Burn excess esETH if total minted exceeds backing.
      *      This function checks each token and calculates if more esETH is minted than backing,
-     *      and burns the surplus amount from the contract's own balance.
+     *      and burns the excess amount from the caller's balance.
      */
-    function burnSurplus(address[] memory tokens) external nonReentrant {
-        uint256 surplus = 0;
+    function burnExcess(address[] memory tokens) external nonReentrant {
+        uint256 excess = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
             address t = tokens[i];
@@ -322,28 +322,28 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
                     esETHValueForToken = _convertTokenToETH(t, balance, config.tokenType);
                 }
                 if (config.totalMinted > esETHValueForToken) {
-                    surplus = surplus + (config.totalMinted - esETHValueForToken);
+                    excess = excess + (config.totalMinted - esETHValueForToken);
                     tokenConfigs[t].totalMinted = esETHValueForToken;
                 }
             }
         }
 
-        if (surplus > 0) {
-            _burn(msg.sender, surplus);
-            emit SurplusBurned(surplus);
+        if (excess > 0) {
+            _burn(msg.sender, excess);
+            emit ExcessBurned(excess);
         }
     }
 
     /**
-     * @notice Set the harvest receiver address
-     * @dev Only the owner can set the harvest receiver
-     * @param _receiver The new harvest receiver address
+     * @notice Set the yield receiver address
+     * @dev Only the owner can set the yield receiver
+     * @param _receiver The new yield receiver address
      */
-    function setHarvestReceiver(address _receiver) external onlyOwner {
+    function setYieldReceiver(address _receiver) external onlyOwner {
         if (_receiver == address(0)) revert ZeroAddress();
-        address old = harvestReceiver;
-        harvestReceiver = _receiver;
-        emit HarvestReceiverUpdated(old, _receiver);
+        address old = yieldReceiver;
+        yieldReceiver = _receiver;
+        emit YieldReceiverUpdated(old, _receiver);
     }
 
     /**

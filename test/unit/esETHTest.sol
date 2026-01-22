@@ -34,7 +34,7 @@ contract esETHTest is Test {
     address public owner = address(0x1);
     address public user1 = address(0x2);
     address public user2 = address(0x3);
-    address public harvestReceiver = address(0x4);
+    address public yieldReceiver = address(0x4);
     address public randomUser = address(0x5);
     address public treasuryManager = address(0x6);
 
@@ -97,8 +97,8 @@ contract esETHTest is Test {
         assertEq(esETHContract.symbol(), "esETH");
         assertEq(esETHContract.decimals(), 18);
         assertEq(esETHContract.totalSupply(), 0);
-        // harvestReceiver should be initialized to owner
-        assertEq(esETHContract.harvestReceiver(), owner);
+        // yieldReceiver should be initialized to owner
+        assertEq(esETHContract.yieldReceiver(), owner);
         // treasuryManager should be initialized to owner
         assertEq(esETHContract.treasuryManager(), owner);
     }
@@ -517,9 +517,9 @@ contract esETHTest is Test {
         assertEq(yieldBearingLST.balanceOf(user1), balanceBefore + sharesToRedeem);
     }
 
-    // ============ Mint Deficit / Harvest Tests ============
+    // ============ Harvest Yield Tests ============
 
-    function test_MintDeficit_AnyoneCanCall() external {
+    function test_HarvestYield_AnyoneCanCall() external {
         // Mint some esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -533,22 +533,22 @@ contract esETHTest is Test {
         address[] memory tokens = new address[](1);
         tokens[0] = address(weth);
 
-        // Random user can call mintDeficit
+        // Random user can call harvestYield
         vm.prank(randomUser);
-        esETHContract.mintDeficit(tokens);
+        esETHContract.harvestYield(tokens);
 
         uint256 supplyAfter = esETHContract.totalSupply();
-        uint256 deficit = supplyAfter - supplyBefore;
+        uint256 yield = supplyAfter - supplyBefore;
 
-        assertGt(deficit, 0);
-        // Should mint to harvestReceiver (owner by default)
-        assertEq(esETHContract.balanceOf(owner), deficit);
+        assertGt(yield, 0);
+        // Should mint to yieldReceiver (owner by default)
+        assertEq(esETHContract.balanceOf(owner), yield);
     }
 
-    function test_MintDeficit_MintsToHarvestReceiver() external {
-        // Set custom harvest receiver
+    function test_HarvestYield_MintsToYieldReceiver() external {
+        // Set custom yield receiver
         vm.prank(owner);
-        esETHContract.setHarvestReceiver(harvestReceiver);
+        esETHContract.setYieldReceiver(yieldReceiver);
 
         // Mint some esETH
         vm.prank(user1);
@@ -563,13 +563,13 @@ contract esETHTest is Test {
         tokens[0] = address(weth);
 
         vm.prank(user1);
-        esETHContract.mintDeficit(tokens);
+        esETHContract.harvestYield(tokens);
 
-        // Should mint to harvestReceiver
-        assertGt(esETHContract.balanceOf(harvestReceiver), 0);
+        // Should mint to yieldReceiver
+        assertGt(esETHContract.balanceOf(yieldReceiver), 0);
     }
 
-    function test_MintDeficit_NoDeficit() external {
+    function test_HarvestYield_NoYield() external {
         // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -581,14 +581,14 @@ contract esETHTest is Test {
 
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
-        esETHContract.mintDeficit(tokens);
+        esETHContract.harvestYield(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
-        // Should not mint if no deficit
+        // Should not mint if no yield
         assertEq(supplyAfter, supplyBefore);
     }
 
-    function test_MintDeficit_MultipleTokens() external {
+    function test_HarvestYield_MultipleTokens() external {
         // Mint esETH with WETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -611,13 +611,13 @@ contract esETHTest is Test {
 
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
-        esETHContract.mintDeficit(tokens);
+        esETHContract.harvestYield(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
         assertGt(supplyAfter, supplyBefore);
     }
 
-    function test_MintDeficit_WithERC4626Yield() external {
+    function test_HarvestYield_WithERC4626Yield() external {
         // Mint esETH with yieldBearingLST
         vm.prank(user1);
         yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
@@ -638,16 +638,16 @@ contract esETHTest is Test {
 
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
-        esETHContract.mintDeficit(tokens);
+        esETHContract.harvestYield(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
-        // Should mint deficit based on increased backing
+        // Should mint yield based on increased backing
         assertGt(supplyAfter, supplyBefore);
     }
 
-    // ============ Burn Surplus Tests ============
+    // ============ Burn Excess Tests ============
 
-    function test_BurnSurplus_AnyoneCanCall() external {
+    function test_BurnExcess_AnyoneCanCall() external {
         // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -662,17 +662,17 @@ contract esETHTest is Test {
         tokens[0] = address(weth);
 
         // Anyone can call (per US-006: no strong reason to make this permissioned)
-        // user1 already has enough esETH to burn the surplus
+        // user1 already has enough esETH to burn the excess
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
-        esETHContract.burnSurplus(tokens);
+        esETHContract.burnExcess(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
-        // Should burn surplus
+        // Should burn excess
         assertLt(supplyAfter, supplyBefore);
     }
 
-    function test_BurnSurplus_NoSurplus() external {
+    function test_BurnExcess_NoExcess() external {
         // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -684,14 +684,14 @@ contract esETHTest is Test {
 
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(owner);
-        esETHContract.burnSurplus(tokens);
+        esETHContract.burnExcess(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
-        // Should not burn if no surplus
+        // Should not burn if no excess
         assertEq(supplyAfter, supplyBefore);
     }
 
-    function test_BurnSurplus_BurnsFromCallerBalance() external {
+    function test_BurnExcess_BurnsFromCallerBalance() external {
         // Mint esETH
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
@@ -712,28 +712,28 @@ contract esETHTest is Test {
 
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(owner);
-        esETHContract.burnSurplus(tokens);
+        esETHContract.burnExcess(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
-        // Should burn surplus from owner's balance
+        // Should burn excess from owner's balance
         assertLt(supplyAfter, supplyBefore);
     }
 
-    function test_BurnSurplus_RevertsIfCallerInsufficientEsETH() external {
+    function test_BurnExcess_RevertsIfCallerInsufficientEsETH() external {
         // Mint esETH (this also moves WETH backing into the contract)
         vm.prank(user1);
         weth.approve(address(esETHContract), MINT_AMOUNT);
         vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT, user1);
 
-        // Create a surplus by reducing backing (simulate loss)
+        // Create an excess by reducing backing (simulate loss)
         vm.prank(address(esETHContract));
         weth.transfer(owner, MINT_AMOUNT / 2);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(weth);
 
-        // Surplus is totalMinted (MINT_AMOUNT) - backing (MINT_AMOUNT/2) = MINT_AMOUNT/2.
+        // Excess is totalMinted (MINT_AMOUNT) - backing (MINT_AMOUNT/2) = MINT_AMOUNT/2.
         // Owner has 0 esETH, so burning should revert with OZ ERC20 insufficient balance.
         vm.prank(owner);
         vm.expectRevert(
@@ -744,28 +744,28 @@ contract esETHTest is Test {
                 MINT_AMOUNT / 2
             )
         );
-        esETHContract.burnSurplus(tokens);
+        esETHContract.burnExcess(tokens);
     }
 
-    // ============ Set Harvest Receiver Tests ============
+    // ============ Set Yield Receiver Tests ============
 
-    function test_SetHarvestReceiver() external {
+    function test_SetYieldReceiver() external {
         vm.prank(owner);
-        esETHContract.setHarvestReceiver(harvestReceiver);
+        esETHContract.setYieldReceiver(yieldReceiver);
 
-        assertEq(esETHContract.harvestReceiver(), harvestReceiver);
+        assertEq(esETHContract.yieldReceiver(), yieldReceiver);
     }
 
-    function test_SetHarvestReceiver_OnlyOwner() external {
+    function test_SetYieldReceiver_OnlyOwner() external {
         vm.prank(user1);
         vm.expectRevert();
-        esETHContract.setHarvestReceiver(harvestReceiver);
+        esETHContract.setYieldReceiver(yieldReceiver);
     }
 
-    function test_SetHarvestReceiver_ZeroAddress() external {
+    function test_SetYieldReceiver_ZeroAddress() external {
         vm.prank(owner);
         vm.expectRevert(esETH.ZeroAddress.selector);
-        esETHContract.setHarvestReceiver(address(0));
+        esETHContract.setYieldReceiver(address(0));
     }
 
     // ============ Get ETH Value Tests ============
@@ -872,7 +872,7 @@ contract esETHTest is Test {
         tokens[0] = address(weth);
         tokens[1] = address(yieldBearingLST);
         vm.prank(randomUser);
-        esETHContract.mintDeficit(tokens);
+        esETHContract.harvestYield(tokens);
 
         // 4. Users redeem
         vm.prank(user1);
@@ -882,9 +882,9 @@ contract esETHTest is Test {
         vm.prank(user2);
         esETHContract.redeem(address(yieldBearingLST), shares, user2);
 
-        // 5. Owner can burn surplus if needed
-        // (In this case there shouldn't be surplus, but test the flow)
+        // 5. Owner can burn excess if needed
+        // (In this case there shouldn't be excess, but test the flow)
         vm.prank(owner);
-        esETHContract.burnSurplus(tokens);
+        esETHContract.burnExcess(tokens);
     }
 }

@@ -10,7 +10,7 @@
 - **So that** governance can tighten or expand permissions cleanly over time
 - **Acceptance Criteria:**
   - `owner` can update token configs and role addresses
-  - `harvestReceiver` is initialized to `owner` and is owner-settable
+  - `yieldReceiver` is initialized to `owner` and is owner-settable
   - `treasuryManager` is initialized to `owner` and is owner-settable
   - `treasuryManager` can mint/redeem any **supported** token regardless of `isMintable/isRedeemable`
   - **Unsupported tokens never work for anyone** (users or `treasuryManager`)
@@ -79,23 +79,23 @@
 **US-005: Harvest yield as protocol**
 - **As a** protocol operator or authorized party
 - **I want to** mint additional esETH when the total backing exceeds total supply
-- **So that** yield generated from staked positions is captured and distributed to the harvest receiver
+- **So that** yield generated from staked positions is captured and distributed to the yield receiver
 - **Acceptance Criteria:**
-  - Can call `mintDeficit(tokens)` with array of token addresses
-  - Calculates deficit for each token (backing - `totalMinted`)
-  - Mints deficit esETH to harvest receiver
+  - Can call `harvestYield(tokens)` with array of token addresses
+  - Calculates yield for each token (backing - `totalMinted`)
+  - Mints yield esETH to yield receiver
   - Updates `totalMinted` for each token
-  - Event is emitted when deficit is minted
+  - Event is emitted when yield is harvested
 
-**US-006: Burn surplus esETH**
+**US-006: Burn excess esETH**
 - **As a** ESEth holder (in practice protocol operators, but there is no strong reason to make this permissioned)
-- **I want to** burn surplus esETH when total supply exceeds backing
+- **I want to** burn excess esETH when total supply exceeds backing
 - **So that** the token maintains proper backing ratio and user confidence
 - **Acceptance Criteria:**
-  - Calculates surplus for each token (`totalMinted` - backing)
-  - Burns surplus esETH from caller's balance
+  - Calculates excess for each token (`totalMinted` - backing)
+  - Burns excess esETH from caller's balance
   - Updates `totalMinted` for each token
-  - Event is emitted when surplus is burned
+  - Event is emitted when excess is burned
 
 ### Token Management (Owner)
 
@@ -110,12 +110,12 @@
   - Preserves totalMinted value when updating config
   - Event is emitted on configuration change
 
-**US-008: Set harvest receiver**
+**US-008: Set yield receiver**
 - **As a** contract owner
 - **I want to** set the address that receives harvested yield (minted esETH)
 - **So that** I can direct protocol revenue to the appropriate treasury or distribution mechanism
 - **Acceptance Criteria:**
-  - Can update harvest receiver address
+  - Can update yield receiver address
   - Cannot set to zero address
   - Event is emitted on update
 
