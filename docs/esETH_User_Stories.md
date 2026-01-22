@@ -25,8 +25,21 @@
   - Token must be **supported** (`TokenType != UNSUPPORTED`)
   - Token must be **whitelisted for minting** (`isMintable == true`)
   - Amount must be greater than zero
+  - Caller specifies a `receiver` address for the minted esETH
   - esETH amount minted is calculated based on ETH value of the deposited LST
-  - User receives esETH tokens in their wallet
+  - `receiver` receives the minted esETH
+  - Event is emitted with mint details
+
+**US-001A: Mint esETH with raw ETH**
+- **As a** user holding raw ETH
+- **I want to** deposit ETH directly to mint esETH
+- **So that** I can mint esETH without first manually wrapping to WETH
+- **Acceptance Criteria:**
+  - User calls `wrapAndMint(receiver)` (or the alias `mintAndWrap(receiver)`) with `msg.value > 0`
+  - Contract wraps `msg.value` into the configured `WETH`
+  - `WETH` must be **supported** and **whitelisted for minting** (`isMintable == true`) unless caller is `treasuryManager`
+  - esETH minted is based on the ETH value of the wrapped `WETH` backing
+  - `receiver` receives the minted esETH
   - Event is emitted with mint details
 
 **US-002: Check ETH value before minting**
@@ -47,9 +60,10 @@
   - Token must be **supported** (`TokenType != UNSUPPORTED`)
   - Token must be **whitelisted for redemption** (`isRedeemable == true`)
   - Amount must be greater than zero
+  - Caller specifies a `receiver` address for the redeemed LST
   - Contract must have sufficient balance of the requested LST
   - esETH is burned proportional to the ETH value of the redeemed LST
-  - User receives the requested LST tokens
+  - `receiver` receives the requested LST tokens
   - Event is emitted with redemption details
 
 **US-004: Choose redemption token**
@@ -147,10 +161,10 @@
 
 **US-013: Reentrancy protection**
 - **As a** user interacting with the contract
-- **I want** mint and redeem functions to be protected against reentrancy attacks
+- **I want** mint/redeem functions to be protected against reentrancy attacks
 - **So that** my transactions are secure and cannot be exploited
 - **Acceptance Criteria:**
-  - `nonReentrant` modifier on mint and redeem functions
+  - `nonReentrant` modifier on `mint`, `wrapAndMint`, and `redeem`
   - Uses ReentrancyGuard from OpenZeppelin
 
 **US-014: Input validation**

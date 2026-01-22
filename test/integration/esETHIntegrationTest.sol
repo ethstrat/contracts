@@ -31,6 +31,7 @@ contract esETHIntegrationTest is Test {
     esETH public esETHContract;
 
     // Mainnet token addresses
+    address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address public constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address public constant RETH = 0xae78736Cd615f374D3085123A210448E74Fc6393;
     address public constant CBETH = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
@@ -54,7 +55,7 @@ contract esETHIntegrationTest is Test {
 
         // Deploy esETH contract
         vm.prank(owner);
-        esETHContract = new esETH(owner);
+        esETHContract = new esETH(owner, WETH);
 
         // Configure all token types
         vm.startPrank(owner);

@@ -568,6 +568,9 @@ contract EthStrategyPerpetualNoteTest is Test {
 
     function test_Redeem_WhenCallerIsTokenHolder(address recipient_) public {
         vm.assume(recipient_ != user1);
+        vm.assume(recipient_ != address(0));
+        // transfer-to-self is a no-op; this test asserts recipient balance increases
+        vm.assume(recipient_ != address(pb));
 
         // Deposit for user1
         uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
@@ -662,6 +665,9 @@ contract EthStrategyPerpetualNoteTest is Test {
 
     function test_Redeem_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved(address recipient_) public {
         vm.assume(recipient_ != user1);
+        vm.assume(recipient_ != address(0));
+        // transfer-to-self is a no-op; this test asserts recipient balance increases
+        vm.assume(recipient_ != address(pb));
 
         // Deposit for user1
         uint256 shares = pb.deposit(1000 * 10 ** 18, user1);
@@ -722,6 +728,9 @@ contract EthStrategyPerpetualNoteTest is Test {
 
     function test_Withdraw_WhenCallerIsTokenHolder(address recipient_) public {
         vm.assume(recipient_ != user1);
+        vm.assume(recipient_ != address(0));
+        // transfer-to-self is a no-op; this test asserts recipient balance increases
+        vm.assume(recipient_ != address(pb));
 
         // Deposit for user1
         uint256 depositAmount = 1000 * 10 ** 18;
@@ -823,6 +832,10 @@ contract EthStrategyPerpetualNoteTest is Test {
 
     function test_Withdraw_WhenCallerIsNotTokenHolder_GivenTokenHolderHasApproved(address recipient_) public {
         vm.assume(recipient_ != user1);
+        vm.assume(recipient_ != address(0));
+        // If the recipient is the vault itself, ERC20 transfer-to-self is a no-op and the "balance increased" invariant
+        // below is not meaningful.
+        vm.assume(recipient_ != address(pb));
 
         // Deposit for user1
         uint256 depositAmount = 1000 * 10 ** 18;

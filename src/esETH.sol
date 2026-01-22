@@ -8,6 +8,10 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
+interface IWETH {
+    function deposit() external payable;
+}
+
 interface ILegacyVaultTypes {
     function stEthPerToken() external view returns (uint256);
     function getExchangeRate() external view returns (uint256);
@@ -46,12 +50,13 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     /// @dev Mapping from token address to its configuration
     mapping(address token => TokenConfig) public tokenConfigs;
 
+    address public immutable WETH;
     address public harvestReceiver;
     address public treasuryManager;
 
     /// @dev Events
-    event Minted(address indexed user, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
-    event Redeemed(address indexed user, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
+    event Minted(address indexed caller, address indexed receiver, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
+    event Redeemed(address indexed caller, address indexed receiver, address indexed token, uint256 tokenAmount, uint256 esETHAmount);
     event LSTConverted(address indexed fromToken, address indexed toToken, uint256 fromAmount, uint256 toAmount, uint256 loss);
     event DeficitMinted(uint256 esETHAmount);
     event SurplusBurned(uint256 esETHAmount);
@@ -77,7 +82,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @dev Constructor
      * @param _owner The owner of the contract
      */
-    constructor(address _owner) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {
+    constructor(address _owner, address _weth) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {
+        if (_weth == address(0)) revert ZeroAddress();
+        WETH = _weth;
         harvestReceiver = _owner;
         treasuryManager = _owner;
     }
@@ -86,10 +93,12 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @notice Mint esETH by depositing a whitelisted LST
      * @param token The LST token to deposit
      * @param tokenAmount The amount of LST tokens to deposit
+     * @param receiver The address to receive minted esETH
      * @return esETHAmount The amount of esETH minted
      */
-    function mint(address token, uint256 tokenAmount) external nonReentrant returns (uint256 esETHAmount) {
+    function mint(address token, uint256 tokenAmount, address receiver) external nonReentrant returns (uint256 esETHAmount) {
         if (tokenAmount == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert ZeroAddress();
         
         TokenConfig memory config = tokenConfigs[token];
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
@@ -102,18 +111,59 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
         tokenConfigs[token].totalMinted += esETHAmount;
 
-        _mint(msg.sender, esETHAmount);
-        emit Minted(msg.sender, token, tokenAmount, esETHAmount);
+        _mint(receiver, esETHAmount);
+        emit Minted(msg.sender, receiver, token, tokenAmount, esETHAmount);
+    }
+
+    /**
+     * @notice Wrap raw ETH into WETH, then mint esETH using the wrapped WETH as backing
+     * @dev Always wraps into the configured WETH address and treats it as the mint token.
+     * @param receiver The address to receive minted esETH
+     * @return esETHAmount The amount of esETH minted
+     */
+    function wrapAndMint(address receiver) external payable nonReentrant returns (uint256 esETHAmount) {
+        return _wrapAndMint(receiver, msg.value);
+    }
+
+    /**
+     * @notice Alias for {wrapAndMint}. Wrap raw ETH into WETH, then mint esETH.
+     * @param receiver The address to receive minted esETH
+     * @return esETHAmount The amount of esETH minted
+     */
+    function mintAndWrap(address receiver) external payable nonReentrant returns (uint256 esETHAmount) {
+        return _wrapAndMint(receiver, msg.value);
+    }
+
+    function _wrapAndMint(address receiver, uint256 value) internal returns (uint256 esETHAmount) {
+        if (value == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert ZeroAddress();
+
+        address token = WETH;
+        TokenConfig memory config = tokenConfigs[token];
+        if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
+        if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
+
+        // Wrap into WETH (WETH is minted to this contract)
+        IWETH(token).deposit{value: value}();
+
+        // Calculate ETH value of deposited WETH (1:1 when configured as ERC20)
+        esETHAmount = _convertTokenToETH(token, value, config.tokenType);
+        tokenConfigs[token].totalMinted += esETHAmount;
+
+        _mint(receiver, esETHAmount);
+        emit Minted(msg.sender, receiver, token, value, esETHAmount);
     }
 
     /**
      * @notice Redeem esETH for a whitelisted LST
      * @param token The LST token to receive
      * @param tokenAmount The amount of the given LST token redeemed for esETH
+     * @param receiver The address to receive redeemed tokens
      * @return esETHAmount The amount of esETH burned
      */
-    function redeem(address token, uint256 tokenAmount) external nonReentrant returns (uint256 esETHAmount) {
+    function redeem(address token, uint256 tokenAmount, address receiver) external nonReentrant returns (uint256 esETHAmount) {
         if (tokenAmount == 0) revert ZeroAmount();
+        if (receiver == address(0)) revert ZeroAddress();
         
         TokenConfig storage config = tokenConfigs[token];
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
@@ -129,9 +179,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         // Burn esETH and update totalMinted
         config.totalMinted -= esETHAmount;
         _burn(msg.sender, esETHAmount);
-        IERC20(token).safeTransfer(msg.sender, tokenAmount);
+        IERC20(token).safeTransfer(receiver, tokenAmount);
 
-        emit Redeemed(msg.sender, token, tokenAmount, esETHAmount);
+        emit Redeemed(msg.sender, receiver, token, tokenAmount, esETHAmount);
     }
 
     /**

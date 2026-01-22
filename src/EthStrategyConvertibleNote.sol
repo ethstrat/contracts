@@ -5,11 +5,10 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import {EthUsdPriceFeedConsumer} from "./lib/EthUsdPriceFeedConsumer.sol";
 import {TokenURIRenderer} from "./interfaces/TokenURIRenderer.sol";
+import {esETH} from "./esETH.sol";
 
 import {IERC20, IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
-import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {Permit} from "./lib/Permit.sol";
-import {console} from "forge-std/console.sol";
 
 /**
  * @title The ETH Strategy Convertible Note
@@ -22,37 +21,39 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
 
     IERC20MintableBurnablePermit public immutable cdtToken;
     IERC20MintableBurnable public immutable stratToken;
-    IERC20 public immutable gavToken; // Token used for GAV calculation (replaces ITreasury.total())
-    address immutable treasuryVault;
-    address immutable treasury; // Treasury contract for withdrawals (has withdraw function)
+    esETH public immutable esETHToken;
+    address immutable unencumberedHoldings; // Address that holds unencumbered ETH
+    address immutable encumberedHoldings; // Address that holds encumbered ETH (backs open unexercised options)
 
-    uint256 public pcf;
-    uint256 public gcf;
+    uint256 public pcf; // Premium Control Factor (scale: SCALE)
+    address public tokenURIRenderer;
+
+    /// @notice The amount of CDT required to exercise/settle the note (remaining if partially exercised)
+    /// @dev    Scale: SCALE
+    mapping(uint256 tokenId => uint256) public amountOwedCdt;
+
+    /// @notice The amount of STRAT the note holder is entitled to receive on conversion (remaining if partially exercised)
+    /// @dev    Scale: SCALE
+    mapping(uint256 tokenId => uint256) public conversionEntitlementStrat;
+
+    /// @notice The amount of ETH the note holder is entitled to receive on conversion to ETH (remaining if partially converted)
+    /// @dev    Scale: 1e18 (wei)
+    mapping(uint256 tokenId => uint256) public conversionEntitlementEth;
+
+    /// @notice The USD-notional settlement entitlement (paid out in esETH) (remaining if partially exercised)
+    /// @dev    Scale: SCALE
+    mapping(uint256 tokenId => uint256) public settlementEntitlementUsd;
+
+    /// @notice The timestamp before which the holder can convert to STRAT or ETH (after expiry, holder can reclaim
+    ///         the CDT at $1 - that is, have their initial notional dollar value repaid)
+    mapping(uint256 tokenId => uint256) public expiry;
+
+    /// @notice The timestamp after which the holder can exwrcise conversion rights
+    mapping(uint256 tokenId => uint256) public timelock;
 
     uint256 public constant SCALE = 1e18;
 
-    address public tokenURIRenderer;
-
-    /// @notice The amount of CDT required to exercise the option
-    /// @dev    Scale: SCALE
-    mapping(uint256 tokenId => uint256) public strikeAmount;
-
-    /// @notice The amount of STRAT that will be received if the option is exercised
-    /// @dev    Scale: SCALE
-    mapping(uint256 tokenId => uint256) public notionalUnderlyingAmount;
-
-    /// @notice The USD value of the ETH that was deposited, at the moment the user bonds
-    /// @dev    Scale: SCALE
-    mapping(uint256 tokenId => uint256) public notionalUSDAmount;
-
-    /// @notice The timestamp at which the option expires
-    mapping(uint256 tokenId => uint256) public expiry;
-
-    /// @notice The timestamp at which the option can be exercised
-    mapping(uint256 tokenId => uint256) public timelock;
-
     event OwnerChangedPCF(uint256 oldVal, uint256 newVal);
-    event OwnerChangedGCF(uint256 oldVal, uint256 newVal);
     event RendererUpdated(address indexed renderer);
 
     event LongBond(
@@ -66,8 +67,17 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 timelock
     );
 
-    event OptionExercised(address indexed optionOwner, uint256 indexed tokenId, uint256 strike, uint256 strat);
-    event OptionRedeemed(address indexed optionOwner, uint256 indexed tokenId, uint256 notionalUSDAmount, uint256 ethAmount);
+    event Conversion(
+        address indexed optionOwner,
+        uint256 indexed tokenId,
+        uint256 cdtBurned,
+        uint256 stratOut,
+        uint256 ethOut,
+        uint256 remainingStrat,
+        uint256 remainingEth,
+        uint256 remainingUsd
+    );
+    event Redemption(address indexed optionOwner, uint256 indexed tokenId, uint256 notionalUSDAmount, uint256 ethAmount);
 
     error NoEthSent();
     error ZeroAddress();
@@ -79,37 +89,33 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     error OptionExpired(address account, uint256 tokenId);
     error OptionUnexpired(address account, uint256 tokenId);
     error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
+    error InvalidExerciseAmount(uint256 amount, uint256 remainingStrike);
 
     /**
      * @param _cdtToken The CDT token
      * @param _stratToken The STRAT token
-     * @param _gavToken Token used for GAV calculation (replaces ITreasury.total())
-     * @param _treasuryVault vault where bonded ETH is sent
-     * @param _treasury Treasury contract for withdrawals (has withdraw function)
+     * @param _esETHToken The esETH token
+     * @param _unencumberedHoldings Address that holds unencumbered ETH
+     * @param _encumberedHoldings Address that holds encumbered ETH (backs open unexercised options)
      * @param _ethUsdOracle The ETH/USD oracle
-     * @param _pcf scaling factor applied on the debt ratio when deciding the bond conversion value (scaled by SCALE)
-     * @param _gcf scaling factor applied on the gav baseline when deciding the bond conversion value (scaled by SCALE)
      * @param owner The owner
      */
     constructor(
         address _cdtToken,
         address _stratToken,
-        address _gavToken,
-        address _treasuryVault,
-        address _treasury,
+        address _esETHToken,
+        address _unencumberedHoldings,
+        address _encumberedHoldings,
         address _ethUsdOracle,
-        uint256 _pcf,
-        uint256 _gcf,
         address owner
     ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
-        gavToken = IERC20(_gavToken);
-        treasuryVault = _treasuryVault;
-        treasury = _treasury;
+        esETHToken = esETH(_esETHToken);
+        unencumberedHoldings = _unencumberedHoldings;
+        encumberedHoldings = _encumberedHoldings;
 
-        pcf = _pcf;
-        gcf = _gcf;
+        pcf = 1 * SCALE;
         _tokenIdCounter = 1;
     }
 
@@ -124,16 +130,6 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     }
 
     /**
-     * @notice Updates the GCF (Gross asset Value(GAV) Control Factor) to the new specified value.
-     * @dev This function can only be called by the contract owner.
-     * @param newVal The new value to set for the GCF.
-     */
-    function setGCF(uint256 newVal) external onlyOwner {
-        emit OwnerChangedGCF(gcf, newVal);
-        gcf = newVal;
-    }
-
-    /**
      * @dev Allows only the owner can update the token URI renderer.
      */
     function managerRenderer(address renderer) external onlyOwner {
@@ -141,42 +137,27 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         emit RendererUpdated(renderer);
     }
 
-    function bond(address bonder, uint256 minNotionalUnderlyingAmount, uint256 deadline) external payable {
-        // #region agent log
-        // Logging instrumentation for debugging
-        // #endregion
-        
+    function bond(address bonder, uint256 minConversionAmountStrat, uint256 minConversionAmountEth, uint256 deadline) external payable {
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
         if (deadline < block.timestamp) revert TransactionStale(deadline);
 
-        // redemption
-        uint256 notionalUSD = msg.value * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
-        uint256 strikePrice_ = strikePrice(notionalUSD);
-        uint256 strikeAmount_ = notionalUSD; // Scale: 18 decimals
-        uint256 notionalUnderlyingAmount_ = notionalUSD * SCALE / strikePrice_; // Scale: 18
-            // decimals (since strikePrice is always 18 decimals)
-
-        // #region agent log
-        console.log("bond: notionalUSD", notionalUSD);
-        console.log("bond: strikePrice_", strikePrice_);
-        console.log("bond: strikeAmount_", strikeAmount_);
-        console.log("bond: notionalUnderlyingAmount_", notionalUnderlyingAmount_);
-        // #endregion
+        // settlement notional in USD
+        uint256 ethPriceUSD = _getEthUsdPrice();
+        uint256 settlementAmountUsd_ = msg.value * ethPriceUSD / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
+        (uint256 conversionAmountStrat_, uint256 conversionAmountEth_) = conversionEntitlements(settlementAmountUsd_);
 
         // Check that the notional underlying amount is greater than the minimum
-        if (notionalUnderlyingAmount_ < minNotionalUnderlyingAmount) {
-            revert InsufficientOutput(minNotionalUnderlyingAmount, notionalUnderlyingAmount_);
+        if (conversionAmountStrat_ < minConversionAmountStrat) {
+            revert InsufficientOutput(minConversionAmountStrat, conversionAmountStrat_);
+        }
+        if (conversionAmountEth_ < minConversionAmountEth) {
+            revert InsufficientOutput(minConversionAmountEth, conversionAmountEth_);
         }
 
         uint256 tokenId = _tokenIdCounter++;
         uint256 expiry_ = block.timestamp + (4.2 * 365 days);
         uint256 timelock_ = block.timestamp + 6.9 days;
-
-        // #region agent log
-        console.log("bond: tokenId", tokenId);
-        console.log("bond: bonder", uint160(bonder));
-        // #endregion
 
         // Validate timelock and expiry
         if (block.timestamp > timelock_ || timelock_ > expiry_) {
@@ -185,37 +166,50 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
 
         // Mint NFT
         _safeMint(bonder, tokenId);
-        strikeAmount[tokenId] = strikeAmount_;
-        notionalUnderlyingAmount[tokenId] = notionalUnderlyingAmount_;
-        notionalUSDAmount[tokenId] = notionalUSD;
+        amountOwedCdt[tokenId] = settlementAmountUsd_;
+        conversionEntitlementStrat[tokenId] = conversionAmountStrat_;
+        conversionEntitlementEth[tokenId] = conversionAmountEth_;
+        settlementEntitlementUsd[tokenId] = settlementAmountUsd_;
         expiry[tokenId] = expiry_;
         timelock[tokenId] = timelock_;
 
-        cdtToken.mint(bonder, notionalUSD);
+        // Mint CDT to the bonder
+        cdtToken.mint(bonder, settlementAmountUsd_);
 
-        // Send the eth to the treasury manager contract
-        (bool success,) = treasuryVault.call{value: msg.value}("");
-        if (!success) revert EthTransferFailed();
+        // Send the eth to the well known address where we hold all our encumbered ETH (as these back
+        // the semantic covered calls embedded in the conversion rights)
+        esETHToken.wrapAndMint{value: conversionAmountEth_}(encumberedHoldings);
+
+        // send the remainder of the ETH to the unencumbered holdings
+        esETHToken.wrapAndMint{value: msg.value - conversionAmountEth_}(unencumberedHoldings);
 
         emit LongBond(
             bonder,
             tokenId,
-            strikeAmount_,
-            notionalUnderlyingAmount_,
-            notionalUSD,
-            msg.value,
+            settlementAmountUsd_,       // strike / CDT owed
+            conversionAmountStrat_,     // notional underlying (STRAT)
+            settlementAmountUsd_,       // notional USD
+            msg.value,                  // ETH bonded
             expiry_,
             timelock_
         );
     }
 
     /**
-     * @notice Exercises an option if it is not under a timelock and not expired, using an ERC-2612 permit.
+     * @notice Converts a note (partially or fully) into either STRAT or ETH before expiry,
+     *         using an ERC-2612 permit for CDT approval.
      *
-     * @param tokenId The identifier of the option token to exercise.
+     * @param tokenId The identifier of the note token to convert.
+     * @param cdtToBurn Amount of CDT to burn for this conversion (partial conversion supported).
+     * @param toEth If true, convert to ETH; otherwise convert to STRAT.
      * @param cdtPermitApproval The permit approval for the CDT tokens.
      */
-    function exerciseWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) public {
+    function convertPartialWithPermit(
+        uint256 tokenId,
+        uint256 cdtToBurn,
+        bool toEth,
+        Permit.IPermitApproval memory cdtPermitApproval
+    ) public {
         // Check that the timelock period has passed.
         if (timelock[tokenId] > block.timestamp) {
             revert TimelockActive(msg.sender, tokenId);
@@ -229,48 +223,91 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // Retrieve the owner of the option token.
         address optionOwner = ownerOf(tokenId);
 
-        // Check that the sender is either the owner or approved for the option token.
-        if (msg.sender != optionOwner && !isApprovedForAll(optionOwner, msg.sender) && getApproved(tokenId) != msg.sender) {
+        // Check that the sender is either the owner
+        // TODO: should we extend for NFT approvals? Unsure if the complexity/attack surface is worth it
+        if (msg.sender != optionOwner) {
             revert NotOwnerOrApproved(msg.sender, tokenId);
         }
 
-        // Retrieve strike and underlying amounts.
-        uint256 strike = strikeAmount[tokenId];
-        uint256 strat = notionalUnderlyingAmount[tokenId];
+        // Retrieve remaining position state.
+        uint256 amountOwedCdt_ = amountOwedCdt[tokenId];
+        uint256 settlementEntitlementUsd_ = settlementEntitlementUsd[tokenId];
+        uint256 conversionEntitlementStrat_ = conversionEntitlementStrat[tokenId];
+        uint256 conversionEntitlementEth_ = conversionEntitlementEth[tokenId];
+
+        if (cdtToBurn == 0 || cdtToBurn > amountOwedCdt_) {
+            revert InvalidExerciseAmount(cdtToBurn, amountOwedCdt_);
+        }
+
+        // Pro-rata outputs for this conversion chunk
+        uint256 stratOut = conversionEntitlementStrat_ * cdtToBurn / amountOwedCdt_;
+        uint256 ethOut = conversionEntitlementEth_ * cdtToBurn / amountOwedCdt_;
 
         // Burn the corresponding amount from the sender
-        cdtToken.validatePermit(msg.sender, address(this), strike, cdtPermitApproval);
-        cdtToken.burnFrom(msg.sender, strike);
+        cdtToken.validatePermit(msg.sender, address(this), cdtToBurn, cdtPermitApproval);
+        cdtToken.burnFrom(msg.sender, cdtToBurn);
 
-        // Clear the option data
-        strikeAmount[tokenId] = 0;
-        notionalUnderlyingAmount[tokenId] = 0;
-        notionalUSDAmount[tokenId] = 0;
-        expiry[tokenId] = 0;
-        timelock[tokenId] = 0;
+        // Move eth from encumbered holdings to unencumbered holdings, preparing for conversion
+        esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, ethOut);
 
-        // Burn the NFT
-        _burn(tokenId);
-
-        // Mint the underlying token for the option owner.
-        uint256 premintedStratBalance = stratToken.balanceOf(address(this));
-        if (premintedStratBalance < strat) {
-            // Mint the required amount of STRAT tokens to this contract.
-            stratToken.mint(address(this), strat - premintedStratBalance);
+        // either send esETH to the option owner or mint STRAT
+        if (toEth) {
+            esETHToken.transferFrom(unencumberedHoldings, optionOwner, ethOut);
+        } else {
+            stratToken.mint(optionOwner, stratOut);
         }
-        stratToken.transfer(optionOwner, strat);
 
-        // Emit event on successful exercise.
-        emit OptionExercised(optionOwner, tokenId, strike, strat);
+        // Update remaining position balances in-place (partial conversion)
+        uint256 remainingAmountOwedCdt_ = amountOwedCdt_ - cdtToBurn;
+        uint256 remainingConversionEntitlementStrat_ = conversionEntitlementStrat_ - stratOut;
+        uint256 remainingSettlementEntitlementUsd_ = settlementEntitlementUsd_ - cdtToBurn;
+        uint256 remainingConversionEntitlementEth_ = conversionEntitlementEth_ - ethOut;
+
+        amountOwedCdt[tokenId] = remainingAmountOwedCdt_;
+        conversionEntitlementStrat[tokenId] = remainingConversionEntitlementStrat_;
+        settlementEntitlementUsd[tokenId] = remainingSettlementEntitlementUsd_;
+        conversionEntitlementEth[tokenId] = remainingConversionEntitlementEth_;
+
+        // Fully settled => burn the NFT and clear timestamps
+        if (remainingAmountOwedCdt_ == 0) {
+            expiry[tokenId] = 0;
+            timelock[tokenId] = 0;
+            _burn(tokenId);
+        }
+        emit Conversion(
+            optionOwner, 
+            tokenId, 
+            cdtToBurn, 
+            stratOut, 
+            ethOut, 
+            remainingConversionEntitlementStrat_, 
+            remainingConversionEntitlementEth_, 
+            remainingSettlementEntitlementUsd_
+        );
     }
 
     /**
-     * @notice Exercises an option if it is not under a timelock and not expired.
+     * @notice Fully converts a note to STRAT, using an ERC-2612 permit.
+     * @dev Kept for backwards-compatibility with earlier integrations/tests.
+     */
+    function convertWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) external {
+        convertPartialWithPermit(tokenId, amountOwedCdt[tokenId], false, cdtPermitApproval);
+    }
+
+    /**
+     * @notice Fully converts a note to STRAT (no permit).
      *
      * @param tokenId The identifier of the option token to exercise.
      */
-    function exercise(uint256 tokenId) external {
-        exerciseWithPermit(tokenId, Permit.getEmptyApproval());
+    function convert(uint256 tokenId, bool toEth) external {
+        convertPartialWithPermit(tokenId, amountOwedCdt[tokenId], toEth, Permit.getEmptyApproval());
+    }
+
+    /**
+     * @notice Partially converts a note to STRAT (no permit).
+     */
+    function convertPartial(uint256 tokenId, bool toEth, uint256 cdtToBurn) external {
+        convertPartialWithPermit(tokenId, cdtToBurn, toEth, Permit.getEmptyApproval());
     }
 
     /// @notice Redeem option and CDT tokens for the USD notional value post option expiry, paid
@@ -291,32 +328,38 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         if (timelock[tokenId] > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (expiry[tokenId] > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
 
-        uint256 notionalUSDAmount_ = notionalUSDAmount[tokenId];
+        uint256 settlementEntitlementUsd_ = settlementEntitlementUsd[tokenId];
         uint256 totalDebt = cdtToken.totalSupply();
         uint256 ethPriceUSD = _getEthUsdPrice();
-        uint256 treasuryInETH = address(treasury).balance;
-        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         address optionOwner = ownerOf(tokenId);
 
-        // Check the caller is either the option owner, or operator
-        if (msg.sender != optionOwner && !isApprovedForAll(optionOwner, msg.sender) && getApproved(tokenId) != msg.sender) {
+        // Check the caller is either the option owner
+        // TODO: should we extend for NFT approvals? Unsure if the complexity/attack surface is worth it
+        if (msg.sender != optionOwner) {
             revert NotOwnerOrApproved(msg.sender, tokenId);
         }
 
         // Burn CDT
-        cdtToken.validatePermit(msg.sender, address(this), notionalUSDAmount_, cdtPermitApproval);
+        cdtToken.validatePermit(msg.sender, address(this), settlementEntitlementUsd_, cdtPermitApproval);
+
+        // Move eth from encumbered holdings to unencumbered holdings, preparing for redemption
+        esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId]);
 
         uint256 ethAmount = 0;
+        uint256 treasuryInETH = esETHToken.balanceOf(unencumberedHoldings);
+        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         if (treasuryInUSD > cdtToken.totalSupply()) {
-            ethAmount = notionalUSDAmount_ * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
+            // If solvent, pay the USD notional at the current ETH/USD rate
+            ethAmount = settlementEntitlementUsd_ * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
         } else {
-            ethAmount = notionalUSDAmount_ * treasuryInETH / totalDebt;
+            ethAmount = settlementEntitlementUsd_ * treasuryInETH / totalDebt;
         }
 
         // Clear the option data
-        strikeAmount[tokenId] = 0;
-        notionalUnderlyingAmount[tokenId] = 0;
-        notionalUSDAmount[tokenId] = 0;
+        amountOwedCdt[tokenId] = 0;
+        conversionEntitlementStrat[tokenId] = 0;
+        settlementEntitlementUsd[tokenId] = 0;
+        conversionEntitlementEth[tokenId] = 0;
         expiry[tokenId] = 0;
         timelock[tokenId] = 0;
 
@@ -324,15 +367,11 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         _burn(tokenId);
 
         // Burn CDT
-        cdtToken.burnFrom(msg.sender, notionalUSDAmount_);
+        cdtToken.burnFrom(msg.sender, settlementEntitlementUsd_);
 
-        // Withdraw ETH from treasury
-        (bool success,) = treasury.call(
-            abi.encodeWithSignature("withdraw(uint256,address)", ethAmount, optionOwner)
-        );
-        if (!success) revert EthTransferFailed();
-
-        emit OptionRedeemed(optionOwner, tokenId, notionalUSDAmount_, ethAmount);
+        // Send ETH to the note holder
+        esETHToken.transferFrom(unencumberedHoldings, optionOwner, ethAmount);
+        emit Redemption(optionOwner, tokenId, settlementEntitlementUsd_, ethAmount);
     }
 
     /// @notice Redeem option and CDT tokens for the USD notional value post option expiry, paid
@@ -344,29 +383,36 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         redeemCdtForUsdNotionalWithPermit(tokenId, Permit.getEmptyApproval());
     }
 
-    /// @notice Provides the strike price for a given USD value of ETH
-    ///
-    /// @param  notionalUSD   The USD value of ETH to calculate the strike price for
-    /// @return strikePrice_        The strike price, in terms of SCALE
-    function strikePrice(uint256 notionalUSD) public view returns (uint256 strikePrice_) {
-        uint256 gav = gavToken.totalSupply() * _getEthUsdPrice() / _ETH_USD_ORACLE_SCALE;
+    /// @notice Returns the STRAT amount the holder is entitled to receive for a given USD notional.
+    /// @dev Scale: 1e18 (STRAT decimals).
+    function conversionEntitlements(uint256 settlementEntitlementUsd_)
+        public
+        view
+        returns (uint256 stratAmount, uint256 ethAmount)
+    {
+
+        uint256 ethPriceUSD = _getEthUsdPrice();
+        uint256 totalEth = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
+        uint256 gav = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
 
         uint256 stratTotalSupply = stratToken.totalSupply();
-        uint256 adjustedCdtSupply = (cdtToken.totalSupply() + (notionalUSD / 2));
+        uint256 adjustedCdtSupply = cdtToken.totalSupply() + (settlementEntitlementUsd_ / 2);
 
-        // #region agent log
-        console.log("strikePrice: gav", gav);
-        console.log("strikePrice: stratTotalSupply", stratTotalSupply);
-        console.log("strikePrice: adjustedCdtSupply", adjustedCdtSupply);
-        console.log("strikePrice: gcf", gcf);
-        console.log("strikePrice: pcf", pcf);
-        // #endregion
+        // Avoid division by zero; bonding will fail its min-output checks if this returns 0.
+        if (stratTotalSupply == 0 || totalEth == 0) {
+            return (0, 0);
+        }
 
-        strikePrice_ = ((gav * gcf) + (pcf * adjustedCdtSupply)) / stratTotalSupply;
-        
-        // #region agent log
-        console.log("strikePrice: result", strikePrice_);
-        // #endregion
+        // Premium term is USD-denominated; pcf is scaled by SCALE.
+        uint256 premiumUsd = (pcf * adjustedCdtSupply) / SCALE;
+        uint256 numeratorUsd = gav + premiumUsd; // Scale: 1e18 (USD)
+
+        // USD-per-unit rates (scaled by 1e18), used to compute amounts from USD notionals.
+        uint256 stratConversionRate = (numeratorUsd * SCALE) / stratTotalSupply; // USD per STRAT (1e18)
+        uint256 ethConversionRate = (numeratorUsd * SCALE) / totalEth; // USD per ETH (1e18)
+
+        stratAmount = settlementEntitlementUsd_ * SCALE / stratConversionRate;
+        ethAmount = settlementEntitlementUsd_ * SCALE / ethConversionRate;
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
@@ -375,9 +421,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             return TokenURIRenderer(tokenURIRenderer)
                 .render(
                     tokenId,
-                    strikeAmount[tokenId],
-                    notionalUnderlyingAmount[tokenId],
-                    notionalUSDAmount[tokenId],
+                    amountOwedCdt[tokenId],
+                    conversionEntitlementStrat[tokenId],
+                    settlementEntitlementUsd[tokenId],
                     expiry[tokenId],
                     timelock[tokenId]
                 );
