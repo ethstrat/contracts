@@ -124,11 +124,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         if (amount == 0) revert ZeroAmount();
 
         // Sync rewards before updating user state
-        // If totalStaked is 0, syncRewards will return early, so we sync after adding stake
-        bool wasZeroStaked = (totalStaked == 0);
-        if (!wasZeroStaked) {
-            syncRewards();
-        }
+        syncRewards();
 
         // Calculate current pending rewards to preserve them
         int256 currentRewardDebt = rewardDebt[msg.sender];
@@ -140,29 +136,10 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         staked[msg.sender] += amount;
         totalStaked += amount;
 
-        // If totalStaked was 0, mark existing rewards as synced so they won't be distributed to new stakers
-        // New stakers should only get rewards that arrive after they stake
-        if (wasZeroStaked) {
-            // Set totalSyncedRewards to current balance so old rewards are marked as synced
-            // This prevents them from being distributed to new stakers
-            // Reset rewardsPerShare to 0 so new stakers start fresh
-            uint256 oldBalance = rewardToken.balanceOf(address(this));
-            totalSyncedRewards = oldBalance;
-            rewardsPerShare = 0;
-            // Now sync any new rewards that might have arrived
-            syncRewards();
-        }
-
         // Update reward debt: preserve existing debt and add debt for new stake
         // This preserves pending rewards from existing stake
-        // If totalStaked was 0, rewardDebt should be 0 since rewardsPerShare was reset to 0
-        if (wasZeroStaked) {
-            // User starts fresh - rewardDebt is 0, they'll only get rewards that arrive after they stake
-            rewardDebt[msg.sender] = 0;
-        } else {
-            int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
-            rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
-        }
+        int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
+        rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
 
         // Mint sSTRAT tokens (non-transferrable, but still tracked)
         _mint(msg.sender, amount);

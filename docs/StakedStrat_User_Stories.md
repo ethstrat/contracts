@@ -156,3 +156,13 @@
 - `getPendingRewards()` estimates pending rewards as if unsynced reward tokens were synced at the current time
 - `totalSyncedRewards` tracks how much of the current reward token balance has been incorporated into `rewardsPerShare` (and is adjusted downward on payouts)
 
+## Deployment Requirements
+
+**IMPORTANT**: To ensure proper reward distribution, the contract must be deployed with an initial "seed stake" that is never fully withdrawn:
+
+1. Deploy StakedStrat contract
+2. Immediately stake a small amount of STRAT from a protocol-controlled address (recommended: at least 1 STRAT, or even 1 wei)
+3. Never unstake this initial amount completely (maintain `totalStaked > 0` at all times)
+4. Then set StakedStrat as the `yieldReceiver` in esETH and/or `interestRevenueRecipient` in StratETHTreasuryLend
+
+**Rationale**: The contract assumes `totalStaked` is always greater than zero once rewards begin flowing. If `totalStaked` reaches 0 after rewards have been received, those rewards remain in the contract but cannot be fairly distributed. The seed stake prevents this scenario by ensuring there are always stakers to receive rewards.
