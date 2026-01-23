@@ -44,12 +44,11 @@ contract SimpleFlashLoanProvider is IERC3156FlashLender {
      * @dev ERC-3156 compliant flash loan interface
      *      No fees for unit testing simplicity
      */
-    function flashLoan(
-        IERC3156FlashBorrower receiver,
-        address tokenAddress,
-        uint256 amount,
-        bytes calldata data
-    ) external override returns (bool) {
+    function flashLoan(IERC3156FlashBorrower receiver, address tokenAddress, uint256 amount, bytes calldata data)
+        external
+        override
+        returns (bool)
+    {
         require(tokenAddress == address(token), "Wrong token");
 
         uint256 fee = 0; // No fee for unit tests

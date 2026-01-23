@@ -280,7 +280,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
      * @param data Encoded FlashLoanCallbackData
      * @return The keccak256 hash of "ERC3156FlashBorrower.onFlashLoan"
      */
-    function onFlashLoan(address /* initiator */, address token, uint256 amount, uint256 fee, bytes calldata data)
+    function onFlashLoan(address, /* initiator */ address token, uint256 amount, uint256 fee, bytes calldata data)
         external
         override
         returns (bytes32)

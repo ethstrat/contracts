@@ -24,7 +24,7 @@ interface IMorphoBlue {
  * @dev ERC-3156 compliant flash loan provider that wraps MorphoBlue flash loans
  *      This contract flashes sUSDS from MorphoBlue, redeems it to USDS for the caller,
  *      then deposits USDS back to sUSDS to repay the flash loan.
- *      
+ *
  *      sUSDS is an ERC4626 vault where USDS is the underlying asset.
  *      MorphoBlue uses its own flash loan interface (not ERC-3156).
  */
@@ -68,7 +68,7 @@ contract MorphoBlueFlashLoanProvider is IERC3156FlashLender, IMorphoFlashLoanCal
      * @dev Returns the flash loan fee (always 0 for this provider)
      * @return The fee amount (always 0)
      */
-    function flashFee(address /* token */, uint256 /* amount */) external pure override returns (uint256) {
+    function flashFee(address, /* token */ uint256 /* amount */ ) external pure override returns (uint256) {
         return 0;
     }
 
@@ -87,12 +87,11 @@ contract MorphoBlueFlashLoanProvider is IERC3156FlashLender, IMorphoFlashLoanCal
      * @param data Additional data to pass to the callback
      * @return success Whether the flash loan was successful
      */
-    function flashLoan(
-        IERC3156FlashBorrower receiver,
-        address token,
-        uint256 amount,
-        bytes calldata data
-    ) external override returns (bool) {
+    function flashLoan(IERC3156FlashBorrower receiver, address token, uint256 amount, bytes calldata data)
+        external
+        override
+        returns (bool)
+    {
         if (token != address(usds)) {
             revert UnsupportedToken();
         }
@@ -112,10 +111,10 @@ contract MorphoBlueFlashLoanProvider is IERC3156FlashLender, IMorphoFlashLoanCal
     /**
      * @dev Callback function called by MorphoBlue when flashing sUSDS
      *      This is MorphoBlue's callback interface (not ERC-3156)
-     *      
+     *
      *      IMPORTANT: Due to sUSDS exchange rate changes, we must use mint() instead of deposit()
      *      to ensure we get back exactly the sUSDS shares we need to repay MorphoBlue.
-     *      
+     *
      *      This function:
      *      1. Calculates USDS needed to mint exactly `assets` sUSDS shares (previewMint)
      *      2. Redeems sUSDS shares for USDS assets (ERC4626 redeem)
@@ -134,8 +133,7 @@ contract MorphoBlueFlashLoanProvider is IERC3156FlashLender, IMorphoFlashLoanCal
         }
 
         // Decode callback data
-        (IERC3156FlashBorrower receiver, bytes memory originalData) =
-            abi.decode(data, (IERC3156FlashBorrower, bytes));
+        (IERC3156FlashBorrower receiver, bytes memory originalData) = abi.decode(data, (IERC3156FlashBorrower, bytes));
 
         // Step 2: Redeem sUSDS shares to USDS assets
         IERC4626(susds).redeem(assets, address(this), address(this));

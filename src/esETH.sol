@@ -148,11 +148,10 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @param receiver The address to receive minted esETH
      * @return esETHAmount The amount of esETH minted
      */
-    function _mintInternal(
-        address token,
-        uint256 tokenAmount,
-        address receiver
-    ) internal returns (uint256 esETHAmount) {
+    function _mintInternal(address token, uint256 tokenAmount, address receiver)
+        internal
+        returns (uint256 esETHAmount)
+    {
         // Validate inputs
         if (tokenAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();

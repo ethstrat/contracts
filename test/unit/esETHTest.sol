@@ -309,7 +309,6 @@ contract esETHTest is Test {
         esETHContract.wrapAndMint{value: 0}(user1);
     }
 
-
     function test_Mint_WithERC4626() external {
         uint256 amount = MINT_AMOUNT;
 
@@ -854,5 +853,320 @@ contract esETHTest is Test {
         // (In this case there shouldn't be excess, but test the flow)
         vm.prank(owner);
         esETHContract.burnExcess(tokens);
+    }
+
+    // ============ Invariant Tests ============
+
+    /**
+     * @notice INV-ESETH-001: Per-token Backing Invariant
+     * @dev Verifies that totalMinted <= actual backing for each token
+     *      After harvestYield(), totalMinted MUST equal actual backing
+     */
+    function test_Invariant_ESETH001_PerTokenBacking() external {
+        // Mint with WETH
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+
+        // Check invariant: totalMinted <= backing
+        (,,, uint256 totalMintedBefore) = esETHContract.tokenConfigs(address(weth));
+        uint256 backingBefore = esETHContract.getETHValue(address(weth), weth.balanceOf(address(esETHContract)));
+        assertLe(totalMintedBefore, backingBefore, "INV-ESETH-001: totalMinted must be <= backing");
+
+        // Add yield
+        weth.transfer(address(esETHContract), MINT_AMOUNT / 10);
+
+        // Before harvest: totalMinted < backing (yield exists)
+        uint256 backingWithYield = esETHContract.getETHValue(address(weth), weth.balanceOf(address(esETHContract)));
+        assertLt(totalMintedBefore, backingWithYield, "Before harvest: totalMinted should be < backing");
+
+        // Harvest yield
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+        esETHContract.harvestYield(tokens);
+
+        // After harvest: totalMinted MUST equal backing
+        (,,, uint256 totalMintedAfter) = esETHContract.tokenConfigs(address(weth));
+        uint256 backingAfter = esETHContract.getETHValue(address(weth), weth.balanceOf(address(esETHContract)));
+        assertEq(totalMintedAfter, backingAfter, "INV-ESETH-001: After harvestYield, totalMinted MUST equal backing");
+    }
+
+    /**
+     * @notice INV-ESETH-001: Backing Invariant with burnExcess
+     * @dev Verifies that burnExcess ensures totalMinted never exceeds backing
+     */
+    function test_Invariant_ESETH001_BurnExcess() external {
+        // Mint with WETH
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+
+        // Simulate loss by removing backing
+        vm.prank(address(esETHContract));
+        weth.transfer(owner, MINT_AMOUNT / 4);
+
+        // Before burnExcess: totalMinted > backing (excess exists)
+        (,,, uint256 totalMintedBefore) = esETHContract.tokenConfigs(address(weth));
+        uint256 backingBefore = esETHContract.getETHValue(address(weth), weth.balanceOf(address(esETHContract)));
+        assertGt(totalMintedBefore, backingBefore, "totalMinted should exceed backing after loss");
+
+        // Burn excess
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+        vm.prank(user1);
+        esETHContract.burnExcess(tokens);
+
+        // After burnExcess: totalMinted MUST equal backing
+        (,,, uint256 totalMintedAfter) = esETHContract.tokenConfigs(address(weth));
+        uint256 backingAfter = esETHContract.getETHValue(address(weth), weth.balanceOf(address(esETHContract)));
+        assertEq(totalMintedAfter, backingAfter, "INV-ESETH-001: After burnExcess, totalMinted MUST equal backing");
+    }
+
+    /**
+     * @notice INV-ESETH-002: Total Supply vs Total Backing
+     * @dev Verifies that totalSupply == sum(tokenConfigs[t].totalMinted)
+     */
+    function test_Invariant_ESETH002_TotalSupplyEqualsSumOfTotalMinted() external {
+        // Mint with multiple tokens
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+
+        vm.prank(user2);
+        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT / 2, user2);
+
+        // Check invariant
+        (,,, uint256 totalMintedWeth) = esETHContract.tokenConfigs(address(weth));
+        (,,, uint256 totalMintedLST) = esETHContract.tokenConfigs(address(yieldBearingLST));
+        uint256 sumTotalMinted = totalMintedWeth + totalMintedLST;
+        uint256 totalSupply = esETHContract.totalSupply();
+
+        assertEq(
+            totalSupply, sumTotalMinted, "INV-ESETH-002: totalSupply must equal sum of all tokenConfigs[t].totalMinted"
+        );
+    }
+
+    /**
+     * @notice INV-ESETH-002: Total Supply maintained across operations
+     * @dev Verifies invariant holds through mint, redeem, harvest, and burn operations
+     */
+    function test_Invariant_ESETH002_TotalSupplyMaintained() external {
+        // Initial mint with WETH
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+
+        // Check invariant after mint
+        _checkTotalSupplyInvariant();
+
+        // Mint with LST
+        vm.prank(user2);
+        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT / 2, user2);
+
+        // Check invariant after second mint
+        _checkTotalSupplyInvariant();
+
+        // Add yield and harvest
+        weth.transfer(address(esETHContract), MINT_AMOUNT / 10);
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(weth);
+        tokens[1] = address(yieldBearingLST);
+        esETHContract.harvestYield(tokens);
+
+        // Check invariant after harvest
+        _checkTotalSupplyInvariant();
+
+        // Redeem
+        vm.prank(user1);
+        esETHContract.redeem(address(weth), MINT_AMOUNT / 2, user1);
+
+        // Check invariant after redeem
+        _checkTotalSupplyInvariant();
+    }
+
+    /**
+     * @notice INV-ESETH-003: Monotonic TotalMinted Updates
+     * @dev Verifies that totalMinted increases by exactly esETHAmount on mint
+     *      and decreases by exactly esETHAmount on redeem
+     */
+    function test_Invariant_ESETH003_MonotonicTotalMintedUpdates() external {
+        // Check initial state
+        (,,, uint256 totalMintedInitial) = esETHContract.tokenConfigs(address(weth));
+        uint256 totalSupplyInitial = esETHContract.totalSupply();
+
+        // Mint
+        vm.prank(user1);
+        uint256 esETHMinted = esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+
+        // Verify totalMinted increased by exactly esETHAmount
+        (,,, uint256 totalMintedAfterMint) = esETHContract.tokenConfigs(address(weth));
+        assertEq(
+            totalMintedAfterMint - totalMintedInitial,
+            esETHMinted,
+            "INV-ESETH-003: totalMinted must increase by exactly esETHAmount on mint"
+        );
+        assertEq(
+            esETHContract.totalSupply() - totalSupplyInitial, esETHMinted, "Total supply must increase by esETHAmount"
+        );
+
+        // Redeem
+        uint256 redeemAmount = MINT_AMOUNT / 2;
+        vm.prank(user1);
+        uint256 esETHBurned = esETHContract.redeem(address(weth), redeemAmount, user1);
+
+        // Verify totalMinted decreased by exactly esETHAmount
+        (,,, uint256 totalMintedAfterRedeem) = esETHContract.tokenConfigs(address(weth));
+        assertEq(
+            totalMintedAfterMint - totalMintedAfterRedeem,
+            esETHBurned,
+            "INV-ESETH-003: totalMinted must decrease by exactly esETHAmount on redeem"
+        );
+    }
+
+    /**
+     * @notice INV-ESETH-004: Unsupported Tokens Never Work
+     * @dev Verifies all operations revert for unsupported tokens
+     */
+    function test_Invariant_ESETH004_UnsupportedTokensNeverWork() external {
+        MintableMockERC20 unsupportedToken = new MintableMockERC20();
+        unsupportedToken.initialize("Unsupported", "UNSUP", 18);
+        unsupportedToken.mint(user1, MINT_AMOUNT);
+
+        vm.startPrank(user1);
+        unsupportedToken.approve(address(esETHContract), MINT_AMOUNT);
+
+        // mint() should revert
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(unsupportedToken)));
+        esETHContract.mint(address(unsupportedToken), MINT_AMOUNT, user1);
+
+        // redeem() should revert (even though user has no balance)
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(unsupportedToken)));
+        esETHContract.redeem(address(unsupportedToken), MINT_AMOUNT, user1);
+
+        // getETHValue() should revert
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(unsupportedToken)));
+        esETHContract.getETHValue(address(unsupportedToken), MINT_AMOUNT);
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice INV-ESETH-004: Operations fail for unsupported tokens regardless of caller
+     * @dev Verifies that even treasuryManager cannot use unsupported tokens
+     */
+    function test_Invariant_ESETH004_UnsupportedTokensFailForTreasuryManager() external {
+        MintableMockERC20 unsupportedToken = new MintableMockERC20();
+        unsupportedToken.initialize("Unsupported", "UNSUP", 18);
+        unsupportedToken.mint(treasuryManager, MINT_AMOUNT);
+
+        // Set treasury manager
+        vm.prank(owner);
+        esETHContract.setTreasuryManager(treasuryManager);
+
+        vm.startPrank(treasuryManager);
+        unsupportedToken.approve(address(esETHContract), MINT_AMOUNT);
+
+        // Even treasuryManager cannot mint unsupported tokens
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(unsupportedToken)));
+        esETHContract.mint(address(unsupportedToken), MINT_AMOUNT, treasuryManager);
+
+        // Even treasuryManager cannot redeem unsupported tokens
+        vm.expectRevert(abi.encodeWithSelector(esETH.UnsupportedToken.selector, address(unsupportedToken)));
+        esETHContract.redeem(address(unsupportedToken), MINT_AMOUNT, treasuryManager);
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice INV-ESETH-005: Treasury Manager Bypass
+     * @dev Verifies treasuryManager can bypass isMintable/isRedeemable flags
+     */
+    function test_Invariant_ESETH005_TreasuryManagerBypass() external {
+        // Set token as not mintable and not redeemable
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, false);
+
+        // Set treasury manager
+        vm.prank(owner);
+        esETHContract.setTreasuryManager(treasuryManager);
+
+        // Fund treasury manager
+        vm.deal(treasuryManager, MINT_AMOUNT);
+        vm.prank(treasuryManager);
+        weth.deposit{value: MINT_AMOUNT}();
+
+        vm.startPrank(treasuryManager);
+        weth.approve(address(esETHContract), type(uint256).max);
+
+        // Regular user should fail
+        vm.stopPrank();
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(esETH.TokenNotWhitelistedForMint.selector, address(weth)));
+        esETHContract.mint(address(weth), 1, user1);
+
+        // Treasury manager should succeed even with isMintable=false
+        vm.startPrank(treasuryManager);
+        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT, treasuryManager);
+        assertGt(esETHAmount, 0, "INV-ESETH-005: treasuryManager should bypass isMintable flag");
+
+        // Treasury manager should succeed with redeem even with isRedeemable=false
+        esETHContract.redeem(address(weth), MINT_AMOUNT / 2, treasuryManager);
+        assertLt(
+            esETHContract.balanceOf(treasuryManager),
+            esETHAmount,
+            "INV-ESETH-005: treasuryManager should bypass isRedeemable flag"
+        );
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice INV-ESETH-006: Token Config Preservation
+     * @dev Verifies that setTokenConfig preserves totalMinted
+     */
+    function test_Invariant_ESETH006_TokenConfigPreservation() external {
+        // Mint to establish totalMinted
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+
+        // Get initial totalMinted
+        (,,, uint256 totalMintedBefore) = esETHContract.tokenConfigs(address(weth));
+        assertGt(totalMintedBefore, 0, "Should have minted some esETH");
+
+        // Update config (change flags)
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, false);
+
+        // Verify totalMinted preserved
+        (esETH.TokenType tokenType, bool isMintable, bool isRedeemable, uint256 totalMintedAfter) =
+            esETHContract.tokenConfigs(address(weth));
+        assertEq(totalMintedAfter, totalMintedBefore, "INV-ESETH-006: setTokenConfig must preserve totalMinted");
+        assertEq(uint256(tokenType), uint256(esETH.TokenType.ERC20), "Token type should be updated");
+        assertEq(isMintable, false, "isMintable should be updated");
+        assertEq(isRedeemable, false, "isRedeemable should be updated");
+
+        // Update config again (change token type)
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
+
+        // Verify totalMinted still preserved
+        (,,, uint256 totalMintedFinal) = esETHContract.tokenConfigs(address(weth));
+        assertEq(
+            totalMintedFinal,
+            totalMintedBefore,
+            "INV-ESETH-006: totalMinted must remain unchanged after multiple config updates"
+        );
+    }
+
+    /**
+     * @notice Helper function to check total supply invariant
+     */
+    function _checkTotalSupplyInvariant() internal view {
+        (,,, uint256 totalMintedWeth) = esETHContract.tokenConfigs(address(weth));
+        (,,, uint256 totalMintedLST) = esETHContract.tokenConfigs(address(yieldBearingLST));
+        uint256 sumTotalMinted = totalMintedWeth + totalMintedLST;
+        uint256 totalSupply = esETHContract.totalSupply();
+
+        assertEq(
+            totalSupply,
+            sumTotalMinted,
+            "INV-ESETH-002: totalSupply must always equal sum of all tokenConfigs[t].totalMinted"
+        );
     }
 }
