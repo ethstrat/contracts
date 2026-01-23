@@ -679,7 +679,7 @@ contract StakedStratTest is Test {
         assertEq(stakedStrat.getPendingRewards(user2), 0);
     }
 
-    function test_ReentrancyProtection_Modifiers() public view {
+    function test_ReentrancyProtection_Modifiers() public pure {
         // US-011: Verify nonReentrant modifiers are present
         // This is a compile-time check - if modifiers weren't present, tests would fail
         // We verify by checking the contract compiles and functions exist
