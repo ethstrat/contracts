@@ -10,7 +10,7 @@ import {EthStrategyPerpetualNote} from "./EthStrategyPerpetualNote.sol";
 
 /**
  * @title Sky Flash Loan Interface
- * @dev Minimal interface for Sky protocol flash loans
+ * @dev Minimal interface for Sky protocol flash loans (ERC-3156 compliant)
  */
 interface ISkyFlashLoan {
     /**
@@ -19,8 +19,9 @@ interface ISkyFlashLoan {
      * @param token The token to flash loan (should be USDS)
      * @param amount The amount to flash loan
      * @param data Additional data to pass to the callback
+     * @return success Whether the flash loan was successful
      */
-    function flashLoan(address receiver, address token, uint256 amount, bytes calldata data) external;
+    function flashLoan(address receiver, address token, uint256 amount, bytes calldata data) external returns (bool);
 }
 
 /**
@@ -165,47 +166,72 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
     }
 
     /**
-     * @dev Redeem NFTs for USDS if eligible
-     * @param tokenIds Array of NFT token IDs to redeem (processed in order)
+     * @dev Redeem an active (non-cancelled) NFT for USDS if eligible
+     * @param tokenId The NFT token ID to redeem
      */
-    function redeem(uint256[] calldata tokenIds) external nonReentrant {
+    function redeem(uint256 tokenId) external nonReentrant {
+        // Check ownership
+        if (ownerOf(tokenId) != msg.sender) revert NotTokenOwner(tokenId);
+
+        // Check if already redeemed
+        if (redemptions[tokenId].redeemed) revert AlreadyRedeemed(tokenId);
+
+        // Check if cancelled (should use processCancelledRedemptions instead)
+        if (redemptions[tokenId].cancelled) revert AlreadyCancelled(tokenId);
+
+        RedemptionData storage redemption = redemptions[tokenId];
+
+        // Check eligibility: redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS
+        // balance)
+        uint256 availablePosition =
+            totalRedemptionsProcessed + totalCancellationsProcessed + usds.balanceOf(address(this));
+        if (redemption.redemptionsBefore >= availablePosition) {
+            revert NotEligibleForRedemption(tokenId);
+        }
+
+        // Active NFT: check USDS, transfer, mark as redeemed, and burn
+        if (usds.balanceOf(address(this)) < redemption.redemptionAmount) {
+            revert InsufficientUSDS();
+        }
+
+        redemption.redeemed = true;
+        totalRedemptionsProcessed += redemption.redemptionAmount;
+        usds.safeTransfer(msg.sender, redemption.redemptionAmount);
+        _burn(tokenId);
+        emit RedemptionFulfilled(msg.sender, tokenId, redemption.redemptionAmount);
+    }
+
+    /**
+     * @dev Process cancelled NFTs to advance the queue (permissionless)
+     * This allows anyone to process cancelled NFTs to improve capital efficiency
+     * for active redemptions behind them in the queue
+     * @param tokenIds Array of cancelled NFT token IDs to process
+     */
+    function processCancelledRedemptions(uint256[] calldata tokenIds) external nonReentrant {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
-
-            // Check ownership
-            if (ownerOf(tokenId) != msg.sender) revert NotTokenOwner(tokenId);
 
             // Check if already redeemed
             if (redemptions[tokenId].redeemed) revert AlreadyRedeemed(tokenId);
 
+            // Must be cancelled
+            if (!redemptions[tokenId].cancelled) revert RedemptionNotCancelled();
+
             RedemptionData storage redemption = redemptions[tokenId];
 
-            // Check eligibility: redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS
-            // balance)
+            // Check eligibility
             uint256 availablePosition =
                 totalRedemptionsProcessed + totalCancellationsProcessed + usds.balanceOf(address(this));
             if (redemption.redemptionsBefore >= availablePosition) {
                 revert NotEligibleForRedemption(tokenId);
             }
 
-            if (redemption.cancelled) {
-                // Cancelled NFT: add to totalCancellationsProcessed and burn (no USDS transfer)
-                redemption.redeemed = true;
-                totalCancellationsProcessed += redemption.redemptionAmount;
-                _burn(tokenId);
-                emit RedemptionFulfilled(msg.sender, tokenId, 0);
-            } else {
-                // Active NFT: check USDS, transfer, mark as redeemed, and burn
-                if (usds.balanceOf(address(this)) < redemption.redemptionAmount) {
-                    revert InsufficientUSDS();
-                }
-
-                redemption.redeemed = true;
-                totalRedemptionsProcessed += redemption.redemptionAmount;
-                usds.safeTransfer(msg.sender, redemption.redemptionAmount);
-                _burn(tokenId);
-                emit RedemptionFulfilled(msg.sender, tokenId, redemption.redemptionAmount);
-            }
+            // Process cancelled NFT: increment counter and burn (no USDS transfer)
+            address owner = ownerOf(tokenId);
+            redemption.redeemed = true;
+            totalCancellationsProcessed += redemption.redemptionAmount;
+            _burn(tokenId);
+            emit RedemptionFulfilled(owner, tokenId, 0);
         }
     }
 
@@ -260,7 +286,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
     }
 
     /**
-     * @dev Callback function for Sky flash loans
+     * @dev Callback function for Sky flash loans (ERC-3156 compliant)
      *
      * This function is called by Sky after lending USDS. It:
      * 1. Uses flashed USDS to deposit into ESPN (minting ESPN shares)
@@ -272,13 +298,17 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * When USDS is deposited, ESPN's _deposit function sends it to the manager (this contract),
      * allowing us to repay the flash loan.
      *
+     * @param initiator The address that initiated the flash loan
      * @param token The token that was flash loaned (should be USDS)
      * @param amount The amount that was flash loaned
      * @param fee The fee/premium to pay back (Sky typically charges 0 for USDS)
      * @param data Encoded FlashLoanCallbackData
-     * @return success Whether the operation was successful
+     * @return The keccak256 hash of "ERC3156FlashBorrower.onFlashLoan"
      */
-    function onFlashLoan(address token, uint256 amount, uint256 fee, bytes calldata data) external returns (bool) {
+    function onFlashLoan(address initiator, address token, uint256 amount, uint256 fee, bytes calldata data)
+        external
+        returns (bytes32)
+    {
         // Verify Sky flash loan contract called this
         if (msg.sender != address(skyFlashLoan)) revert InvalidFlashLoanInitiator();
 
@@ -326,7 +356,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
 
         emit RedemptionCancelled(callbackData.user, callbackData.tokenId, espnMinted);
 
-        return true;
+        return keccak256("ERC3156FlashBorrower.onFlashLoan");
     }
 
     /**

@@ -9,9 +9,9 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 
 /**
- * @title Simple Flash Loan Provider Abstraction (Sky-compatible)
+ * @title Simple Flash Loan Provider Abstraction (Sky-compatible, ERC-3156 compliant)
  * @dev Simple no-fee flash loan provider for unit testing
- *      Implements Sky flash loan interface for testing purposes
+ *      Implements ERC-3156 flash loan interface for testing purposes
  */
 contract SimpleFlashLoanProvider {
     IERC20 public immutable token;
@@ -21,10 +21,13 @@ contract SimpleFlashLoanProvider {
     }
 
     /**
-     * @dev Sky-compatible flash loan interface
+     * @dev ERC-3156 compliant flash loan interface (Sky-compatible)
      *      No fees for unit testing simplicity
      */
-    function flashLoan(address receiver, address tokenAddress, uint256 amount, bytes calldata data) external {
+    function flashLoan(address receiver, address tokenAddress, uint256 amount, bytes calldata data)
+        external
+        returns (bool)
+    {
         require(tokenAddress == address(token), "Wrong token");
 
         uint256 fee = 0; // No fee for unit tests
@@ -32,16 +35,18 @@ contract SimpleFlashLoanProvider {
         // Transfer tokens to receiver
         token.transfer(receiver, amount);
 
-        // Call the receiver's callback (Sky interface: onFlashLoan)
+        // Call the receiver's callback (ERC-3156 interface: onFlashLoan with initiator parameter)
         ESPNRedemptionQueue receiverContract = ESPNRedemptionQueue(receiver);
-        bool success = receiverContract.onFlashLoan(tokenAddress, amount, fee, data);
-        require(success, "Flash loan callback failed");
+        bytes32 result = receiverContract.onFlashLoan(msg.sender, tokenAddress, amount, fee, data);
+        require(result == keccak256("ERC3156FlashBorrower.onFlashLoan"), "Flash loan callback failed");
 
         // Take back tokens (onFlashLoan should have approved this contract)
         uint256 totalToRepay = amount + fee;
         uint256 balanceBefore = token.balanceOf(address(this));
         token.transferFrom(receiver, address(this), totalToRepay);
         require(token.balanceOf(address(this)) == balanceBefore + totalToRepay, "Repayment failed");
+
+        return true;
     }
 
     // Allow this contract to receive tokens for flash loans
@@ -225,10 +230,8 @@ contract ESPNRedemptionQueueTest is Test {
 
         // Redeem
         uint256 user1BalanceBefore = usds.balanceOf(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
         vm.prank(user1);
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         // Check USDS was transferred
         assertEq(usds.balanceOf(user1), user1BalanceBefore + redemptionAmount);
@@ -259,9 +262,7 @@ contract ESPNRedemptionQueueTest is Test {
         // Don't fund queue - should not be eligible
         vm.prank(user1);
         vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenId));
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
     }
 
     function test_Redeem_NotOwner() public {
@@ -281,9 +282,7 @@ contract ESPNRedemptionQueueTest is Test {
         // Try to redeem as different user
         vm.prank(user2);
         vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotTokenOwner.selector, tokenId));
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
     }
 
     function test_Redeem_AlreadyRedeemed() public {
@@ -300,17 +299,14 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), redemptionAmount);
 
         vm.prank(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         // Try to redeem again (NFT is already burned, so ownerOf will revert)
         vm.prank(owner);
         usds.mint(address(queue), redemptionAmount);
         vm.prank(user1);
         vm.expectRevert(); // ownerOf will revert since NFT is burned
-        tokenIds[0] = tokenId; // Reuse existing array
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
     }
 
     function test_Redeem_MultipleInQueue() public {
@@ -337,16 +333,12 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount1 + actualRedemptionAmount2);
 
         // First redemption should be eligible
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
         vm.prank(user1);
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
 
         // Second redemption should also be eligible now
-        uint256[] memory tokenIds2 = new uint256[](1);
-        tokenIds2[0] = tokenId2;
         vm.prank(user2);
-        queue.redeem(tokenIds2);
+        queue.redeem(tokenId2);
 
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount1 + actualRedemptionAmount2);
     }
@@ -375,17 +367,13 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount1);
 
         // First should succeed
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
         vm.prank(user1);
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
 
         // Second should not be eligible (not enough USDS)
-        uint256[] memory tokenIds2 = new uint256[](1);
-        tokenIds2[0] = tokenId2;
         vm.prank(user2);
         vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenId2));
-        queue.redeem(tokenIds2);
+        queue.redeem(tokenId2);
 
         // Add more USDS
         vm.prank(owner);
@@ -393,7 +381,7 @@ contract ESPNRedemptionQueueTest is Test {
 
         // Now second should succeed
         vm.prank(user2);
-        queue.redeem(tokenIds2);
+        queue.redeem(tokenId2);
     }
 
     // ============ cancelRedemption Tests ============
@@ -463,9 +451,7 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), redemptionAmount);
 
         vm.prank(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         // Try to cancel - NFT is burned, so ownerOf will revert
         vm.prank(user1);
@@ -567,9 +553,7 @@ contract ESPNRedemptionQueueTest is Test {
         // User redeems
         uint256 user1BalanceBefore = usds.balanceOf(user1);
         vm.prank(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         // Check final state
         assertEq(usds.balanceOf(user1), user1BalanceBefore + redemptionAmount);
@@ -610,20 +594,14 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount1 + actualRedemptionAmount2 + actualRedemptionAmount3);
 
         // All users redeem
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
         vm.prank(user1);
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
 
-        uint256[] memory tokenIds2 = new uint256[](1);
-        tokenIds2[0] = tokenId2;
         vm.prank(user2);
-        queue.redeem(tokenIds2);
+        queue.redeem(tokenId2);
 
-        uint256[] memory tokenIds3 = new uint256[](1);
-        tokenIds3[0] = tokenId3;
         vm.prank(user3);
-        queue.redeem(tokenIds3);
+        queue.redeem(tokenId3);
 
         // Check final state
         assertEq(
@@ -717,7 +695,7 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(user1);
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.processCancelledRedemptions(tokenIds);
 
         // Check NFT was burned and totalCancellationsProcessed increased
         vm.expectRevert();
@@ -765,17 +743,13 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount1 + actualRedemptionAmount2);
 
         // Redeem first
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
         vm.prank(user1);
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount1);
 
         // Redeem second
-        uint256[] memory tokenIds2 = new uint256[](1);
-        tokenIds2[0] = tokenId2;
         vm.prank(user2);
-        queue.redeem(tokenIds2);
+        queue.redeem(tokenId2);
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount1 + actualRedemptionAmount2);
     }
 
@@ -796,9 +770,7 @@ contract ESPNRedemptionQueueTest is Test {
 
         // Redeem (uses redemptionAmount)
         vm.prank(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         // Sweep remaining
         uint256 sweeperBalanceBefore = usds.balanceOf(sweeper);
@@ -955,7 +927,7 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(user1);
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.processCancelledRedemptions(tokenIds);
 
         // Check no USDS was transferred
         assertEq(usds.balanceOf(user1), user1USDSBefore);
@@ -1009,9 +981,7 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount1);
 
         vm.prank(user1);
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
 
         // Add 1 wei to make it eligible
         vm.prank(owner);
@@ -1025,7 +995,7 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(user2);
         uint256[] memory tokenIds2 = new uint256[](1);
         tokenIds2[0] = tokenId2;
-        queue.redeem(tokenIds2);
+        queue.processCancelledRedemptions(tokenIds2);
 
         assertEq(queue.totalCancellationsProcessed(), cancellationsBefore + actualRedemptionAmount2);
     }
@@ -1071,9 +1041,7 @@ contract ESPNRedemptionQueueTest is Test {
 
         // Process first active redemption
         vm.prank(user1);
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
 
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount1);
         assertEq(queue.totalCancellationsProcessed(), 0);
@@ -1087,16 +1055,14 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(user2);
         uint256[] memory tokenIds2 = new uint256[](1);
         tokenIds2[0] = tokenId2;
-        queue.redeem(tokenIds2);
+        queue.processCancelledRedemptions(tokenIds2);
 
         assertEq(queue.totalCancellationsProcessed(), cancellationsBefore + actualRedemptionAmount2);
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount1); // Unchanged
 
         // Process third active redemption
         vm.prank(user3);
-        uint256[] memory tokenIds3 = new uint256[](1);
-        tokenIds3[0] = tokenId3;
-        queue.redeem(tokenIds3);
+        queue.redeem(tokenId3);
 
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount1 + actualRedemptionAmount3);
         assertEq(queue.totalCancellationsProcessed(), actualRedemptionAmount2);
@@ -1174,9 +1140,7 @@ contract ESPNRedemptionQueueTest is Test {
         // user2 should be able to redeem
         uint256 user2BalanceBefore = usds.balanceOf(user2);
         vm.prank(user2);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         assertEq(usds.balanceOf(user2), user2BalanceBefore + redemptionAmount);
     }
@@ -1308,9 +1272,7 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount);
 
         vm.prank(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
 
         assertEq(queue.totalRedemptionsProcessed(), actualRedemptionAmount);
     }
@@ -1373,14 +1335,14 @@ contract ESPNRedemptionQueueTest is Test {
         // Still zero until processed via redeem()
         assertEq(queue.totalCancellationsProcessed(), 0);
 
-        // Process cancelled NFT via redeem()
+        // Process cancelled NFT via processCancelledRedemptions()
         vm.prank(owner);
         usds.mint(address(queue), 1); // Add 1 wei to make it eligible
 
         vm.prank(user1);
         uint256[] memory tokenIds1 = new uint256[](1);
         tokenIds1[0] = tokenId1;
-        queue.redeem(tokenIds1);
+        queue.processCancelledRedemptions(tokenIds1);
 
         // Now should be updated
         assertEq(queue.totalCancellationsProcessed(), actualRedemptionAmount1);
@@ -1396,7 +1358,7 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(user2);
         uint256[] memory tokenIds2 = new uint256[](1);
         tokenIds2[0] = tokenId2;
-        queue.redeem(tokenIds2);
+        queue.processCancelledRedemptions(tokenIds2);
 
         // Should accumulate
         assertEq(queue.totalCancellationsProcessed(), actualRedemptionAmount1 + actualRedemptionAmount2);
@@ -1444,9 +1406,7 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), actualRedemptionAmount1);
 
         vm.prank(user1);
-        uint256[] memory tokenIds1 = new uint256[](1);
-        tokenIds1[0] = tokenId1;
-        queue.redeem(tokenIds1);
+        queue.redeem(tokenId1);
 
         // Process cancelled NFT
         vm.prank(owner);
@@ -1455,7 +1415,7 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(user2);
         uint256[] memory tokenIds2 = new uint256[](1);
         tokenIds2[0] = tokenId2;
-        queue.redeem(tokenIds2);
+        queue.processCancelledRedemptions(tokenIds2);
 
         // Verify invariant: totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued
         uint256 processed = queue.totalRedemptionsProcessed();
@@ -1494,9 +1454,7 @@ contract ESPNRedemptionQueueTest is Test {
 
         // Should succeed normally
         vm.prank(user1);
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = tokenId;
-        queue.redeem(tokenIds);
+        queue.redeem(tokenId);
     }
 
     function test_ReentrancyProtection_CancelRedemption() public {
@@ -1529,9 +1487,7 @@ contract ESPNRedemptionQueueTest is Test {
     function test_InputValidation_Redeem_InvalidTokenId() public {
         vm.prank(user1);
         vm.expectRevert();
-        uint256[] memory tokenIds = new uint256[](1);
-        tokenIds[0] = 999; // Non-existent token ID
-        queue.redeem(tokenIds);
+        queue.redeem(999); // Non-existent token ID
     }
 
     function test_InputValidation_CancelRedemption_InsufficientFlashLoanAmount() public {

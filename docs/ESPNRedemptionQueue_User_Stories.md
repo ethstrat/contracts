@@ -40,24 +40,37 @@
 
 ### Fulfilling Redemptions
 
-**US-004: Redeem NFT(s) for USDS**
-- **As a** user holding eligible redemption queue NFT(s)
-- **I want to** redeem my NFT(s) for USDS
+**US-004: Redeem active NFT for USDS**
+- **As a** user holding an eligible redemption queue NFT
+- **I want to** redeem my NFT for USDS
 - **So that** I can exit my ESPN position and receive the underlying asset
 - **Acceptance Criteria:**
-  - Function accepts an array of tokenIds (processed in order)
-  - Must be the owner of each NFT
-  - Each NFT must be eligible for redemption
+  - Function accepts a single tokenId
+  - Must be the owner of the NFT
+  - NFT must be eligible for redemption
   - NFT must not be already redeemed
-  - For active NFTs:
-    - Contract must have sufficient USDS balance
-    - USDS is transferred to the user
-    - `totalRedemptionsProcessed` increases
-  - For cancelled NFTs:
-    - No USDS transfer (ESPN already returned via cancellation)
-    - `totalCancellationsProcessed` increases
+  - NFT must not be cancelled (use `processCancelledRedemptions()` for cancelled NFTs)
+  - Contract must have sufficient USDS balance
+  - USDS is transferred to the user
+  - `totalRedemptionsProcessed` increases
   - NFT is burned after redemption
   - Event is emitted with redemption details
+
+**US-004b: Process cancelled NFTs (permissionless)**
+- **As a** anyone (user, protocol, or third party)
+- **I want to** process cancelled NFTs to advance the queue
+- **So that** active redemptions behind cancelled NFTs can be fulfilled with less USDS
+- **Acceptance Criteria:**
+  - Function accepts an array of cancelled tokenIds
+  - Permissionless - anyone can call this function
+  - Each NFT must be cancelled (not active)
+  - Each NFT must be eligible for processing
+  - NFT must not be already processed
+  - No USDS transfer (ESPN already returned via cancellation)
+  - `totalCancellationsProcessed` increases for each NFT
+  - NFTs are burned after processing
+  - Event is emitted with processing details
+  - Improves capital efficiency by allowing active redemptions to be fulfilled sooner
 
 **US-005: Understand queue position**
 - **As a** user in the redemption queue
@@ -141,7 +154,7 @@
 - **I want** all state-changing functions to be protected against reentrancy attacks
 - **So that** my transactions are secure and cannot be exploited
 - **Acceptance Criteria:**
-  - `nonReentrant` modifier on queueRedemption, redeem, and cancelRedemption
+  - `nonReentrant` modifier on queueRedemption, redeem, processCancelledRedemptions, and cancelRedemption
   - Uses ReentrancyGuard from OpenZeppelin
   - Flash loan callback uses temporary storage pattern
 
@@ -183,11 +196,13 @@
   - `totalRedemptionsProcessed`: Cumulative dollar value of fulfilled active redemptions
   - `totalCancellationsProcessed`: Cumulative dollar value of processed cancelled redemptions
   - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
-- `redeem()` function accepts an array of tokenIds and processes them in order
-- Cancelled NFTs stay in queue and are processed via `redeem()` when they reach the head
+- `redeem()` function accepts a single tokenId for active (non-cancelled) redemptions
+- `processCancelledRedemptions()` function accepts an array of cancelled tokenIds and is permissionless
+- Cancelled NFTs stay in queue and are processed via `processCancelledRedemptions()` when they reach the head
+- Processing cancelled NFTs improves capital efficiency by reducing USDS requirements for active redemptions
 - Queue ordering maintained without loops - cancelled NFTs naturally advance when processed
 - Sweeper address is immutable and set at construction
-- NFT is burned after redemption (via `redeem()`), not immediately on cancellation
+- NFT is burned after redemption/processing, not immediately on cancellation
 
 ### Cancellation Implementation Details
 
@@ -208,3 +223,15 @@ This flash loan mechanism is an implementation detail required by ESPN's archite
 - Temporary storage is cleared after the flash loan completes
 - The contract verifies sufficient USDS balance for repayment before completing the operation
 - ESPN manager must be set to this contract for cancellation to work properly
+
+### Capital Efficiency: Processing Cancelled NFTs
+
+When redemptions are cancelled, the NFTs remain in the queue but don't require USDS to process (the ESPN was already returned to the user). However, until these cancelled NFTs are processed, they block active redemptions behind them from being fulfilled efficiently.
+
+**Example:**
+- NFT #1: redemptionsBefore = 0, amount = 100 USDS (CANCELLED)
+- NFT #2: redemptionsBefore = 100, amount = 50 USDS (ACTIVE - yours)
+
+Without processing NFT #1, you need 101+ USDS in the contract to redeem NFT #2. But if NFT #1 is processed first (burning the NFT and incrementing `totalCancellationsProcessed`), you only need 50 USDS.
+
+The `processCancelledRedemptions()` function is **permissionless**, allowing anyone to process cancelled NFTs to improve capital efficiency. This creates an economic incentive: users with active redemptions can process cancelled NFTs ahead of them to enable their own redemptions with less USDS in the contract.
