@@ -7,13 +7,15 @@ import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {IERC3156FlashLender} from "openzeppelin-contracts/contracts/interfaces/IERC3156FlashLender.sol";
+import {IERC3156FlashBorrower} from "openzeppelin-contracts/contracts/interfaces/IERC3156FlashBorrower.sol";
 
 /**
- * @title Simple Flash Loan Provider Abstraction (Sky-compatible, ERC-3156 compliant)
+ * @title Simple Flash Loan Provider (ERC-3156 compliant)
  * @dev Simple no-fee flash loan provider for unit testing
- *      Implements ERC-3156 flash loan interface for testing purposes
+ *      Implements IERC3156FlashLender interface for testing purposes
  */
-contract SimpleFlashLoanProvider {
+contract SimpleFlashLoanProvider is IERC3156FlashLender {
     IERC20 public immutable token;
 
     constructor(address _token) {
@@ -21,29 +23,48 @@ contract SimpleFlashLoanProvider {
     }
 
     /**
-     * @dev ERC-3156 compliant flash loan interface (Sky-compatible)
+     * @dev Returns the maximum amount available for flash loan
+     */
+    function maxFlashLoan(address tokenAddress) external view override returns (uint256) {
+        if (tokenAddress != address(token)) {
+            return 0;
+        }
+        return type(uint256).max; // Unlimited for testing
+    }
+
+    /**
+     * @dev Returns the flash loan fee (0 for testing)
+     */
+    function flashFee(address tokenAddress, uint256) external view override returns (uint256) {
+        require(tokenAddress == address(token), "Wrong token");
+        return 0; // No fee for unit tests
+    }
+
+    /**
+     * @dev ERC-3156 compliant flash loan interface
      *      No fees for unit testing simplicity
      */
-    function flashLoan(address receiver, address tokenAddress, uint256 amount, bytes calldata data)
-        external
-        returns (bool)
-    {
+    function flashLoan(
+        IERC3156FlashBorrower receiver,
+        address tokenAddress,
+        uint256 amount,
+        bytes calldata data
+    ) external override returns (bool) {
         require(tokenAddress == address(token), "Wrong token");
 
         uint256 fee = 0; // No fee for unit tests
 
         // Transfer tokens to receiver
-        token.transfer(receiver, amount);
+        token.transfer(address(receiver), amount);
 
         // Call the receiver's callback (ERC-3156 interface: onFlashLoan with initiator parameter)
-        ESPNRedemptionQueue receiverContract = ESPNRedemptionQueue(receiver);
-        bytes32 result = receiverContract.onFlashLoan(msg.sender, tokenAddress, amount, fee, data);
+        bytes32 result = receiver.onFlashLoan(msg.sender, tokenAddress, amount, fee, data);
         require(result == keccak256("ERC3156FlashBorrower.onFlashLoan"), "Flash loan callback failed");
 
         // Take back tokens (onFlashLoan should have approved this contract)
         uint256 totalToRepay = amount + fee;
         uint256 balanceBefore = token.balanceOf(address(this));
-        token.transferFrom(receiver, address(this), totalToRepay);
+        token.transferFrom(address(receiver), address(this), totalToRepay);
         require(token.balanceOf(address(this)) == balanceBefore + totalToRepay, "Repayment failed");
 
         return true;
@@ -110,10 +131,10 @@ contract ESPNRedemptionQueueTest is Test {
         vm.prank(owner);
         espn.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
 
-        // Deploy simple flash loan provider (no-fee abstraction for unit tests, Sky-compatible)
+        // Deploy simple flash loan provider (ERC-3156 compliant, uses USDS)
         flashLoanProvider = new SimpleFlashLoanProvider(address(usds));
 
-        // Deploy redemption queue (with Sky flash loan provider)
+        // Deploy redemption queue (with ERC-3156 flash loan provider)
         queue = new ESPNRedemptionQueue(address(espn), address(flashLoanProvider), sweeper, owner);
 
         // Mint USDS to flash loan provider
@@ -402,7 +423,7 @@ contract ESPNRedemptionQueueTest is Test {
 
         uint256 user1EspnBefore = espn.balanceOf(user1);
 
-        // Cancel redemption (Sky flash loan called internally)
+        // Cancel redemption (DAI flash loan called internally)
         vm.startPrank(user1);
         queue.cancelRedemption(tokenId);
         vm.stopPrank();
@@ -1514,8 +1535,8 @@ contract ESPNRedemptionQueueTest is Test {
         new ESPNRedemptionQueue(address(espn), address(flashLoanProvider), address(0), owner);
     }
 
-    function test_InputValidation_Constructor_ZeroSkyFlashLoan() public {
-        vm.expectRevert(ESPNRedemptionQueue.InvalidSweeper.selector);
+    function test_InputValidation_Constructor_ZeroFlashLoanProvider() public {
+        vm.expectRevert(ESPNRedemptionQueue.InvalidFlashLoanProvider.selector);
         new ESPNRedemptionQueue(address(espn), address(0), sweeper, owner);
     }
 
