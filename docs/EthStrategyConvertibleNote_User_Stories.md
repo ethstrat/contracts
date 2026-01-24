@@ -25,7 +25,17 @@
 - **Acceptance Criteria:**
   - Only `owner` can call `setPCF(newVal)`
   - Emits `OwnerChangedPCF(oldVal, newVal)`
-  - `pcf` is used in `conversionEntitlements(settlementEntitlementUsd)`
+  - `pcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the premium term
+
+**US-000a: Owner can update the GAV control factor (GCF)**
+- **As a** protocol operator (`owner`)
+- **I want** to update `gcf`
+- **So that** conversion entitlement calculations can scale the gross asset value independently
+- **Acceptance Criteria:**
+  - Only `owner` can call `setGCF(newVal)`
+  - Emits `OwnerChangedGCF(oldVal, newVal)`
+  - `gcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the GAV term
+  - `gcf` is initialized to `1 * SCALE` in the constructor (no scaling by default)
 
 **US-001: Owner can set a tokenURI renderer**
 - **As a** protocol operator (`owner`)
@@ -233,8 +243,77 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
     - ETH/USD oracle price (`_getEthUsdPrice()`)
     - System balances (`esETHToken.balanceOf(unencumberedHoldings)` and `esETHToken.balanceOf(encumberedHoldings)`)
     - Token supplies (`stratToken.totalSupply()`, `cdtToken.totalSupply()`)
-    - `pcf`
+    - `pcf` (Premium Control Factor) - scales the premium term
+    - `gcf` (GAV Control Factor) - scales the gross asset value (GAV) term
+  - **STRAT pricing formula**: 
+    - `numeratorUsd = (gav * gcf / SCALE) + premiumUsd`
+    - `stratConversionRate = numeratorUsd * SCALE / stratTotalSupply`
+    - `stratAmount = settlementUsd * SCALE / stratConversionRate`
+    - Where `gav = totalEth * ethPriceUSD / ORACLE_SCALE`
+    - And `premiumUsd = (pcf * adjustedCdtSupply) / SCALE`
+  - **ETH pricing formula** (based on NAV per STRAT):
+    - `debtInEth = cdtTotalSupply * ORACLE_SCALE / ethPriceUSD`
+    - If `debtInEth > totalEth` (protocol underwater): `ethAmount = 0`
+    - Otherwise: `navETH = totalEth - debtInEth`, `ethConversionRate = numeratorUsd * SCALE / navETH`, `ethAmount = settlementUsd * SCALE / ethConversionRate`
   - This function is used by `bond(...)` and thus must be stable enough for slippage checks
+
+**US-500a: ETH conversion entitlements reflect net asset backing per STRAT**
+- **As a** bonder
+- **I want** my ETH conversion entitlement to reflect the actual net ETH backing available per STRAT
+- **So that** I receive fair value accounting for existing debt obligations
+- **Acceptance Criteria:**
+  - ETH conversion entitlement is calculated as: `ethAmount = stratAmount × (navETH / stratTotalSupply)`
+  - Where `navETH = totalEth - debtInEth` (net assets after existing debt)
+  - This ensures bonders receive their pro-rata share of **unencumbered** ETH backing
+  - If protocol is underwater (`debtInEth > totalEth`), then `ethAmount = 0` (no ETH conversion rights, only STRAT)
+  - This protects existing creditors from dilution and prevents claiming non-existent backing
+
+**US-500b: Bonding continues even when protocol is underwater**
+- **As a** protocol operator / bonder
+- **I want** bonding to remain active even when debt exceeds assets
+- **So that** the protocol can accept fresh capital to aid recovery
+- **Acceptance Criteria:**
+  - When `debtInEth > totalEth`, bonding does NOT revert
+  - New bonds receive full STRAT conversion rights (`stratAmount` calculated normally)
+  - New bonds receive zero ETH conversion rights (`ethAmount = 0`)
+  - This allows capital inflows during crisis while protecting existing creditors
+  - Bonders can see upfront via `conversionEntitlements()` that `ethAmount = 0`
+
+---
+
+## Control Factors (GCF and PCF)
+
+**US-501: GCF scales the perceived value of the treasury's gross asset value**
+- **As a** protocol operator
+- **I want** to scale the GAV independently from the actual ETH holdings
+- **So that** pricing can be adjusted for risk, growth expectations, or market conditions
+- **Acceptance Criteria:**
+  - `gcf` (GAV Control Factor) multiplies the treasury's GAV in the conversion pricing formula
+  - `gcf = 1 * SCALE` (default): GAV used as-is
+  - `gcf > 1 * SCALE`: GAV is scaled up → higher price per token → fewer tokens per USD bonded
+  - `gcf < 1 * SCALE`: GAV is scaled down → lower price per token → more tokens per USD bonded
+  - `gcf = 0`: Only premium term affects pricing (GAV term becomes zero)
+
+**US-502: PCF scales the premium component of the pricing**
+- **As a** protocol operator
+- **I want** to scale the premium term independently from the CDT supply
+- **So that** the cost/value of conversion rights can be adjusted
+- **Acceptance Criteria:**
+  - `pcf` (Premium Control Factor) multiplies the adjusted CDT supply in the premium calculation
+  - `pcf = 1 * SCALE` (default): Premium calculated directly from adjusted CDT supply
+  - `pcf > 1 * SCALE`: Premium is scaled up → higher price per token → fewer tokens per USD bonded
+  - `pcf < 1 * SCALE`: Premium is scaled down → lower price per token → more tokens per USD bonded
+
+**US-503: GCF and PCF effects are mathematically predictable**
+- **As a** protocol operator / auditor
+- **I want** the pricing effects of GCF and PCF to be well-defined
+- **So that** I can reason about the impact of parameter changes
+- **Acceptance Criteria:**
+  - Doubling `gcf` from 1 to 2 has the same effect on numerator as doubling the ETH in the treasury (when premium term is small relative to GAV term)
+  - Doubling `pcf` from 1 to 2 has a similar effect as doubling the CDT supply
+  - Both factors affect the numerator in the conversion rate formula: `rate = numeratorUsd / tokenSupply`
+  - Higher numerator → higher rate → fewer tokens received per USD
+  - Lower numerator → lower rate → more tokens received per USD
 
 ---
 
@@ -258,7 +337,9 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 
 ---
 
-## Technical Notes (State on each tokenId)
+## Technical Notes
+
+### Per-tokenId State
 
 - Each note NFT stores the remaining balances:
   - **Strike / CDT owed**: `amountOwedCdt[tokenId]`
@@ -268,3 +349,16 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - `timelock[tokenId]` and `expiry[tokenId]`
 - Conversion is **pro-rata** against remaining balances and can be repeated until fully settled; the NFT is burned when `amountOwedCdt[tokenId] == 0`.
 
+### Global State (Affects All New Bonds)
+
+- **Control Factors** (both scaled by `SCALE = 1e18`):
+  - `pcf` (Premium Control Factor): Scales the premium term in conversion pricing
+  - `gcf` (GAV Control Factor): Scales the gross asset value term in conversion pricing
+- **Token Addresses**:
+  - `cdtToken`: The debt token minted on bonding
+  - `stratToken`: The token that can be minted on conversion
+  - `esETHToken`: The ETH representation used for internal accounting and payouts
+- **Holdings Addresses**:
+  - `unencumberedHoldings`: Holds protocol liquidity / free backing
+  - `encumberedHoldings`: Holds esETH reserved for open conversion-to-ETH rights
+- **Pricing Oracle**: `ethUsdOracle` for USD-denominated calculations

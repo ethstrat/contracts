@@ -26,6 +26,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     address immutable encumberedHoldings; // Address that holds encumbered ETH (backs open unexercised options)
 
     uint256 public pcf; // Premium Control Factor (scale: SCALE)
+    uint256 public gcf; // GAV Control Factor (scale: SCALE)
     address public tokenURIRenderer;
 
     /// @notice The amount of CDT required to exercise/settle the note (remaining if partially exercised)
@@ -56,6 +57,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     uint256 public constant SCALE = 1e18;
 
     event OwnerChangedPCF(uint256 oldVal, uint256 newVal);
+    event OwnerChangedGCF(uint256 oldVal, uint256 newVal);
     event RendererUpdated(address indexed renderer);
 
     event LongBond(
@@ -120,6 +122,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         encumberedHoldings = _encumberedHoldings;
 
         pcf = 1 * SCALE;
+        gcf = 1 * SCALE;
         _tokenIdCounter = 1;
     }
 
@@ -131,6 +134,16 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     function setPCF(uint256 newVal) external onlyOwner {
         emit OwnerChangedPCF(pcf, newVal);
         pcf = newVal;
+    }
+
+    /**
+     * @notice Updates the GAV control factor (GCF)
+     * @dev Only the contract owner can call this function.
+     * @param newVal The new GCF value to be set.
+     */
+    function setGCF(uint256 newVal) external onlyOwner {
+        emit OwnerChangedGCF(gcf, newVal);
+        gcf = newVal;
     }
 
     /**
@@ -185,7 +198,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
 
         // Send the eth to the well known address where we hold all our encumbered ETH (as these back
         // the semantic covered calls embedded in the conversion rights)
-        esETHToken.wrapAndMint{value: conversionAmountEth_}(encumberedHoldings);
+        if (conversionAmountEth_ > 0) {
+            esETHToken.wrapAndMint{value: conversionAmountEth_}(encumberedHoldings);
+        }
 
         // send the remainder of the ETH to the unencumbered holdings
         esETHToken.wrapAndMint{value: msg.value - conversionAmountEth_}(unencumberedHoldings);
@@ -399,7 +414,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     {
         uint256 ethPriceUSD = _getEthUsdPrice();
         uint256 totalEth = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
-        uint256 gav = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
+        uint256 gavUSD = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
 
         uint256 stratTotalSupply = stratToken.totalSupply();
         uint256 adjustedCdtSupply = cdtToken.totalSupply() + (settlementEntitlementUsd_ / 2);
@@ -411,27 +426,27 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
 
         // Premium term is USD-denominated; pcf is scaled by SCALE.
         uint256 premiumUsd = (pcf * adjustedCdtSupply) / SCALE;
-        uint256 numeratorUsd = gav + premiumUsd; // Scale: 1e18 (USD)
+        // Apply GCF to GAV; gcf is scaled by SCALE.
+        uint256 numeratorUsd = (gavUSD * gcf / SCALE) + premiumUsd; // Scale: 1e18 (USD)
 
         // USD-per-unit rates (scaled by 1e18), used to compute amounts from USD notionals.
         uint256 stratConversionRate = (numeratorUsd * SCALE) / stratTotalSupply; // USD per STRAT (1e18)
-        uint256 ethConversionRate = (numeratorUsd * SCALE) / totalEth; // USD per ETH (1e18)
-
         stratAmount = settlementEntitlementUsd_ * SCALE / stratConversionRate;
-        ethAmount = settlementEntitlementUsd_ * SCALE / ethConversionRate;
+
+        uint256 debtInEth = cdtToken.totalSupply() * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
+        if (debtInEth >= totalEth) {
+            ethAmount = 0;
+        } else {
+            uint256 navETH = totalEth - debtInEth;
+            uint256 ethConversionRate = (numeratorUsd * SCALE) / navETH;
+            ethAmount = settlementEntitlementUsd_ * SCALE / ethConversionRate;
+        }
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         _requireOwned(tokenId);
         if (tokenURIRenderer != address(0)) {
-            return TokenURIRenderer(tokenURIRenderer).render(
-                tokenId,
-                amountOwedCdt[tokenId],
-                conversionEntitlementStrat[tokenId],
-                settlementEntitlementUsd[tokenId],
-                expiry[tokenId],
-                timelock[tokenId]
-            );
+            return TokenURIRenderer(tokenURIRenderer).render(tokenId);
         } else {
             return "";
         }
