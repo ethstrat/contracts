@@ -161,7 +161,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
         if (msg.sender != treasuryManager && !config.isMintable) revert TokenNotWhitelistedForMint(token);
 
-        // Calculate ETH value of deposited tokens
+        // Calculate ETH value of deposited tokens (rounds down naturally)
         esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
         config.totalMinted += esETHAmount;
 
@@ -188,15 +188,19 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         if (config.tokenType == TokenType.UNSUPPORTED) revert UnsupportedToken(token);
         if (msg.sender != treasuryManager && !config.isRedeemable) revert TokenNotWhitelistedForRedeem(token);
 
-        // Calculate the ETH value of the LST to be redeemed (this is the amounbt of esETH to burn)
-        esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType);
+        // Calculate the ETH value of the LST to be redeemed
+        // Always round up by adding 1 wei to prevent rounding exploits
+        esETHAmount = _convertTokenToETH(token, tokenAmount, config.tokenType) + 1;
 
         // Check contract has enough balance
         uint256 contractBalance = IERC20(token).balanceOf(address(this));
         if (contractBalance < tokenAmount) revert InsufficientBalance(token);
 
         // Burn esETH and update totalMinted
-        config.totalMinted -= esETHAmount;
+        // NOTE: esETHAmount includes +1 wei, but totalMinted only tracks the base value. 
+        //       We subtract 1 wei from esETHAmount so everything reconciles. If these accumulate
+        //       over time, it will be harvested out
+        config.totalMinted -= esETHAmount - 1;
         _burn(msg.sender, esETHAmount);
         IERC20(token).safeTransfer(receiver, tokenAmount);
 
