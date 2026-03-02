@@ -329,7 +329,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionUnexpired.selector, user, tokenId));
-        bonds.redeemCdtForUsdNotional(tokenId);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
     }
 
     function testRedeemRevertsIfNotOwner() public {
@@ -339,7 +339,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         vm.prank(other);
         vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.NotOwnerOrApproved.selector, other, tokenId));
-        bonds.redeemCdtForUsdNotional(tokenId);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
     }
 
     function testRedeemSolventPaysFullUsdNotionalInEth() public {
@@ -357,7 +357,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         uint256 userEthBefore = esETHToken.balanceOf(user);
         vm.prank(user);
-        bonds.redeemCdtForUsdNotional(tokenId);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
 
         uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
         assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
@@ -397,7 +397,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         uint256 userEthBefore = esETHToken.balanceOf(user);
         vm.prank(user);
-        bonds.redeemCdtForUsdNotional(tokenId);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
 
         uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
         assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
@@ -429,10 +429,26 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         uint256 userEthBefore = esETHToken.balanceOf(user);
         vm.prank(user);
-        bonds.redeemCdtForUsdNotional(tokenId);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
 
         uint256 expectedEth = (settlementUsd * treasuryInETH) / totalDebt;
         assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
+    }
+
+    function testRedeemRevertsOnInsufficientEthOut() public {
+        (uint256 tokenId, uint256 settlementUsd,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastTimelock(tokenId);
+        _warpPastExpiry(tokenId);
+
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+
+        uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(EthStrategyConvertibleNote.InsufficientOutput.selector, expectedEth + 1, expectedEth)
+        );
+        bonds.redeemCdtForUsdNotional(tokenId, expectedEth + 1);
     }
 
     // ========= GCF and PCF Tests =========

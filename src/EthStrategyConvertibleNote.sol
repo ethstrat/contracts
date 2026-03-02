@@ -343,8 +343,13 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     ///         Uses the ERC-2612 permit mechanism to approve the CDT burn
     ///
     /// @param tokenId              The ID of the option to redeem
+    /// @param minEthOut            Minimum acceptable esETH output amount for slippage protection
     /// @param cdtPermitApproval    The permit approval for the CDT tokens
-    function redeemCdtForUsdNotionalWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval)
+    function redeemCdtForUsdNotionalWithPermit(
+        uint256 tokenId,
+        uint256 minEthOut,
+        Permit.IPermitApproval memory cdtPermitApproval
+    )
         public
     {
         if (timelock[tokenId] > block.timestamp) revert TimelockActive(msg.sender, tokenId);
@@ -378,6 +383,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         } else {
             ethAmount = settlementEntitlementUsd_ * totalTreasuryEth / totalDebt;
         }
+        if (ethAmount < minEthOut) {
+            revert InsufficientOutput(minEthOut, ethAmount);
+        }
 
         // If needed, move additional esETH from encumbered holdings so payout can be served from unencumbered holdings.
         if (ethAmount > unencumberedEth) {
@@ -408,9 +416,10 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     //          back in ETH
     /// @dev    This is the same as {redeemCdtForUsdNotionalWithPermit}, but without the permit approval
     ///
-    /// @param tokenId  The ID of the option to redeem
-    function redeemCdtForUsdNotional(uint256 tokenId) external {
-        redeemCdtForUsdNotionalWithPermit(tokenId, Permit.getEmptyApproval());
+    /// @param tokenId    The ID of the option to redeem
+    /// @param minEthOut  Minimum acceptable esETH output amount for slippage protection
+    function redeemCdtForUsdNotional(uint256 tokenId, uint256 minEthOut) external {
+        redeemCdtForUsdNotionalWithPermit(tokenId, minEthOut, Permit.getEmptyApproval());
     }
 
     /// @notice Returns the STRAT amount the holder is entitled to receive for a given USD notional.

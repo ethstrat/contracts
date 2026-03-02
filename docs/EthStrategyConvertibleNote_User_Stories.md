@@ -192,8 +192,8 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 - **So that** I can receive an ETH-denominated payout after the conversion window ends
 - **Acceptance Criteria:**
   - Entry points:
-    - `redeemCdtForUsdNotionalWithPermit(tokenId, permit)`
-    - `redeemCdtForUsdNotional(tokenId)` (no permit)
+    - `redeemCdtForUsdNotionalWithPermit(tokenId, minEthOut, permit)`
+    - `redeemCdtForUsdNotional(tokenId, minEthOut)` (no permit)
   - Preconditions:
     - Timelock passed; option expired; caller is the note owner
   - The contract redeems based on the note’s remaining `settlementEntitlementUsd[tokenId]`
@@ -205,6 +205,8 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
     - Let `totalDebt = cdtToken.totalSupply()`
     - If `treasuryInUSD > totalDebt`: pay the full USD notional at current price
     - Else: pay pro-rata share of total treasury holdings: `settlementUsd * treasuryInETH / totalDebt`
+  - Slippage check:
+    - Revert `InsufficientOutput` if computed `ethAmount < minEthOut`
   - The contract burns the NFT and clears all per-token balances (strike, entitlements, timestamps)
   - The contract burns CDT equal to `settlementEntitlementUsd[tokenId]` from the caller (permit-supported)
   - The contract transfers `ethAmount` esETH from `unencumberedHoldings` to the note owner
@@ -333,7 +335,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 - **Acceptance Criteria:**
   - Bonding: `NoEthSent`, `ZeroAddress`, `TransactionStale`, `InsufficientOutput`, `InvalidTimelockOrExpiry`
   - Conversion: `TimelockActive`, `OptionExpired`, `NotOwnerOrApproved`, `InvalidExerciseAmount`
-  - Redemption: `TimelockActive`, `OptionUnexpired`, `NotOwnerOrApproved`
+  - Redemption: `TimelockActive`, `OptionUnexpired`, `NotOwnerOrApproved`, `InsufficientOutput`
 
 ---
 
