@@ -23,9 +23,13 @@ contract StakedStratTest is Test {
     uint256 public constant REWARD_AMOUNT_1 = 10 * 1e18;
     uint256 public constant REWARD_AMOUNT_2 = 5 * 1e18;
 
-    /// @dev Helper function to send reward tokens to contract
-    /// @param amount Amount of reward tokens to send
-    /// @param sync If true, immediately call syncRewards() after sending
+    uint256 public constant REWARD_DURATION = 7 days;
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /// @dev Transfers reward tokens to the contract and optionally starts the stream
     function _sendRewards(uint256 amount, bool sync) internal {
         vm.prank(rewarder);
         rewardToken.transfer(address(stakedStrat), amount);
@@ -34,27 +38,27 @@ contract StakedStratTest is Test {
         }
     }
 
+    /// @dev Sends rewards, starts the stream, then warps so the full amount has dripped
+    function _sendAndFullyStream(uint256 amount) internal {
+        _sendRewards(amount, true);
+        vm.warp(block.timestamp + REWARD_DURATION);
+    }
+
     function setUp() public {
-        // Deploy STRAT token
         vm.prank(owner);
         stratToken = new StratToken(owner);
 
-        // Make owner a minter
         vm.prank(owner);
         stratToken.manageMinter(owner, true);
 
-        // Deploy reward token (e.g. esETH)
         vm.prank(owner);
         rewardToken = new MintableBurnableToken("Reward Token", "RWD", owner);
 
-        // Make owner a minter for reward token
         vm.prank(owner);
         rewardToken.manageMinter(owner, true);
 
-        // Deploy StakedStrat
         stakedStrat = new StakedStrat(address(stratToken), address(rewardToken));
 
-        // Mint STRAT tokens to users
         vm.prank(owner);
         stratToken.mint(user1, 10000 * 1e18);
         vm.prank(owner);
@@ -62,7 +66,6 @@ contract StakedStratTest is Test {
         vm.prank(owner);
         stratToken.mint(user3, 10000 * 1e18);
 
-        // Approve StakedStrat to spend STRAT
         vm.prank(user1);
         stratToken.approve(address(stakedStrat), type(uint256).max);
         vm.prank(user2);
@@ -70,7 +73,6 @@ contract StakedStratTest is Test {
         vm.prank(user3);
         stratToken.approve(address(stakedStrat), type(uint256).max);
 
-        // Mint reward tokens to rewarder for distribution
         vm.prank(owner);
         rewardToken.mint(rewarder, 1000000 * 1e18);
     }
@@ -85,6 +87,10 @@ contract StakedStratTest is Test {
         assertEq(stakedStrat.decimals(), 18);
         assertEq(stakedStrat.totalStaked(), 0);
         assertEq(stakedStrat.rewardsPerShare(), 0);
+        assertEq(stakedStrat.rewardRate(), 0);
+        assertEq(stakedStrat.periodFinish(), 0);
+        assertEq(stakedStrat.totalNotifiedRewards(), 0);
+        assertEq(stakedStrat.totalClaimed(), 0);
     }
 
     function test_Constructor_ZeroAddress_StratToken() public {
@@ -141,12 +147,10 @@ contract StakedStratTest is Test {
     }
 
     function test_Stake_NoApproval() public {
-        // Create a new user without approval
         address newUser = address(0x99);
         vm.prank(owner);
         stratToken.mint(newUser, 10000 * 1e18);
 
-        // Attempt to stake without approval should fail
         vm.prank(newUser);
         vm.expectRevert();
         stakedStrat.stake(STAKE_AMOUNT_1);
@@ -219,68 +223,79 @@ contract StakedStratTest is Test {
     // ============ Rewards Tests ============
 
     function test_SyncRewards_NoStakers() public {
-        // Send reward tokens to contract (don't sync yet - we want to test sync explicitly)
         _sendRewards(REWARD_AMOUNT_1, false);
 
-        // Sync should not revert but do nothing
+        // Stream starts even with no stakers
         stakedStrat.syncRewards();
         assertEq(stakedStrat.rewardsPerShare(), 0);
+        assertEq(stakedStrat.rewardRate(), REWARD_AMOUNT_1 / REWARD_DURATION);
+        assertEq(stakedStrat.totalNotifiedRewards(), REWARD_AMOUNT_1);
     }
 
     function test_SyncRewards_NoBalance() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Sync with no reward token balance
         stakedStrat.syncRewards();
         assertEq(stakedStrat.rewardsPerShare(), 0);
+        assertEq(stakedStrat.rewardRate(), 0);
     }
 
-    function test_SyncRewards() public {
+    function test_SyncRewards_StartsStream() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send reward tokens (don't sync yet - we want to test sync explicitly)
         _sendRewards(REWARD_AMOUNT_1, false);
         stakedStrat.syncRewards();
 
-        uint256 expectedRewardsPerShare = (REWARD_AMOUNT_1 * 1e18) / STAKE_AMOUNT_1;
-        assertEq(stakedStrat.rewardsPerShare(), expectedRewardsPerShare);
-        assertEq(stakedStrat.totalSyncedRewards(), REWARD_AMOUNT_1);
+        // Stream started: rewardRate set, no immediate distribution
+        assertEq(stakedStrat.rewardRate(), REWARD_AMOUNT_1 / REWARD_DURATION);
+        assertEq(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
+        assertEq(stakedStrat.totalNotifiedRewards(), REWARD_AMOUNT_1);
+        assertEq(stakedStrat.rewardsPerShare(), 0);
+        assertEq(stakedStrat.getPendingRewards(user1), 0);
     }
 
-    function test_SyncRewards_MultipleTimes() public {
+    function test_SyncRewards_BlendsOnSecondCall() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // First sync (don't sync yet - we want to test sync explicitly)
-        _sendRewards(REWARD_AMOUNT_1, false);
-        stakedStrat.syncRewards();
+        _sendRewards(REWARD_AMOUNT_1, true);
+        uint256 firstRate = stakedStrat.rewardRate();
 
-        uint256 firstRewardsPerShare = stakedStrat.rewardsPerShare();
+        // Advance 1 day then send more rewards
+        vm.warp(block.timestamp + 1 days);
+        _sendRewards(REWARD_AMOUNT_2, true);
 
-        // Second sync with more rewards (don't sync yet - we want to test sync explicitly)
-        _sendRewards(REWARD_AMOUNT_2, false);
-        stakedStrat.syncRewards();
-
-        uint256 expectedIncrease = (REWARD_AMOUNT_2 * 1e18) / STAKE_AMOUNT_1;
-        assertEq(stakedStrat.rewardsPerShare(), firstRewardsPerShare + expectedIncrease);
+        // Blended rate must exceed the first rate (new tokens added)
+        assertGt(stakedStrat.rewardRate(), firstRate);
+        assertEq(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
+        assertEq(stakedStrat.totalNotifiedRewards(), REWARD_AMOUNT_1 + REWARD_AMOUNT_2);
     }
 
     function test_GetPendingRewards() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send rewards and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 pending = stakedStrat.getPendingRewards(user1);
-        assertEq(pending, REWARD_AMOUNT_1);
+        assertApproxEqRel(pending, REWARD_AMOUNT_1, 1e15);
     }
 
     function test_GetPendingRewards_NoStake() public view {
         uint256 pending = stakedStrat.getPendingRewards(user1);
         assertEq(pending, 0);
+    }
+
+    function test_GetPendingRewards_ZeroMidStream() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+
+        // Nothing claimable immediately after the stream starts
+        assertEq(stakedStrat.getPendingRewards(user1), 0);
     }
 
     function test_GetPendingRewards_Proportional() public {
@@ -290,33 +305,28 @@ contract StakedStratTest is Test {
         vm.prank(user2);
         stakedStrat.stake(STAKE_AMOUNT_2);
 
-        // Send rewards and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 pending1 = stakedStrat.getPendingRewards(user1);
         uint256 pending2 = stakedStrat.getPendingRewards(user2);
 
-        // user1 should get 2/3 of rewards, user2 should get 1/3
-        // Allow for rounding differences (integer division can cause small difference)
-        assertApproxEqRel(pending1, (REWARD_AMOUNT_1 * 2) / 3, 1e15); // 0.1% tolerance
-        assertApproxEqRel(pending2, REWARD_AMOUNT_1 / 3, 1e15); // 0.1% tolerance
-        // Total may be slightly less due to rounding in integer division
-        uint256 totalPending = pending1 + pending2;
-        assertApproxEqRel(totalPending, REWARD_AMOUNT_1, 1e15); // 0.1% tolerance
+        // user1 gets 2/3, user2 gets 1/3
+        assertApproxEqRel(pending1, (REWARD_AMOUNT_1 * 2) / 3, 1e15);
+        assertApproxEqRel(pending2, REWARD_AMOUNT_1 / 3, 1e15);
+        assertApproxEqRel(pending1 + pending2, REWARD_AMOUNT_1, 1e15);
     }
 
     function test_Claim() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send rewards (don't sync - claim() will call syncRewards internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 balanceBefore = rewardToken.balanceOf(user1);
         vm.prank(user1);
         stakedStrat.claim();
 
-        assertEq(rewardToken.balanceOf(user1) - balanceBefore, REWARD_AMOUNT_1);
+        assertApproxEqRel(rewardToken.balanceOf(user1) - balanceBefore, REWARD_AMOUNT_1, 1e15);
         assertEq(stakedStrat.getPendingRewards(user1), 0);
     }
 
@@ -324,7 +334,6 @@ contract StakedStratTest is Test {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Claim with no rewards
         uint256 balanceBefore = rewardToken.balanceOf(user1);
         vm.prank(user1);
         stakedStrat.claim();
@@ -339,8 +348,7 @@ contract StakedStratTest is Test {
         vm.prank(user2);
         stakedStrat.stake(STAKE_AMOUNT_2);
 
-        // Send rewards (don't sync - claim() will call syncRewards internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 balance1Before = rewardToken.balanceOf(user1);
         uint256 balance2Before = rewardToken.balanceOf(user2);
@@ -351,32 +359,28 @@ contract StakedStratTest is Test {
         vm.prank(user2);
         stakedStrat.claim();
 
-        // Allow for rounding differences (integer division can cause small difference)
         uint256 user1Rewards = rewardToken.balanceOf(user1) - balance1Before;
         uint256 user2Rewards = rewardToken.balanceOf(user2) - balance2Before;
-        assertApproxEqRel(user1Rewards, (REWARD_AMOUNT_1 * 2) / 3, 1e15); // 0.1% tolerance
-        assertApproxEqRel(user2Rewards, REWARD_AMOUNT_1 / 3, 1e15); // 0.1% tolerance
-        // Total may be slightly less due to rounding in integer division
-        uint256 totalRewards = user1Rewards + user2Rewards;
-        assertApproxEqRel(totalRewards, REWARD_AMOUNT_1, 1e15); // 0.1% tolerance
+        assertApproxEqRel(user1Rewards, (REWARD_AMOUNT_1 * 2) / 3, 1e15);
+        assertApproxEqRel(user2Rewards, REWARD_AMOUNT_1 / 3, 1e15);
+        assertApproxEqRel(user1Rewards + user2Rewards, REWARD_AMOUNT_1, 1e15);
     }
 
-    function test_Claim_AfterStake() public {
+    function test_Claim_AfterAdditionalStake() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send rewards and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        // First batch fully streams
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
-        // Stake more and claim
+        // User stakes more then claims
         vm.startPrank(user1);
         stakedStrat.stake(STAKE_AMOUNT_2);
         uint256 balanceBefore = rewardToken.balanceOf(user1);
         stakedStrat.claim();
         vm.stopPrank();
 
-        // Claim should still give the original rewards (claim() will sync internally)
-        assertEq(rewardToken.balanceOf(user1) - balanceBefore, REWARD_AMOUNT_1);
+        assertApproxEqRel(rewardToken.balanceOf(user1) - balanceBefore, REWARD_AMOUNT_1, 1e15);
     }
 
     // ============ Migrate Stake Tests ============
@@ -385,27 +389,25 @@ contract StakedStratTest is Test {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send rewards (don't sync - migrateStake() will call syncRewards internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 balance2Before = rewardToken.balanceOf(user2);
         uint256 pendingBefore = stakedStrat.getPendingRewards(user1);
 
         vm.prank(user1);
-        stakedStrat.migrateStake(user2, 0); // 0 means migrate all
+        stakedStrat.migrateStake(user2, 0);
 
         assertEq(stakedStrat.staked(user1), 0);
         assertEq(stakedStrat.staked(user2), STAKE_AMOUNT_1);
         assertEq(stakedStrat.totalStaked(), STAKE_AMOUNT_1);
-        assertEq(rewardToken.balanceOf(user2) - balance2Before, pendingBefore);
+        assertApproxEqRel(rewardToken.balanceOf(user2) - balance2Before, pendingBefore, 1e15);
     }
 
     function test_MigrateStake_Partial() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send rewards (don't sync - migrateStake() will call syncRewards internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 migrateAmount = 300 * 1e18;
         uint256 balance2Before = rewardToken.balanceOf(user2);
@@ -418,7 +420,7 @@ contract StakedStratTest is Test {
         assertEq(stakedStrat.staked(user1), STAKE_AMOUNT_1 - migrateAmount);
         assertEq(stakedStrat.staked(user2), migrateAmount);
         assertEq(stakedStrat.totalStaked(), STAKE_AMOUNT_1);
-        assertEq(rewardToken.balanceOf(user2) - balance2Before, expectedRewards);
+        assertApproxEqRel(rewardToken.balanceOf(user2) - balance2Before, expectedRewards, 1e15);
     }
 
     function test_MigrateStake_ZeroAddress() public {
@@ -458,49 +460,45 @@ contract StakedStratTest is Test {
         vm.prank(user2);
         stakedStrat.stake(STAKE_AMOUNT_2);
 
-        // Send rewards (don't sync - migrateStake() will call syncRewards internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 migrateAmount = 300 * 1e18;
         uint256 balance2Before = rewardToken.balanceOf(user2);
         uint256 pending1Before = stakedStrat.getPendingRewards(user1);
         uint256 pending2Before = stakedStrat.getPendingRewards(user2);
-        uint256 expectedRewards = (pending1Before * migrateAmount) / STAKE_AMOUNT_1;
+        uint256 expectedFromUser1 = (pending1Before * migrateAmount) / STAKE_AMOUNT_1;
 
         vm.prank(user1);
         stakedStrat.migrateStake(user2, migrateAmount);
 
         assertEq(stakedStrat.staked(user1), STAKE_AMOUNT_1 - migrateAmount);
         assertEq(stakedStrat.staked(user2), STAKE_AMOUNT_2 + migrateAmount);
-        assertEq(rewardToken.balanceOf(user2) - balance2Before, pending2Before + expectedRewards);
+        assertApproxEqRel(
+            rewardToken.balanceOf(user2) - balance2Before, pending2Before + expectedFromUser1, 1e15
+        );
     }
 
     // ============ Integration Tests ============
 
     function test_CompleteFlow() public {
-        // User1 stakes
+        // user1 stakes; first batch fully streams
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Rewards arrive (don't sync - claim() will sync internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
-        // User2 stakes
+        // user2 stakes after first rewards are fully distributed
         vm.prank(user2);
         stakedStrat.stake(STAKE_AMOUNT_2);
 
-        // More rewards arrive (don't sync - claim() will sync internally)
-        _sendRewards(REWARD_AMOUNT_2, false);
+        _sendAndFullyStream(REWARD_AMOUNT_2);
 
-        // User1 claims
         vm.prank(user1);
         stakedStrat.claim();
 
-        // User2 claims
         vm.prank(user2);
         stakedStrat.claim();
 
-        // User1 unstakes partially and migrates remaining stake to user3
         vm.startPrank(user1);
         stakedStrat.unstake(300 * 1e18);
         stakedStrat.migrateStake(user3, 0);
@@ -511,182 +509,363 @@ contract StakedStratTest is Test {
         assertEq(stakedStrat.totalStaked(), 700 * 1e18 + STAKE_AMOUNT_2);
     }
 
-    function test_Rewards_AccumulateOverTime() public {
+    function test_Rewards_AccumulateOverMultipleBatches() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // First reward batch
+        // Two batches sent in quick succession; the second blends into the first stream
         _sendRewards(REWARD_AMOUNT_1, true);
-
-        // Second reward batch
         _sendRewards(REWARD_AMOUNT_2, true);
 
+        vm.warp(block.timestamp + REWARD_DURATION);
+
         uint256 pending = stakedStrat.getPendingRewards(user1);
-        assertEq(pending, REWARD_AMOUNT_1 + REWARD_AMOUNT_2);
+        assertApproxEqRel(pending, REWARD_AMOUNT_1 + REWARD_AMOUNT_2, 1e15);
     }
 
     function test_Stake_Unstake_Stake_Again() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Rewards arrive and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
-        // Unstake and stake again
+        // Unstake: old rewards auto-claimed
         vm.startPrank(user1);
         stakedStrat.unstake(STAKE_AMOUNT_1);
         stakedStrat.stake(STAKE_AMOUNT_1);
         vm.stopPrank();
 
-        // More rewards and sync
-        _sendRewards(REWARD_AMOUNT_2, true);
+        _sendAndFullyStream(REWARD_AMOUNT_2);
 
-        // Should only get new rewards, not old ones
+        // After re-staking, only new rewards are pending
         uint256 pending = stakedStrat.getPendingRewards(user1);
-        assertEq(pending, REWARD_AMOUNT_2);
+        assertApproxEqRel(pending, REWARD_AMOUNT_2, 1e15);
     }
 
     // ============ Edge Cases ============
 
-    function test_SyncRewards_AfterUnstake() public {
+    function test_SyncRewards_AfterAllUnstake() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Rewards arrive and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
-        // Unstake all
         vm.prank(user1);
         stakedStrat.unstake(STAKE_AMOUNT_1);
 
-        // More rewards arrive (should not sync since totalStaked is 0)
-        _sendRewards(REWARD_AMOUNT_2, false);
-        stakedStrat.syncRewards();
-
-        assertEq(stakedStrat.rewardsPerShare(), (REWARD_AMOUNT_1 * 1e18) / STAKE_AMOUNT_1);
+        // Sending more rewards with no stakers still starts the stream
+        _sendRewards(REWARD_AMOUNT_2, true);
+        assertEq(stakedStrat.rewardRate(), REWARD_AMOUNT_2 / REWARD_DURATION);
     }
 
-    function test_Precision_Handling() public {
-        // Test with very small amounts
-        uint256 smallStake = 1;
-        uint256 smallReward = 1;
-
-        vm.prank(user1);
-        stakedStrat.stake(smallStake);
-
-        _sendRewards(smallReward, true);
-
-        uint256 pending = stakedStrat.getPendingRewards(user1);
-        // Should handle precision correctly
-        assertGe(pending, 0);
-    }
-
-    // ============ Missing Tests ============
-
-    function test_SyncRewards_AfterClaim() public {
-        // US-008: Test synced rewards exceeding balance after claims
+    function test_SyncRewards_AfterClaim_TracksCorrectly() public {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Send rewards and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
-        // Claim rewards (reduces contract balance)
         vm.prank(user1);
         stakedStrat.claim();
 
-        // Verify totalSyncedRewards was reduced
-        assertEq(stakedStrat.totalSyncedRewards(), 0);
+        uint256 claimed = stakedStrat.totalClaimed();
+        assertApproxEqRel(claimed, REWARD_AMOUNT_1, 1e15);
 
-        // Sync again - should reset totalSyncedRewards to current balance
+        // No new rewards detected after claiming
         stakedStrat.syncRewards();
-        assertEq(stakedStrat.totalSyncedRewards(), 0);
-        assertEq(stakedStrat.rewardsPerShare(), (REWARD_AMOUNT_1 * 1e18) / STAKE_AMOUNT_1);
+        assertEq(stakedStrat.totalNotifiedRewards(), REWARD_AMOUNT_1);
     }
 
-    function test_RewardsNotAutoDistributed() public {
-        // US-005: Test that rewards are not automatically distributed until sync
+    function test_Precision_Handling() public {
         vm.prank(user1);
-        stakedStrat.stake(STAKE_AMOUNT_1);
+        stakedStrat.stake(1);
 
-        // Send reward tokens to contract (don't sync - we want to test sync explicitly)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendRewards(1, true);
+        vm.warp(block.timestamp + REWARD_DURATION);
 
-        // Note: getPendingRewards() includes unsynced rewards in its calculation (per US-004)
-        // So it will show rewards even before sync. However, rewards cannot be CLAIMED
-        // until syncRewards() is called (which happens automatically in claim()).
-        // Verify that claim() without sync doesn't work (but claim() calls syncRewards internally)
-
-        // Actually, claim() calls syncRewards() internally, so it will work.
-        // The key is that syncRewards() must be called (either manually or via claim).
-        // Let's verify that syncRewards() is what makes rewards distributable:
-
-        // Before sync, rewardsPerShare should be 0
-        assertEq(stakedStrat.rewardsPerShare(), 0);
-        assertEq(stakedStrat.totalSyncedRewards(), 0);
-
-        // Sync rewards
-        stakedStrat.syncRewards();
-
-        // After sync, rewardsPerShare should be updated
-        assertGt(stakedStrat.rewardsPerShare(), 0);
-        assertEq(stakedStrat.totalSyncedRewards(), REWARD_AMOUNT_1);
-
-        // Now rewards should be claimable
-        assertEq(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1);
+        assertGe(stakedStrat.getPendingRewards(user1), 0);
     }
 
     function test_RewardPreservationOnAdditionalStake() public {
-        // Test that previously accrued rewards are preserved when staking more
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Accrue rewards (don't sync - stake() will call syncRewards internally)
-        _sendRewards(REWARD_AMOUNT_1, false);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 pendingBefore = stakedStrat.getPendingRewards(user1);
-        assertEq(pendingBefore, REWARD_AMOUNT_1);
 
-        // Stake additional amount
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_2);
 
-        // Original rewards should still be claimable
-        uint256 pendingAfter = stakedStrat.getPendingRewards(user1);
-        assertEq(pendingAfter, REWARD_AMOUNT_1);
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), pendingBefore, 1e15);
     }
 
     function test_OldStakersRetainAccruedYield() public {
-        // US-006: Test that old stakers keep accrued yield when new stakers join
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        // Accrue rewards and sync
-        _sendRewards(REWARD_AMOUNT_1, true);
+        _sendAndFullyStream(REWARD_AMOUNT_1);
 
         uint256 user1PendingBefore = stakedStrat.getPendingRewards(user1);
-        assertEq(user1PendingBefore, REWARD_AMOUNT_1);
+        assertApproxEqRel(user1PendingBefore, REWARD_AMOUNT_1, 1e15);
 
-        // User2 stakes (should not affect User1's rewards)
+        // New staker must not affect user1's accrued rewards
         vm.prank(user2);
         stakedStrat.stake(STAKE_AMOUNT_2);
 
-        // User1's pending rewards should be unchanged
-        uint256 user1PendingAfter = stakedStrat.getPendingRewards(user1);
-        assertEq(user1PendingAfter, REWARD_AMOUNT_1);
-
-        // User2 should have no rewards (only gets new rewards after staking)
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), user1PendingBefore, 1e15);
         assertEq(stakedStrat.getPendingRewards(user2), 0);
     }
 
     function test_ReentrancyProtection_Modifiers() public pure {
-        // US-011: Verify nonReentrant modifiers are present
-        // This is a compile-time check - if modifiers weren't present, tests would fail
-        // We verify by checking the contract compiles and functions exist
+        assertTrue(true);
+    }
 
-        // The nonReentrant modifier is applied via ReentrancyGuard inheritance
-        // We can't easily test reentrancy with ERC20 transfers since SafeERC20
-        // doesn't support hooks, but the modifier presence is verified by compilation
-        assertTrue(true); // Placeholder - actual protection verified by modifier presence
+    // ============ Streaming Tests ============
+
+    function test_Streaming_NoInstantRewards() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+
+        // Nothing claimable immediately after stream starts
+        assertEq(stakedStrat.getPendingRewards(user1), 0);
+        uint256 balanceBefore = rewardToken.balanceOf(user1);
+        vm.prank(user1);
+        stakedStrat.claim();
+        assertEq(rewardToken.balanceOf(user1), balanceBefore);
+    }
+
+    function test_Streaming_ProportionalToTime() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+        uint256 startTime = block.timestamp;
+
+        vm.warp(startTime + REWARD_DURATION / 2);
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1 / 2, 1e15);
+
+        vm.warp(startTime + REWARD_DURATION);
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1, 1e15);
+    }
+
+    function test_Streaming_NoDripAfterPeriodEnds() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+        vm.warp(block.timestamp + REWARD_DURATION);
+        uint256 pendingAtEnd = stakedStrat.getPendingRewards(user1);
+
+        vm.warp(block.timestamp + REWARD_DURATION * 10);
+        assertEq(stakedStrat.getPendingRewards(user1), pendingAtEnd);
+    }
+
+    function test_Streaming_BlendExtendsWindow() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        uint256 startTime = block.timestamp;
+        _sendRewards(REWARD_AMOUNT_1, true);
+
+        // Midway through, second batch arrives
+        vm.warp(startTime + REWARD_DURATION / 2);
+        _sendRewards(REWARD_AMOUNT_2, true);
+
+        assertEq(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
+
+        vm.warp(stakedStrat.periodFinish());
+        assertApproxEqRel(
+            stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1 + REWARD_AMOUNT_2, 2e15
+        );
+    }
+
+    function test_Streaming_NewStakeAnchoredToCurrent() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+        vm.warp(block.timestamp + REWARD_DURATION / 2);
+
+        // user2 stakes mid-stream
+        vm.prank(user2);
+        stakedStrat.stake(STAKE_AMOUNT_2);
+
+        // user2 earns nothing from before they joined
+        assertEq(stakedStrat.getPendingRewards(user2), 0);
+        // user1 retains their half-stream accrual
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1 / 2, 1e15);
+    }
+
+    // ============ Unstake Auto-Claim Tests ============
+
+    function test_Unstake_AutoClaimsPendingRewards() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendAndFullyStream(REWARD_AMOUNT_1);
+
+        uint256 balanceBefore = rewardToken.balanceOf(user1);
+
+        vm.prank(user1);
+        stakedStrat.unstake(STAKE_AMOUNT_1);
+
+        // Rewards transferred during unstake — no separate claim needed
+        assertApproxEqRel(rewardToken.balanceOf(user1) - balanceBefore, REWARD_AMOUNT_1, 1e15);
+        assertEq(stakedStrat.getPendingRewards(user1), 0);
+    }
+
+    function test_Unstake_Partial_AutoClaimsAllPending() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendAndFullyStream(REWARD_AMOUNT_1);
+
+        uint256 balanceBefore = rewardToken.balanceOf(user1);
+        uint256 unstakeAmount = 300 * 1e18;
+
+        vm.prank(user1);
+        stakedStrat.unstake(unstakeAmount);
+
+        // All accrued rewards paid out even on partial unstake
+        assertApproxEqRel(rewardToken.balanceOf(user1) - balanceBefore, REWARD_AMOUNT_1, 1e15);
+        assertEq(stakedStrat.getPendingRewards(user1), 0);
+        assertEq(stakedStrat.staked(user1), STAKE_AMOUNT_1 - unstakeAmount);
+    }
+
+    function test_Unstake_NoRewards_NoClaim() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        uint256 balanceBefore = rewardToken.balanceOf(user1);
+
+        vm.prank(user1);
+        stakedStrat.unstake(STAKE_AMOUNT_1);
+
+        assertEq(rewardToken.balanceOf(user1), balanceBefore);
+    }
+
+    // ============ MigrateStake Sender Pending Tests ============
+
+    function test_MigrateStake_Partial_PreservesSenderPending() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendAndFullyStream(REWARD_AMOUNT_1);
+
+        uint256 migrateAmount = 300 * 1e18; // migrate 30%
+        uint256 totalPending = stakedStrat.getPendingRewards(user1);
+        uint256 expectedToRecipient = (totalPending * migrateAmount) / STAKE_AMOUNT_1;
+        uint256 expectedRemaining = totalPending - expectedToRecipient; // 70% stays
+
+        vm.prank(user1);
+        stakedStrat.migrateStake(user2, migrateAmount);
+
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), expectedRemaining, 1e15);
+        assertApproxEqRel(rewardToken.balanceOf(user2), expectedToRecipient, 1e15);
+    }
+
+    function test_MigrateStake_Partial_SenderCanClaimRemaining() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendAndFullyStream(REWARD_AMOUNT_1);
+
+        uint256 migrateAmount = STAKE_AMOUNT_1 / 2;
+        uint256 totalPending = stakedStrat.getPendingRewards(user1);
+        uint256 expectedSenderShare = totalPending - (totalPending * migrateAmount) / STAKE_AMOUNT_1;
+
+        vm.prank(user1);
+        stakedStrat.migrateStake(user2, migrateAmount);
+
+        uint256 balanceBefore = rewardToken.balanceOf(user1);
+        vm.prank(user1);
+        stakedStrat.claim();
+
+        assertApproxEqRel(rewardToken.balanceOf(user1) - balanceBefore, expectedSenderShare, 1e15);
+    }
+
+    // ============ Frontrun Attack Mitigation Tests ============
+
+    /**
+     * @dev Attacker stakes immediately before rewards land and exits immediately —
+     *      captures nothing at all.
+     */
+    function test_FrontrunAttack_ImmediateExitGetsNothing() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        // Attacker frontruns with 10× stake
+        vm.prank(user2);
+        stakedStrat.stake(STAKE_AMOUNT_1 * 10);
+
+        // Rewards land and stream starts
+        _sendRewards(REWARD_AMOUNT_1, true);
+
+        // Attacker exits in same block — auto-claim fires but pending is 0
+        vm.prank(user2);
+        stakedStrat.unstake(STAKE_AMOUNT_1 * 10);
+        assertEq(rewardToken.balanceOf(user2), 0);
+
+        // Legitimate staker owns the entire remaining stream
+        vm.warp(block.timestamp + REWARD_DURATION);
+        vm.prank(user1);
+        stakedStrat.claim();
+        assertApproxEqRel(rewardToken.balanceOf(user1), REWARD_AMOUNT_1, 1e15);
+    }
+
+    /**
+     * @dev Patient attacker who holds for 1 day captures only ~1/7 of their proportional
+     *      share — a fraction of the instant capture the pre-streaming code allowed.
+     */
+    function test_FrontrunAttack_PartialTimeCapture() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        vm.prank(user2);
+        stakedStrat.stake(STAKE_AMOUNT_1 * 10);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(user2);
+        stakedStrat.claim();
+        uint256 attackerRewards = rewardToken.balanceOf(user2);
+
+        // Expected: 1 day × rewardRate × (10 000 / 11 000 share)
+        uint256 oneDayTotal = (REWARD_AMOUNT_1 * 1 days) / REWARD_DURATION;
+        uint256 attackerOneDayShare = (oneDayTotal * STAKE_AMOUNT_1 * 10) / (STAKE_AMOUNT_1 * 11);
+        assertApproxEqRel(attackerRewards, attackerOneDayShare, 1e15);
+
+        // Without streaming: would have gotten ~9.09 ETH instantly
+        uint256 wouldHaveGottenInstantly = (REWARD_AMOUNT_1 * 10) / 11;
+        assertLt(attackerRewards, wouldHaveGottenInstantly / 6);
+
+        vm.prank(user2);
+        stakedStrat.unstake(STAKE_AMOUNT_1 * 10);
+    }
+
+    /**
+     * @dev Same-block stake and unstake: attacker gets zero regardless of stake size.
+     */
+    function test_FrontrunAttack_SameBlockStakeUnstake() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        vm.prank(user2);
+        stakedStrat.stake(STAKE_AMOUNT_1 * 9);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+
+        vm.prank(user2);
+        stakedStrat.unstake(STAKE_AMOUNT_1 * 9);
+        assertEq(rewardToken.balanceOf(user2), 0);
+
+        vm.warp(block.timestamp + REWARD_DURATION);
+        vm.prank(user1);
+        stakedStrat.claim();
+        assertApproxEqRel(rewardToken.balanceOf(user1), REWARD_AMOUNT_1, 1e15);
     }
 }

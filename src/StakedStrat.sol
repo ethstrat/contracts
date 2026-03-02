@@ -8,172 +8,224 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
 
 /**
  * @title Staked STRAT
- * @dev Users stake STRAT tokens and earn reward token yield (e.g. esETH) proportional to their stake.
- *      Uses rewardDebt/rewardsPerShare accounting similar to MasterChef.
+ * @dev Users stake STRAT tokens and earn reward token yield (e.g. esETH) proportional to their
+ *      stake. Uses rewardDebt/rewardsPerShare accounting (MasterChef-style) combined with
+ *      Synthetix-style linear reward streaming.
+ *
+ *      When reward tokens are sent to this contract, syncRewards() detects the balance increase
+ *      and begins a REWARD_DURATION (7-day) linear drip rather than distributing immediately.
+ *      Any undistributed tokens from an active stream are blended into the new period. This
+ *      prevents frontrunning: an attacker who stakes just before rewards arrive and exits
+ *      immediately captures nothing; they must hold for the full period to earn a proportional
+ *      share, tying up capital for marginal gain.
+ *
+ *      Invariants vs. plain MasterChef:
+ *        - unstake() auto-claims pending rewards before reducing stake (no silent forfeiture).
+ *        - migrateStake() preserves the sender's non-migrated proportional pending in their debt.
+ *
  *      StakedSTRAT is a non-transferrable ERC20 token.
  */
 contract StakedStrat is ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    /// @dev Precision factor for rewardsPerShare calculation
     uint256 private constant PRECISION = 1e18;
 
-    /// @dev The STRAT token that users stake
-    IERC20 public immutable stratToken;
+    /// @dev Duration over which each detected reward batch is linearly streamed
+    uint256 public constant REWARD_DURATION = 7 days;
 
-    /// @dev The reward token (e.g. esETH) that users earn
+    IERC20 public immutable stratToken;
     IERC20 public immutable rewardToken;
 
-    /// @dev Accumulated rewards per share, scaled by PRECISION
+    // -------------------------------------------------------------------------
+    // Per-share accumulator
+    // -------------------------------------------------------------------------
+
+    /// @dev Accumulated rewards per share, scaled by PRECISION. Updated lazily by
+    ///      _tickRewardsPerShare() based on elapsed time and the current rewardRate.
     uint256 public rewardsPerShare;
 
-    /// @dev Total amount of STRAT staked
+    // -------------------------------------------------------------------------
+    // Streaming state
+    // -------------------------------------------------------------------------
+
+    /// @dev Reward tokens per second currently streaming to stakers
+    uint256 public rewardRate;
+
+    /// @dev Timestamp when the current reward stream ends
+    uint256 public periodFinish;
+
+    /// @dev Timestamp of the last rewardsPerShare tick
+    uint256 public lastUpdateTime;
+
+    // -------------------------------------------------------------------------
+    // Accounting
+    // -------------------------------------------------------------------------
+
     uint256 public totalStaked;
 
-    /// @dev Total amount of reward tokens that have been synced into rewardsPerShare
-    uint256 public totalSyncedRewards;
+    /// @dev Cumulative rewards ever accepted into the stream (monotonically increasing).
+    ///      Used with totalClaimed to detect new balance arrivals without double-counting.
+    uint256 public totalNotifiedRewards;
 
-    /// @dev Mapping from user address to their staked amount
+    /// @dev Cumulative rewards ever paid out to stakers
+    uint256 public totalClaimed;
+
     mapping(address => uint256) public staked;
 
-    /// @dev Mapping from user address to their reward debt
+    /// @dev MasterChef-style signed reward debt per user
     mapping(address => int256) public rewardDebt;
 
-    /// @dev Events
+    // -------------------------------------------------------------------------
+    // Events / Errors
+    // -------------------------------------------------------------------------
+
     event Staked(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount);
     event RewardsClaimed(address indexed user, uint256 amount);
-    event RewardsSynced(uint256 newRewardsPerShare, uint256 totalRewards);
+    event RewardsSynced(uint256 rewardRate, uint256 newRewards, uint256 periodFinish);
     event StakeMigrated(address indexed from, address indexed to, uint256 amount, uint256 rewards);
 
     error TransferDisabled();
     error ZeroAmount();
     error InsufficientStake();
 
-    /**
-     * @dev Constructor
-     * @param _stratToken The STRAT token address
-     * @param _rewardToken The reward token address (e.g. esETH)
-     */
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
     constructor(address _stratToken, address _rewardToken) ERC20("Staked STRAT v2", "sSTRAT-v2") {
         if (_stratToken == address(0)) revert();
         if (_rewardToken == address(0)) revert();
         stratToken = IERC20(_stratToken);
         rewardToken = IERC20(_rewardToken);
+        lastUpdateTime = block.timestamp;
     }
 
-    /**
-     * @dev Override transfer to disable transfers
-     */
+    // -------------------------------------------------------------------------
+    // Transfer overrides (sSTRAT is non-transferrable)
+    // -------------------------------------------------------------------------
+
     function transfer(address, uint256) public pure override returns (bool) {
         revert TransferDisabled();
     }
 
-    /**
-     * @dev Override transferFrom to disable transfers
-     */
     function transferFrom(address, address, uint256) public pure override returns (bool) {
         revert TransferDisabled();
     }
 
-    /**
-     * @dev Override approve to disable approvals (since transfers are disabled)
-     */
     function approve(address, uint256) public pure override returns (bool) {
         revert TransferDisabled();
     }
 
+    // -------------------------------------------------------------------------
+    // Internal streaming helpers
+    // -------------------------------------------------------------------------
+
+    /// @dev Returns the earlier of block.timestamp and periodFinish
+    function _lastApplicableTime() internal view returns (uint256) {
+        return block.timestamp < periodFinish ? block.timestamp : periodFinish;
+    }
+
+    /// @dev Computes rewardsPerShare projected to the current timestamp without writing storage
+    function _currentRewardsPerShare() internal view returns (uint256) {
+        if (totalStaked == 0 || rewardRate == 0) return rewardsPerShare;
+        uint256 elapsed = _lastApplicableTime() - lastUpdateTime;
+        if (elapsed == 0) return rewardsPerShare;
+        return rewardsPerShare + (elapsed * rewardRate * PRECISION) / totalStaked;
+    }
+
+    /// @dev Ticks rewardsPerShare and lastUpdateTime forward to the current moment
+    function _tickRewardsPerShare() internal {
+        rewardsPerShare = _currentRewardsPerShare();
+        lastUpdateTime = _lastApplicableTime();
+    }
+
+    // -------------------------------------------------------------------------
+    // Sync
+    // -------------------------------------------------------------------------
+
     /**
-     * @dev Permissionless function to sync rewards.
-     *      Calculates new rewardsPerShare based on reward token balance in contract.
-     *      Should be called before any stake/unstake/claim/migrateStake operations.
+     * @dev Permissionless function that:
+     *   1. Ticks rewardsPerShare forward based on elapsed time and the current rewardRate.
+     *   2. Detects any new reward tokens in the contract balance and blends them into a fresh
+     *      REWARD_DURATION linear stream, merging with any remaining undistributed tokens.
+     *
+     *      The 7-day stream ensures that a frontrunner who stakes just before rewards arrive
+     *      and exits immediately captures nothing; they must hold for the full period to earn
+     *      a proportional share.
      */
     function syncRewards() public {
+        _tickRewardsPerShare();
+
+        // New rewards = total ever deposited minus total ever accepted into the stream
         uint256 currentBalance = rewardToken.balanceOf(address(this));
-        if (currentBalance == 0 || totalStaked == 0) {
-            return;
-        }
+        uint256 totalDeposited = currentBalance + totalClaimed;
+        if (totalDeposited <= totalNotifiedRewards) return;
 
-        // Calculate new rewards that haven't been synced yet
-        // If currentBalance < totalSyncedRewards, it means rewards were claimed/withdrawn
-        // Reset totalSyncedRewards to currentBalance to account for this
-        if (currentBalance < totalSyncedRewards) {
-            totalSyncedRewards = currentBalance;
-            return;
-        }
+        uint256 newRewards = totalDeposited - totalNotifiedRewards;
+        totalNotifiedRewards += newRewards;
 
-        uint256 newRewards = currentBalance - totalSyncedRewards;
-        if (newRewards == 0) {
-            return;
-        }
+        // Blend remaining undistributed tokens from any active stream with the new batch
+        uint256 remaining = block.timestamp < periodFinish ? rewardRate * (periodFinish - block.timestamp) : 0;
+        rewardRate = (remaining + newRewards) / REWARD_DURATION;
+        periodFinish = block.timestamp + REWARD_DURATION;
+        lastUpdateTime = block.timestamp;
 
-        // Calculate new rewards per share
-        // rewardsPerShare += (newRewards * PRECISION) / totalStaked
-        uint256 rewardsPerShareIncrease = (newRewards * PRECISION) / totalStaked;
-        rewardsPerShare += rewardsPerShareIncrease;
-        totalSyncedRewards += newRewards;
-
-        emit RewardsSynced(rewardsPerShare, newRewards);
+        emit RewardsSynced(rewardRate, newRewards, periodFinish);
     }
+
+    // -------------------------------------------------------------------------
+    // Core actions
+    // -------------------------------------------------------------------------
 
     /**
      * @dev Stake STRAT tokens
-     * @param amount Amount of STRAT to stake
      */
     function stake(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
 
-        // Sync rewards before updating user state
         syncRewards();
 
-        // Calculate current pending rewards to preserve them
+        // Preserve existing reward debt so prior pending rewards are untouched
         int256 currentRewardDebt = rewardDebt[msg.sender];
 
-        // Transfer STRAT from user
         stratToken.safeTransferFrom(msg.sender, address(this), amount);
 
-        // Update staking state
         staked[msg.sender] += amount;
         totalStaked += amount;
 
-        // Update reward debt: preserve existing debt and add debt for new stake
-        // This preserves pending rewards from existing stake
+        // Anchor new stake to current rewardsPerShare so it earns only future drips
         int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
         rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
 
-        // Mint sSTRAT tokens (non-transferrable, but still tracked)
         _mint(msg.sender, amount);
-
         emit Staked(msg.sender, amount);
     }
 
     /**
-     * @dev Unstake STRAT tokens
-     * @param amount Amount of STRAT to unstake
+     * @dev Unstake STRAT tokens. Pending rewards are automatically claimed first.
      */
     function unstake(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
         if (staked[msg.sender] < amount) revert InsufficientStake();
 
-        // Sync rewards before updating user state
         syncRewards();
 
-        // Update reward debt to account for any pending rewards before unstaking
-        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        // Auto-claim before modifying stake so no accrued rewards are lost
+        uint256 claimable = _getPendingRewards(msg.sender);
+        if (claimable > 0) {
+            rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+            totalClaimed += claimable;
+            rewardToken.safeTransfer(msg.sender, claimable);
+            emit RewardsClaimed(msg.sender, claimable);
+        }
 
-        // Update staking state
         staked[msg.sender] -= amount;
         totalStaked -= amount;
-
-        // Update reward debt
         rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
 
-        // Burn sSTRAT tokens
         _burn(msg.sender, amount);
-
-        // Transfer STRAT back to user
         stratToken.safeTransfer(msg.sender, amount);
-
         emit Unstaked(msg.sender, amount);
     }
 
@@ -181,115 +233,85 @@ contract StakedStrat is ERC20, ReentrancyGuard {
      * @dev Claim pending reward tokens
      */
     function claim() external nonReentrant {
-        // Sync rewards before updating user state
         syncRewards();
 
-        // Calculate and claim pending rewards
         uint256 claimable = _getPendingRewards(msg.sender);
+        if (claimable == 0) return;
 
-        if (claimable == 0) {
-            return;
-        }
-
-        // Update reward debt to reflect that rewards have been claimed
         rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
-        totalSyncedRewards -= claimable;
+        totalClaimed += claimable;
 
-        // Transfer reward tokens to user
         rewardToken.safeTransfer(msg.sender, claimable);
-
         emit RewardsClaimed(msg.sender, claimable);
     }
 
     /**
-     * @dev Migrate stake and unclaimed rewards to a new address
-     * @param to Address to migrate stake to
-     * @param amount Amount of STRAT to migrate (0 = migrate all)
+     * @dev Migrate stake and proportional pending rewards to another address.
+     *      The sender's non-migrated pending rewards are preserved in their debt and
+     *      remain claimable after the migration.
      */
     function migrateStake(address to, uint256 amount) external nonReentrant {
         if (to == address(0) || to == msg.sender) revert();
         if (staked[msg.sender] == 0) revert InsufficientStake();
 
-        // Sync rewards before updating user state
         syncRewards();
 
-        // Determine amount to migrate
         uint256 amountToMigrate = amount == 0 ? staked[msg.sender] : amount;
         if (amountToMigrate > staked[msg.sender]) revert InsufficientStake();
 
-        // Calculate rewards to migrate (proportional to amount being migrated)
-        // Do this before updating rewardDebt
+        // Compute rewards to migrate before touching state
         uint256 totalPendingRewards = _getPendingRewards(msg.sender);
         uint256 rewardsToMigrate = (totalPendingRewards * amountToMigrate) / staked[msg.sender];
 
-        // Update sender's state
+        // Update sender — preserve non-migrated pending via incremental debt adjustment
         staked[msg.sender] -= amountToMigrate;
         totalStaked -= amountToMigrate;
-        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION)
+            - int256(totalPendingRewards - rewardsToMigrate);
 
-        // Calculate and pay out recipient's existing pending rewards if they have stake
+        // Pay out any existing pending rewards for the recipient before updating their state
         uint256 recipientPendingRewards = 0;
         if (staked[to] > 0) {
             recipientPendingRewards = _getPendingRewards(to);
             if (recipientPendingRewards > 0) {
-                totalSyncedRewards -= recipientPendingRewards;
                 rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
             }
         }
 
-        // Update recipient's state
+        // Update recipient
         staked[to] += amountToMigrate;
         totalStaked += amountToMigrate;
         rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
 
-        // Transfer sSTRAT tokens
         _transfer(msg.sender, to, amountToMigrate);
 
-        // Transfer reward tokens (both recipient's existing and migrated rewards)
         uint256 totalRewardsToPay = recipientPendingRewards + rewardsToMigrate;
         if (totalRewardsToPay > 0) {
-            if (rewardsToMigrate > 0) {
-                totalSyncedRewards -= rewardsToMigrate;
-            }
+            totalClaimed += totalRewardsToPay;
             rewardToken.safeTransfer(to, totalRewardsToPay);
         }
 
         emit StakeMigrated(msg.sender, to, amountToMigrate, rewardsToMigrate);
     }
 
+    // -------------------------------------------------------------------------
+    // View
+    // -------------------------------------------------------------------------
+
     /**
-     * @dev Get pending rewards for a user
-     * @param user Address to check pending rewards for
-     * @return Pending reward tokens
+     * @dev Returns pending claimable rewards for a user, projected to the current block.
+     *      Accounts for the ongoing stream drip without requiring a state update.
      */
     function getPendingRewards(address user) external view returns (uint256) {
-        if (staked[user] == 0) {
-            return 0;
-        }
-
-        // Calculate current rewardsPerShare if we synced now
-        uint256 currentRewardsPerShare = rewardsPerShare;
-        uint256 currentBalance = rewardToken.balanceOf(address(this));
-        uint256 unsyncedRewards = currentBalance > totalSyncedRewards ? currentBalance - totalSyncedRewards : 0;
-        if (unsyncedRewards > 0 && totalStaked > 0) {
-            currentRewardsPerShare += (unsyncedRewards * PRECISION) / totalStaked;
-        }
-
-        // Calculate pending rewards
+        if (staked[user] == 0) return 0;
+        uint256 currentRewardsPerShare = _currentRewardsPerShare();
         int256 pending = int256((staked[user] * currentRewardsPerShare) / PRECISION) - rewardDebt[user];
         return pending > 0 ? uint256(pending) : 0;
     }
 
-    /**
-     * @dev Internal function to get pending rewards for a user
-     * @param user Address to check pending rewards for
-     * @return Pending reward tokens
-     */
+    /// @dev Internal version uses already-stored rewardsPerShare (call after _tickRewardsPerShare)
     function _getPendingRewards(address user) internal view returns (uint256) {
-        if (staked[user] == 0) {
-            return 0;
-        }
-
+        if (staked[user] == 0) return 0;
         int256 pending = int256((staked[user] * rewardsPerShare) / PRECISION) - rewardDebt[user];
         return pending > 0 ? uint256(pending) : 0;
     }
