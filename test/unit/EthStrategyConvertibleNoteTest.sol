@@ -363,6 +363,46 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
     }
 
+    function testRedeemSolventIncludesEncumberedEthInSolvencyCheck() public {
+        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastTimelock(tokenId);
+        _warpPastExpiry(tokenId);
+
+        // Make unencumbered holdings insufficient on their own, but keep total treasury solvent.
+        uint256 unencBal = esETHToken.balanceOf(unencumberedHoldings);
+        uint256 targetUnenc = 0.1 ether;
+        if (unencBal > targetUnenc) {
+            vm.prank(unencumberedHoldings);
+            esETHToken.transfer(address(0xCAFE), unencBal - targetUnenc);
+        }
+
+        uint256 encBal = esETHToken.balanceOf(encumberedHoldings);
+        uint256 targetEnc = entitlementEth + 1 ether;
+        if (encBal > targetEnc) {
+            vm.prank(encumberedHoldings);
+            esETHToken.transfer(address(0xBEEF), encBal - targetEnc);
+        }
+
+        uint256 totalDebt = cdtToken.totalSupply();
+        uint256 unencTreasuryEth = esETHToken.balanceOf(unencumberedHoldings);
+        uint256 totalTreasuryEth = unencTreasuryEth + esETHToken.balanceOf(encumberedHoldings);
+        uint256 unencTreasuryUsd = (unencTreasuryEth * ETH_USD_PRICE) / 1e18;
+        uint256 totalTreasuryUsd = (totalTreasuryEth * ETH_USD_PRICE) / 1e18;
+
+        assertLe(unencTreasuryUsd, totalDebt, "Unencumbered-only view should appear insolvent");
+        assertGt(totalTreasuryUsd, totalDebt, "Total treasury should be solvent");
+
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+
+        uint256 userEthBefore = esETHToken.balanceOf(user);
+        vm.prank(user);
+        bonds.redeemCdtForUsdNotional(tokenId);
+
+        uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
+        assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
+    }
+
     function testRedeemInsolventPaysProRataShare() public {
         (uint256 tokenId, uint256 settlementUsd,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
         _warpPastTimelock(tokenId);
@@ -375,9 +415,13 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
             esETHToken.transfer(address(0xCAFE), unencBal - 1 ether);
         }
 
+        // Push oracle price low so total treasury value is below debt while preserving ETH balances.
+        uint256 lowEthPrice = 1e18;
+        ethUsdOracle.setBasePerQuote(lowEthPrice);
+
         uint256 totalDebt = cdtToken.totalSupply();
-        uint256 treasuryInETH = esETHToken.balanceOf(unencumberedHoldings);
-        uint256 treasuryInUSD = (treasuryInETH * ETH_USD_PRICE) / 1e18;
+        uint256 treasuryInETH = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
+        uint256 treasuryInUSD = (treasuryInETH * lowEthPrice) / 1e18;
         assertLe(treasuryInUSD, totalDebt);
 
         vm.prank(user);

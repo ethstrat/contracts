@@ -199,12 +199,12 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - The contract redeems based on the note’s remaining `settlementEntitlementUsd[tokenId]`
   - The contract moves esETH backing for the note from encumbered to unencumbered:
     - `esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId])`
-  - Redemption payout is computed from unencumbered holdings and total CDT debt:
-    - Let `treasuryInETH = esETHToken.balanceOf(unencumberedHoldings)`
+  - Redemption payout is computed from total treasury ETH (encumbered + unencumbered) and total CDT debt:
+    - Let `treasuryInETH = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings)`
     - Let `treasuryInUSD = treasuryInETH * ethPriceUSD / ORACLE_SCALE`
     - Let `totalDebt = cdtToken.totalSupply()`
     - If `treasuryInUSD > totalDebt`: pay the full USD notional at current price
-    - Else: pay pro-rata share of unencumbered holdings: `settlementUsd * treasuryInETH / totalDebt`
+    - Else: pay pro-rata share of total treasury holdings: `settlementUsd * treasuryInETH / totalDebt`
   - The contract burns the NFT and clears all per-token balances (strike, entitlements, timestamps)
   - The contract burns CDT equal to `settlementEntitlementUsd[tokenId]` from the caller (permit-supported)
   - The contract transfers `ethAmount` esETH from `unencumberedHoldings` to the note owner

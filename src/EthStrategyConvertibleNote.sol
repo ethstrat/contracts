@@ -368,13 +368,21 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId]);
 
         uint256 ethAmount = 0;
-        uint256 treasuryInETH = esETHToken.balanceOf(unencumberedHoldings);
-        uint256 treasuryInUSD = treasuryInETH * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
+        uint256 unencumberedEth = esETHToken.balanceOf(unencumberedHoldings);
+        uint256 encumberedEth = esETHToken.balanceOf(encumberedHoldings);
+        uint256 totalTreasuryEth = unencumberedEth + encumberedEth;
+        uint256 treasuryInUSD = totalTreasuryEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         if (treasuryInUSD > cdtToken.totalSupply()) {
             // If solvent, pay the USD notional at the current ETH/USD rate
             ethAmount = settlementEntitlementUsd_ * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
         } else {
-            ethAmount = settlementEntitlementUsd_ * treasuryInETH / totalDebt;
+            ethAmount = settlementEntitlementUsd_ * totalTreasuryEth / totalDebt;
+        }
+
+        // If needed, move additional esETH from encumbered holdings so payout can be served from unencumbered holdings.
+        if (ethAmount > unencumberedEth) {
+            uint256 shortfall = ethAmount - unencumberedEth;
+            esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, shortfall);
         }
 
         // Clear the option data
