@@ -23,6 +23,10 @@ interface IAaveV3AToken {
     function totalSupply() external view returns (uint256);
 }
 
+interface IWeETH {
+    function getEETHByWeETH(uint256 weETHAmount) external view returns (uint256);
+}
+
 /**
  * @title esETH - ETH Strategy's ETH
  * @dev A wrapped token that represents a basket of staked ETH/LSTs (Eth Strategy's Treasury)
@@ -41,6 +45,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         WSTETH,
         RETH,
         AWETH,
+        WEETH,
         CBETH
     }
 
@@ -270,6 +275,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
             if (scaledTotalSupply == 0) return amount;
             uint256 totalSupply = aToken.totalSupply();
             return amount * totalSupply / scaledTotalSupply;
+        } else if (tokenType == TokenType.WEETH) {
+            // weETH (ether.fi): convert wrapped weETH amount into its eETH/ETH-equivalent amount.
+            return IWeETH(token).getEETHByWeETH(amount);
         } else if (tokenType == TokenType.CBETH) {
             // cbETH: exchangeRate() returns the ETH value of 1 cbETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).exchangeRate() / 1e18;

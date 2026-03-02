@@ -20,6 +20,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
  *      - wstETH: Uses stEthPerToken()
  *      - rETH: Uses getExchangeRate()
  *      - aWETH: Uses scaledTotalSupply() (Aave V3)
+ *      - weETH: Uses getEETHByWeETH()
  *      - cbETH: Uses exchangeRate()
  */
 contract esETHIntegrationTest is Test {
@@ -30,6 +31,7 @@ contract esETHIntegrationTest is Test {
     address public constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address public constant RETH = 0xae78736Cd615f374D3085123A210448E74Fc6393;
     address public constant AWETH = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8;
+    address public constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     address public constant CBETH = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
     address public constant SWETH = 0xf951E335afb289353dc249e82926178EaC7DEd78;
 
@@ -56,6 +58,7 @@ contract esETHIntegrationTest is Test {
         esETHContract.setTokenConfig(WSTETH, esETH.TokenType.WSTETH, false, false);
         esETHContract.setTokenConfig(RETH, esETH.TokenType.RETH, false, false);
         esETHContract.setTokenConfig(AWETH, esETH.TokenType.AWETH, false, false);
+        esETHContract.setTokenConfig(WEETH, esETH.TokenType.WEETH, false, false);
         esETHContract.setTokenConfig(CBETH, esETH.TokenType.CBETH, false, false);
         esETHContract.setTokenConfig(SWETH, esETH.TokenType.ERC4626, false, false);
         vm.stopPrank();
@@ -119,6 +122,33 @@ contract esETHIntegrationTest is Test {
 
         console2.log("aWETH ETH value:", ethValue);
         console2.log("aWETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
+    }
+
+    /**
+     * @notice Test getETHValue for weETH (ether.fi)
+     * @dev Regression guard: weETH uses getEETHByWeETH(uint256), not ERC4626 convertToAssets(uint256).
+     */
+    function testFork_GetETHValue_WEETH_UsesEtherFiSelector() public view {
+        // ERC4626 selector should fail because weETH is not ERC4626.
+        bytes4 erc4626Selector = bytes4(keccak256("convertToAssets(uint256)"));
+        (bool erc4626CallSuccess,) = WEETH.staticcall(abi.encodeWithSelector(erc4626Selector, TEST_AMOUNT));
+        assertEq(erc4626CallSuccess, false, "convertToAssets selector should fail for weETH");
+
+        // weETH selector should succeed.
+        bytes4 weEthSelector = bytes4(keccak256("getEETHByWeETH(uint256)"));
+        (bool selectorSuccess, bytes memory selectorData) = WEETH.staticcall(abi.encodeWithSelector(weEthSelector, TEST_AMOUNT));
+        assertEq(selectorSuccess, true, "getEETHByWeETH selector should succeed for weETH");
+
+        uint256 directRateValue = abi.decode(selectorData, (uint256));
+        uint256 ethValue = esETHContract.getETHValue(WEETH, TEST_AMOUNT);
+
+        // esETH conversion should match direct contract call
+        assertEq(ethValue, directRateValue, "weETH ETH value should match getEETHByWeETH result");
+        assertGe(ethValue, TEST_AMOUNT, "weETH should be worth at least 1 ETH");
+        assertLe(ethValue, TEST_AMOUNT * 2, "weETH rate seems unreasonably high");
+
+        console2.log("weETH ETH value:", ethValue);
+        console2.log("weETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
     }
 
     /**
