@@ -15,15 +15,7 @@ interface IWETH {
 interface ILegacyVaultTypes {
     function stEthPerToken() external view returns (uint256);
     function getExchangeRate() external view returns (uint256);
-    function exchangeRateStored() external view returns (uint256);
-    function ratio() external view returns (uint256);
     function exchangeRate() external view returns (uint256);
-}
-
-interface IAaveV2AToken {
-    function getScaledUserBalance(address user) external view returns (uint256);
-    function getScaledTotalSupply() external view returns (uint256);
-    function totalSupply() external view returns (uint256);
 }
 
 /**
@@ -43,9 +35,6 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         ERC4626,
         WSTETH,
         RETH,
-        CETH,
-        AETHV2,
-        ANKRETH,
         CBETH
     }
 
@@ -267,25 +256,6 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         } else if (tokenType == TokenType.RETH) {
             // rETH: rethPerToken() returns the ETH value of 1 rETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).getExchangeRate() / 1e18;
-        } else if (tokenType == TokenType.CETH) {
-            // cETH: exchangeRateStored() returns the exchange rate (cETH to ETH), scaled by 1e18.
-            // Formula: ETH = cETH * exchangeRateStored() / 1e18
-            return amount * ILegacyVaultTypes(token).exchangeRateStored() / 1e18;
-        } else if (tokenType == TokenType.AETHV2) {
-            // aETHv2: Aave v2 aTokens are rebasing tokens where balance increases over time.
-            // The balance itself represents the underlying ETH value (it's already rebased).
-            // However, to calculate the exchange rate, we use: totalSupply / scaledTotalSupply
-            // This gives us the current exchange rate multiplier.
-            IAaveV2AToken aToken = IAaveV2AToken(token);
-            uint256 scaledTotalSupply = aToken.getScaledTotalSupply();
-            if (scaledTotalSupply == 0) return amount;
-            uint256 totalSupply = aToken.totalSupply();
-            // Calculate the exchange rate: totalSupply / scaledTotalSupply
-            // This represents how much underlying ETH each aToken is worth
-            return amount * totalSupply / scaledTotalSupply;
-        } else if (tokenType == TokenType.ANKRETH) {
-            // ankrETH: ratio() returns the ETH value of 1 ankrETH, scaled by 1e18.
-            return amount * ILegacyVaultTypes(token).ratio() / 1e18;
         } else if (tokenType == TokenType.CBETH) {
             // cbETH: exchangeRate() returns the ETH value of 1 cbETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).exchangeRate() / 1e18;

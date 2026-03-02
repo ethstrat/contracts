@@ -20,9 +20,6 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
  *      - wstETH: Uses stEthPerToken()
  *      - rETH: Uses getExchangeRate()
  *      - cbETH: Uses exchangeRate()
- *      - ankrETH: Uses ratio()
- *      - aETHv2: Uses totalSupply / scaledTotalSupply
- *      - cETH: Uses exchangeRateStored()
  */
 contract esETHIntegrationTest is Test {
     esETH public esETHContract;
@@ -32,9 +29,6 @@ contract esETHIntegrationTest is Test {
     address public constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address public constant RETH = 0xae78736Cd615f374D3085123A210448E74Fc6393;
     address public constant CBETH = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
-    address public constant ANKRETH = 0xE95A203B1a91a908F9B9CE46459d101078c2c3cb;
-    address public constant AETHV2 = 0x0100546f2cd4c9A97F39f5b326c352E8630520d9;
-    address public constant CETH = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
     address public constant SWETH = 0xf951E335afb289353dc249e82926178EaC7DEd78;
 
     address public owner = address(0x1);
@@ -60,9 +54,6 @@ contract esETHIntegrationTest is Test {
         esETHContract.setTokenConfig(WSTETH, esETH.TokenType.WSTETH, false, false);
         esETHContract.setTokenConfig(RETH, esETH.TokenType.RETH, false, false);
         esETHContract.setTokenConfig(CBETH, esETH.TokenType.CBETH, false, false);
-        esETHContract.setTokenConfig(ANKRETH, esETH.TokenType.ANKRETH, false, false);
-        esETHContract.setTokenConfig(AETHV2, esETH.TokenType.AETHV2, false, false);
-        esETHContract.setTokenConfig(CETH, esETH.TokenType.CETH, false, false);
         esETHContract.setTokenConfig(SWETH, esETH.TokenType.ERC4626, false, false);
         vm.stopPrank();
     }
@@ -116,74 +107,6 @@ contract esETHIntegrationTest is Test {
 
         console2.log("cbETH ETH value:", ethValue);
         console2.log("cbETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
-    }
-
-    /**
-     * @notice Test getETHValue for ankrETH
-     * @dev ankrETH uses ratio() which returns the ETH per ankrETH rate scaled by 1e18
-     *      Note: ankrETH ratio can be less than 1 ETH per token
-     */
-    function testFork_GetETHValue_AnkrETH() public view {
-        uint256 ethValue = esETHContract.getETHValue(ANKRETH, TEST_AMOUNT);
-
-        // ankrETH should return a non-zero value
-        assertGt(ethValue, 0, "ankrETH should return non-zero value");
-
-        // ankrETH ratio can be less than 1 ETH (it's typically around 0.8-0.9 ETH per token)
-        // Sanity check: ankrETH rate should be reasonable (between 0.5 and 2.0 ETH per token)
-        assertGe(ethValue, TEST_AMOUNT / 2, "ankrETH rate seems unreasonably low");
-        assertLe(ethValue, TEST_AMOUNT * 2, "ankrETH rate seems unreasonably high");
-
-        console2.log("ankrETH ETH value:", ethValue);
-        console2.log("ankrETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
-    }
-
-    /**
-     * @notice Test getETHValue for aETHv2
-     * @dev aETHv2 uses scaled balance calculation: totalSupply / scaledTotalSupply
-     *      Note: Skip if contract doesn't exist at fork block
-     */
-    function testFork_GetETHValue_AETHV2() public view {
-        // Check if contract exists at this block
-        uint256 codeSize;
-        assembly {
-            codeSize := extcodesize(AETHV2)
-        }
-        if (codeSize == 0) {
-            return; // Skip if contract doesn't exist at this block
-        }
-
-        uint256 ethValue = esETHContract.getETHValue(AETHV2, TEST_AMOUNT);
-
-        // aETHv2 should be worth >= 1 ETH (it accumulates staking rewards)
-        assertGe(ethValue, TEST_AMOUNT, "aETHv2 should be worth at least 1 ETH");
-
-        // Sanity check: aETHv2 rate should be reasonable
-        assertLe(ethValue, TEST_AMOUNT * 2, "aETHv2 rate seems unreasonably high");
-
-        console2.log("aETHv2 ETH value:", ethValue);
-        console2.log("aETHv2 rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
-    }
-
-    /**
-     * @notice Test getETHValue for cETH
-     * @dev cETH uses exchangeRateStored() which returns the exchange rate
-     *      Note: Compound's exchange rate can be very high due to low totalSupply
-     *      The calculation appears correct, but the rate itself is unusually high
-     */
-    function testFork_GetETHValue_CETH() public view {
-        uint256 ethValue = esETHContract.getETHValue(CETH, TEST_AMOUNT);
-
-        // cETH should return a non-zero value
-        assertGt(ethValue, 0, "cETH should have some value");
-
-        // Note: cETH exchange rate at block 22000000 is very high (~2e8 ETH per cETH)
-        // This appears to be due to Compound's exchange rate calculation with very low totalSupply
-        // The calculation in the code seems correct, but the actual rate is unusually high
-        // We'll just verify it returns a value and log it for inspection
-        console2.log("cETH ETH value:", ethValue);
-        console2.log("cETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
-        console2.log("Note: cETH exchange rate is unusually high - may need investigation");
     }
 
     /**
