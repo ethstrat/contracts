@@ -185,7 +185,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         }
 
         // Mint NFT
-        _safeMint(bonder, tokenId);
+        _mint(bonder, tokenId);
         amountOwedCdt[tokenId] = settlementAmountUsd_;
         conversionEntitlementStrat[tokenId] = conversionAmountStrat_;
         conversionEntitlementEth[tokenId] = conversionAmountEth_;
