@@ -18,6 +18,11 @@ interface ILegacyVaultTypes {
     function exchangeRate() external view returns (uint256);
 }
 
+interface IAaveV3AToken {
+    function scaledTotalSupply() external view returns (uint256);
+    function totalSupply() external view returns (uint256);
+}
+
 /**
  * @title esETH - ETH Strategy's ETH
  * @dev A wrapped token that represents a basket of staked ETH/LSTs (Eth Strategy's Treasury)
@@ -35,6 +40,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         ERC4626,
         WSTETH,
         RETH,
+        AWETH,
         CBETH
     }
 
@@ -256,6 +262,14 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
         } else if (tokenType == TokenType.RETH) {
             // rETH: rethPerToken() returns the ETH value of 1 rETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).getExchangeRate() / 1e18;
+        } else if (tokenType == TokenType.AWETH) {
+            // aWETH (Aave V3): use scaledTotalSupply() + totalSupply() to derive
+            // the current scaling factor, then apply it to `amount`.
+            IAaveV3AToken aToken = IAaveV3AToken(token);
+            uint256 scaledTotalSupply = aToken.scaledTotalSupply();
+            if (scaledTotalSupply == 0) return amount;
+            uint256 totalSupply = aToken.totalSupply();
+            return amount * totalSupply / scaledTotalSupply;
         } else if (tokenType == TokenType.CBETH) {
             // cbETH: exchangeRate() returns the ETH value of 1 cbETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).exchangeRate() / 1e18;

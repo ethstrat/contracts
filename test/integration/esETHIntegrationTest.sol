@@ -19,6 +19,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
  *      These tests verify that getETHValue works correctly with real mainnet LST tokens:
  *      - wstETH: Uses stEthPerToken()
  *      - rETH: Uses getExchangeRate()
+ *      - aWETH: Uses scaledTotalSupply() (Aave V3)
  *      - cbETH: Uses exchangeRate()
  */
 contract esETHIntegrationTest is Test {
@@ -28,6 +29,7 @@ contract esETHIntegrationTest is Test {
     address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address public constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address public constant RETH = 0xae78736Cd615f374D3085123A210448E74Fc6393;
+    address public constant AWETH = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8;
     address public constant CBETH = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
     address public constant SWETH = 0xf951E335afb289353dc249e82926178EaC7DEd78;
 
@@ -53,6 +55,7 @@ contract esETHIntegrationTest is Test {
         vm.startPrank(owner);
         esETHContract.setTokenConfig(WSTETH, esETH.TokenType.WSTETH, false, false);
         esETHContract.setTokenConfig(RETH, esETH.TokenType.RETH, false, false);
+        esETHContract.setTokenConfig(AWETH, esETH.TokenType.AWETH, false, false);
         esETHContract.setTokenConfig(CBETH, esETH.TokenType.CBETH, false, false);
         esETHContract.setTokenConfig(SWETH, esETH.TokenType.ERC4626, false, false);
         vm.stopPrank();
@@ -90,6 +93,32 @@ contract esETHIntegrationTest is Test {
 
         console2.log("rETH ETH value:", ethValue);
         console2.log("rETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
+    }
+
+    /**
+     * @notice Test getETHValue for aWETH (Aave V3)
+     * @dev Regression guard: aWETH uses scaledTotalSupply(), not getScaledTotalSupply().
+     */
+    function testFork_GetETHValue_AWETH_UsesV3Selector() public view {
+        // Old Aave V2 selector should fail against Aave V3 aWETH.
+        bytes4 oldSelector = bytes4(keccak256("getScaledTotalSupply()"));
+        (bool oldCallSuccess,) = AWETH.staticcall(abi.encodeWithSelector(oldSelector));
+        assertEq(oldCallSuccess, false, "Old getScaledTotalSupply selector should fail for aWETH");
+
+        // Current selector should succeed.
+        (bool v3CallSuccess,) = AWETH.staticcall(abi.encodeWithSelector(bytes4(keccak256("scaledTotalSupply()"))));
+        assertEq(v3CallSuccess, true, "scaledTotalSupply selector should succeed for aWETH");
+
+        uint256 ethValue = esETHContract.getETHValue(AWETH, TEST_AMOUNT);
+
+        // aWETH should be worth >= 1 ETH (it accrues yield)
+        assertGe(ethValue, TEST_AMOUNT, "aWETH should be worth at least 1 ETH");
+
+        // Sanity check: aWETH rate should be reasonable.
+        assertLe(ethValue, TEST_AMOUNT * 2, "aWETH rate seems unreasonably high");
+
+        console2.log("aWETH ETH value:", ethValue);
+        console2.log("aWETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
     }
 
     /**
