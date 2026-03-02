@@ -4,17 +4,19 @@
 
 ### Queueing Redemptions
 
-**US-001: Queue a redemption by burning ESPN**
+**US-001: Queue a redemption by transferring ESPN**
 - **As a** user holding ESPN tokens
-- **I want to** burn my ESPN tokens to mint an NFT representing my position in the redemption queue
+- **I want to** transfer my ESPN tokens to the queue to mint an NFT representing my position in the redemption queue
 - **So that** I can redeem my ESPN for USDS when my position becomes eligible
 - **Acceptance Criteria:**
   - Must approve ESPN tokens to the contract first
   - ESPN amount must be greater than zero
-  - ESPN tokens are burned (not just transferred)
+  - ESPN tokens are transferred to the contract (held, not burned)
+  - Users do not benefit from ESPN yield while in queue (ESPN is held by contract)
   - NFT is minted to the user
   - Redemption data is recorded (redemptionsBefore, redemptionAmount)
   - `totalQueued` increases (always growing, never decreases)
+  - Excess ESPN is automatically burned if contract holds more than totalQueued
   - Event is emitted with queue details
 
 **US-002: Check redemption eligibility**
@@ -51,8 +53,14 @@
   - NFT must not be already redeemed
   - NFT must not be cancelled (use `processCancelledRedemptions()` for cancelled NFTs)
   - Contract must have sufficient USDS balance
-  - USDS is transferred to the user
+  - ESPN withdrawals must be enabled
+  - Automatically performs:
+    1. Adds USDS to ESPN via `increaseAssetsPerShare()` (increases assets per share)
+    2. Withdraws the right amount of ESPN shares to get redemptionAmount USDS
+    3. Sends USDS to the user
+  - Users receive exactly their redemptionAmount (they don't benefit from yield accrued while in queue)
   - `totalRedemptionsProcessed` increases
+  - Excess ESPN is automatically burned if contract holds more than totalQueued
   - NFT is burned after redemption
   - Event is emitted with redemption details
 
@@ -91,14 +99,17 @@
 - **Acceptance Criteria:**
   - Must be the owner of the NFT
   - NFT must not be already redeemed or cancelled
-  - ESPN tokens are returned to the user (equivalent amount to what was burned)
+  - ESPN tokens are returned to the user based on dollar value queued (not original shares)
+  - User receives ESPN equal to redemptionAmount in dollar terms (e.g., if they queued $100, they get $100 worth of ESPN at current share price)
+  - This ensures users get back the dollar value they queued, regardless of ESPN share price changes while in queue
   - NFT is marked as cancelled but stays in queue (not burned immediately)
   - `totalQueued` remains unchanged (always growing)
   - Queue ordering maintained without loops:
       - NFTs with lower tokenIDs are not affected
-      - Cancelled NFTs naturally advance when processed via `redeem()` 
+      - Cancelled NFTs naturally advance when processed via `processCancelledRedemptions()`
       - No need to update `redemptionsBefore` for other NFTs
-  - Cancelled NFT will be processed via `redeem()` when it reaches the head of the queue (no USDS transfer)
+  - Cancelled NFT will be processed via `processCancelledRedemptions()` when it reaches the head of the queue (no USDS transfer)
+  - Excess ESPN is automatically burned if contract holds more than totalQueued
 
 ### NFT Features
 
@@ -134,6 +145,22 @@
   - Can query `totalCancellationsProcessed` (cumulative dollar value cancelled, always growing)
   - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
   - Can calculate pending redemptions value: `totalQueued - totalRedemptionsProcessed - totalCancellationsProcessed`
+  - Can query ESPN balance held by the contract
+  - Can verify invariant: ESPN value held <= totalQueued (excess is burned automatically)
+
+**US-015: Burn excess ESPN (permissionless)**
+- **As a** anyone (user, protocol, or third party)
+- **I want to** burn excess ESPN if the contract holds more than totalQueued
+- **So that** the invariant is maintained (ESPN value held <= totalQueued)
+- **Acceptance Criteria:**
+  - Permissionless function `burnExcessESPN()` that anyone can call
+  - Calculates current dollar value of ESPN held using `previewRedeem()`
+  - If ESPN value > totalQueued, burns the excess
+  - It should be conservative and always rounds down (that is, burns less than it should). The invariant here is we shoudl always have enough ESPN if everyone in the queue was to cancel
+  - Returns amount of ESPN burned and excess dollar value
+  - Automatically called on queueRedemption, cancelRedemption, redeem, and processCancelledRedemptions
+  - Can also be called manually by anyone to maintain invariant
+  - Event is emitted when excess is burned
 
 ### Protocol Management (Owner)
 
@@ -154,9 +181,9 @@
 - **I want** all state-changing functions to be protected against reentrancy attacks
 - **So that** my transactions are secure and cannot be exploited
 - **Acceptance Criteria:**
-  - `nonReentrant` modifier on queueRedemption, redeem, processCancelledRedemptions, and cancelRedemption
+  - `nonReentrant` modifier on queueRedemption, redeem, processCancelledRedemptions, cancelRedemption, and burnExcessESPN
   - Uses ReentrancyGuard from OpenZeppelin
-  - Flash loan callback uses temporary storage pattern
+  - All external functions properly protected
 
 **US-014: Input validation**
 - **As a** user or contract owner
@@ -167,7 +194,7 @@
   - Zero address checks (sweeper)
   - Owner validation for NFT operations
   - Eligibility checks before redemption
-  - Sufficient balance checks
+  - Withdrawals enabled check before redeem
   - Clear error messages for each failure case
 
 
@@ -187,7 +214,8 @@
 
 - The contract implements ERC721 standard for NFT functionality
 - Uses OpenZeppelin's Ownable2Step for secure ownership management
-- ESPN tokens are burned (not held) when queuing a redemption
+- ESPN tokens are **held** when queuing a redemption
+- Users do not benefit from ESPN yield while in queue (ESPN is held by contract)
 - Dollar backing is calculated using ERC4626 `previewRedeem()` function
 - Queue position is determined by cumulative dollar value (`redemptionsBefore`) at mint time
 - Eligibility requires: `redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)`
@@ -196,33 +224,51 @@
   - `totalRedemptionsProcessed`: Cumulative dollar value of fulfilled active redemptions
   - `totalCancellationsProcessed`: Cumulative dollar value of processed cancelled redemptions
   - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
-- `redeem()` function accepts a single tokenId for active (non-cancelled) redemptions
+- `redeem()` function:
+  - Accepts a single tokenId for active (non-cancelled) redemptions
+  - Uses `increaseAssetsPerShare()` to add USDS to ESPN (increases assets per share without minting)
+  - Uses `withdraw()` to get USDS from ESPN
+  - Users receive exactly their redemptionAmount (no yield benefit while in queue)
 - `processCancelledRedemptions()` function accepts an array of cancelled tokenIds and is permissionless
 - Cancelled NFTs stay in queue and are processed via `processCancelledRedemptions()` when they reach the head
 - Processing cancelled NFTs improves capital efficiency by reducing USDS requirements for active redemptions
 - Queue ordering maintained without loops - cancelled NFTs naturally advance when processed
 - Sweeper address is immutable and set at construction
 - NFT is burned after redemption/processing, not immediately on cancellation
+- Infinite USDS approval set in constructor for ESPN's `increaseAssetsPerShare()` function (safe because ESPN is immutable)
+
+### ESPN Holding and Yield Isolation
+
+When users queue a redemption, their ESPN tokens are transferred to the contract. This means:
+- ESPN held by the contract may accrue yield over time
+- Users in queue do **not** benefit from this yield accrual
+- On redemption, users receive exactly their `redemptionAmount` in USDS (the dollar value they queued)
+- On cancellation, users receive ESPN equal to their `redemptionAmount` in dollar terms (not the original shares)
+- Excess ESPN (from yield accrual) is automatically burned via `burnExcessESPN()` to maintain the invariant
+
+**Invariant:** `espn.previewRedeem(espnBalance) <= totalQueued`
+
+This invariant is maintained by automatically calling `burnExcessESPN()` after:
+- `queueRedemption()` - when new ESPN is added
+- `cancelRedemption()` - when ESPN is returned to user
+- `redeem()` - when ESPN is withdrawn
+- `processCancelledRedemptions()` - when queue advances
 
 ### Cancellation Implementation Details
 
-When a user cancels their redemption, they need to receive ESPN tokens back. However, since ESPN tokens were burned when queuing the redemption (not held by the contract), the contract must remint ESPN to return it to the user.
+When a user cancels their redemption, they receive ESPN tokens back. Since ESPN is held when queuing, cancellation is straightforward:
 
-ESPN's implementation does not allow direct minting. Instead, ESPN tokens are minted by depositing USDS into the ESPN contract (via the ERC4626 `deposit()` function). To cancel a redemption:
+1. Calculate how many ESPN shares equal the `redemptionAmount` in dollar terms using `previewMint()`
+2. Transfer that amount of ESPN from the contract to the user
+3. Mark the NFT as cancelled (stays in queue)
+4. Burn excess ESPN if contract holds more than totalQueued
 
-1. The contract temporarily borrows USDS via a flash loan (using Sky protocol for USDS flash loans)
-2. The flashed USDS is deposited into ESPN, which mints ESPN shares
-3. The minted ESPN is transferred to the user
-4. The flash loan is repaid using USDS received from ESPN (when ESPN's manager is set to this contract, ESPN sends the deposited USDS to the manager during the deposit process)
-
-This flash loan mechanism is an implementation detail required by ESPN's architecture - there is no other way to remint ESPN after it has been burned, since ESPN only mints through deposits. The contract uses Sky flash loans specifically for USDS, which typically charge zero fees and have sufficient liquidity.
-
-**Security considerations:**
-- Flash loan callback verifies the initiator is the authorized Sky flash loan contract
-- Redemption is marked as cancelled before initiating the flash loan to prevent reentrancy
-- Temporary storage is cleared after the flash loan completes
-- The contract verifies sufficient USDS balance for repayment before completing the operation
-- ESPN manager must be set to this contract for cancellation to work properly
+**Key points:**
+- User receives ESPN equal to dollar value queued (not original shares)
+- If ESPN share price increased while in queue, user gets fewer shares (but same dollar value)
+- If ESPN share price decreased while in queue, user gets more shares (but same dollar value)
+- No flash loans required - direct transfer from contract's ESPN balance
+- ESPN manager does not need to be set to this contract
 
 ### Capital Efficiency: Processing Cancelled NFTs
 

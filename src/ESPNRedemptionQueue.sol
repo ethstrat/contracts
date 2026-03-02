@@ -6,19 +6,18 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import {IERC3156FlashLender} from "openzeppelin-contracts/contracts/interfaces/IERC3156FlashLender.sol";
-import {IERC3156FlashBorrower} from "openzeppelin-contracts/contracts/interfaces/IERC3156FlashBorrower.sol";
 import {EthStrategyPerpetualNote} from "./EthStrategyPerpetualNote.sol";
 
 /**
  * @title ESPN Redemption Queue
  * @dev NFT contract that represents a queue position for ESPN redemption
  *
- * Users burn ESPN tokens to mint an NFT that represents their position in the redemption queue.
- * Each NFT tracks the total redemptions that came before it and the dollar backing of the burned ESPN.
+ * Users transfer ESPN tokens to the queue to mint an NFT that represents their position in the redemption queue.
+ * Queued ESPN doesn't benefit from yield.
+ * Each NFT tracks the total redemptions that came before it and the dollar backing of the queued ESPN.
  * NFT holders can redeem when their position in the queue is eligible, or cancel their redemption.
  */
-contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156FlashBorrower {
+contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @dev The ESPN contract
@@ -26,9 +25,6 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
 
     /// @dev The USDS token (underlying asset of ESPN)
     IERC20 public immutable usds;
-
-    /// @dev ERC-3156 compliant flash loan provider (e.g., MorphoBlueFlashLoanProvider)
-    IERC3156FlashLender public flashLoanProvider;
 
     /// @dev Cumulative dollar value of all redemptions queued (in USDS terms)
     ///      This value always grows and never decreases
@@ -52,70 +48,63 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
     /// @dev Mapping from token ID to redemption data
     struct RedemptionData {
         uint256 redemptionsBefore; // Cumulative dollar value of redemptions that came before this NFT (in USDS terms)
-        uint256 redemptionAmount; // Dollar value of ESPN burned (in USDS terms)
+        uint256 redemptionAmount; // Dollar value of ESPN queued (in USDS terms)
         bool redeemed; // Whether this NFT has been redeemed
         bool cancelled; // Whether this redemption has been cancelled
     }
 
     mapping(uint256 tokenId => RedemptionData) public redemptions;
 
-    /// @dev Flash loan callback data
-    struct FlashLoanCallbackData {
-        address user;
-        uint256 tokenId;
-        uint256 redemptionAmount;
-    }
-
     /// @dev Events
     event RedemptionQueued(
         address indexed user,
         uint256 indexed tokenId,
-        uint256 espnBurned,
+        uint256 espnQueued,
         uint256 redemptionAmount,
         uint256 redemptionsBefore
     );
     event RedemptionFulfilled(address indexed user, uint256 indexed tokenId, uint256 usdsAmount);
     event RedemptionCancelled(address indexed user, uint256 indexed tokenId, uint256 espnReturned);
     event USDSwept(address indexed sweeper, uint256 amount);
-    event FlashLoanProviderUpdated(address indexed oldProvider, address indexed newProvider);
+    event ExcessESPNBurned(uint256 espnBurned, uint256 excessValue);
 
     /// @dev Errors
     error NotEligibleForRedemption(uint256 tokenId);
     error AlreadyRedeemed(uint256 tokenId);
     error AlreadyCancelled(uint256 tokenId);
     error NotTokenOwner(uint256 tokenId);
-    error InsufficientUSDS();
-    error FlashLoanFailed();
     error InvalidSweeper();
     error ZeroAmount();
-    error InvalidFlashLoanInitiator();
-    error InvalidFlashLoanAsset();
     error RedemptionNotCancelled();
-    error InvalidFlashLoanProvider();
 
     /**
      * @dev Constructor
      * @param _espn The ESPN contract address
-     * @param _flashLoanProvider The ERC-3156 compliant flash loan provider (e.g., MorphoBlueFlashLoanProvider)
      * @param _sweeper The address authorized to sweep USDS
      * @param _owner The owner of the contract
      */
-    constructor(address _espn, address _flashLoanProvider, address _sweeper, address _owner)
+    constructor(address _espn, address _sweeper, address _owner)
         ERC721("ESPN Redemption Queue", "ESPN-RQ")
         Ownable(_owner)
     {
         if (_sweeper == address(0)) revert InvalidSweeper();
-        if (_flashLoanProvider == address(0)) revert InvalidFlashLoanProvider();
         espn = EthStrategyPerpetualNote(_espn);
         usds = IERC20(espn.asset());
-        flashLoanProvider = IERC3156FlashLender(_flashLoanProvider);
         sweeper = _sweeper;
         _tokenIdCounter = 1;
+
+        // Set infinite approval for ESPN's increaseAssetsPerShare function
+        // ESPN is immutable, and increaseAssetsPerShare is the only function that uses this approval
+        // This is safe because:
+        // 1. ESPN contract is immutable (set once, cannot be changed)
+        // 2. increaseAssetsPerShare is a controlled function that only transfers the exact amount passed
+        // 3. No other ESPN functions can drain USDS from this contract
+        SafeERC20.forceApprove(usds, address(espn), type(uint256).max);
     }
 
     /**
-     * @dev Queue a redemption by burning ESPN and minting an NFT
-     * @param espnAmount The amount of ESPN to burn
+     * @dev Queue a redemption by transferring ESPN to the queue and minting an NFT
+     * @param espnAmount The amount of ESPN to queue
      * @return tokenId The minted NFT token ID
      */
     function queueRedemption(uint256 espnAmount) external nonReentrant returns (uint256) {
@@ -126,9 +115,8 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
         uint256 redemptionAmount = espn.previewRedeem(espnAmount);
 
         // Transfer ESPN from the user (user must have approved this contract)
+        // ESPN is held (not burned) so users don't benefit from yield while in queue
         IERC20(address(espn)).safeTransferFrom(msg.sender, address(this), espnAmount);
-        // Burn the ESPN
-        espn.burn(espnAmount);
 
         // Mint NFT
         uint256 tokenId = _tokenIdCounter++;
@@ -146,12 +134,16 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
         // Increment total queued (always growing)
         totalQueued += redemptionAmount;
 
+        // Burn excess ESPN if we hold more than totalQueued
+        _burnExcessESPN();
+
         emit RedemptionQueued(msg.sender, tokenId, espnAmount, redemptionAmount, totalQueued - redemptionAmount);
         return tokenId;
     }
 
     /**
      * @dev Redeem an active (non-cancelled) NFT for USDS if eligible
+     * Automatically deposits USDS to ESPN, withdraws the right amount of ESPN, and sends USDS to user
      * @param tokenId The NFT token ID to redeem
      */
     function redeem(uint256 tokenId) external nonReentrant {
@@ -174,14 +166,41 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
             revert NotEligibleForRedemption(tokenId);
         }
 
-        // Active NFT: check USDS, transfer, mark as redeemed, and burn
-        if (usds.balanceOf(address(this)) < redemption.redemptionAmount) {
-            revert InsufficientUSDS();
-        }
+        // Step 1: Increase assets per share by adding USDS to ESPN
+        // This increases ESPN's totalAssets without minting new shares
+        // Approval is set to max in constructor, so no need to approve here
+        // This transfers redemptionAmount from queue to ESPN, then ESPN sends it to manager
+        espn.increaseAssetsPerShare(redemption.redemptionAmount);
 
+        // Step 2: Transfer USDS to ESPN so it can fulfill the withdrawal
+        // increaseAssetsPerShare sends USDS to the manager, but withdraw needs USDS in ESPN's balance
+        // The queue needs redemptionAmount * 2 total: one for increaseAssetsPerShare, one for this transfer
+        usds.safeTransfer(address(espn), redemption.redemptionAmount);
+
+        // Step 3: Calculate how many ESPN shares we need to withdraw to get redemptionAmount USDS
+        // We use previewWithdraw to get the exact shares needed
+        // Note: The ESPN shares we hold from queueing may have grown in value due to yield,
+        // but we only withdraw enough to give the user their redemptionAmount (they don't benefit from yield)
+        uint256 espnSharesToWithdraw = espn.previewWithdraw(redemption.redemptionAmount);
+
+        // Step 4: Withdraw USDS from ESPN by withdrawing the calculated amount
+        // This burns ESPN shares and gives us USDS
+        // Note: withdraw() returns shares burned, not assets received
+        // The actual USDS received is redemption.redemptionAmount (the amount we requested)
+        espn.withdraw(redemption.redemptionAmount, address(this), address(this));
+
+        // Step 5: Send USDS to user
+        // The USDS received is exactly redemption.redemptionAmount (the amount we requested)
+        usds.safeTransfer(msg.sender, redemption.redemptionAmount);
+
+        // Mark as redeemed and update counters
         redemption.redeemed = true;
         totalRedemptionsProcessed += redemption.redemptionAmount;
-        usds.safeTransfer(msg.sender, redemption.redemptionAmount);
+
+        // Burn excess ESPN if we hold more than totalQueued
+        _burnExcessESPN();
+
+        // Burn NFT
         _burn(tokenId);
         emit RedemptionFulfilled(msg.sender, tokenId, redemption.redemptionAmount);
     }
@@ -218,22 +237,15 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
             _burn(tokenId);
             emit RedemptionFulfilled(owner, tokenId, 0);
         }
+
+        // Burn excess ESPN after processing cancellations
+        _burnExcessESPN();
     }
 
     /**
-     * @dev Cancel a redemption by flashing USDS, minting ESPN, and returning it to the user
-     *
-     * This function initiates a USDS flash loan to cancel a redemption. The flash loan provider will call
-     * onFlashLoan on this contract, which will:
-     * 1. Use the flashed USDS to deposit into ESPN (minting ESPN shares)
-     * 2. ESPN sends USDS to manager (this contract) as part of deposit
-     * 3. Repay the flash loan using USDS received from ESPN
-     * 4. Transfer the minted ESPN to the user
-     *
-     * IMPORTANT: The ESPN manager must be set to this contract for cancellation to work.
-     * When USDS is deposited, ESPN's _deposit function sends it to the manager (this contract),
-     * allowing us to repay the flash loan.
-     *
+     * @dev Cancel a redemption by returning ESPN equal to the dollar amount queued
+     * Returns ESPN based on current share price, so user gets back $100 notional worth of ESPN
+     * if they queued $100, regardless of how ESPN share price changed while in queue
      * @param tokenId The NFT token ID to cancel
      */
     function cancelRedemption(uint256 tokenId) external nonReentrant {
@@ -243,106 +255,22 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
 
         RedemptionData storage redemption = redemptions[tokenId];
 
-        // Mark as cancelled before flash loan to prevent reentrancy
+        // Mark as cancelled to prevent reentrancy
         redemption.cancelled = true;
 
-        // No need to update redemptionsBefore for other NFTs - they will naturally
-        // advance when cancelled NFTs are processed via redeem()
-        // totalQueued remains unchanged (always growing)
+        // Calculate how many ESPN shares equal the redemptionAmount in dollar terms
+        // We use previewDeposit to get the exact shares needed for redemptionAmount USDS
+        // previewDeposit(assets) returns shares, which is what we need
+        uint256 espnSharesToReturn = espn.previewDeposit(redemption.redemptionAmount);
 
-        // Encode callback data to pass to flash loan
-        bytes memory callbackData = abi.encode(
-            FlashLoanCallbackData({user: msg.sender, tokenId: tokenId, redemptionAmount: redemption.redemptionAmount})
-        );
+        // Return ESPN to user (equal to dollar amount queued, not original shares)
+        IERC20(address(espn)).safeTransfer(msg.sender, espnSharesToReturn);
 
-        // Initiate USDS flash loan via ERC-3156 compliant provider
-        flashLoanProvider.flashLoan(
-            IERC3156FlashBorrower(address(this)), // receiver (this contract)
-            address(usds), // token (USDS)
-            redemption.redemptionAmount, // amount (USDS)
-            callbackData // data to pass to callback
-        );
-    }
+        // Burn excess ESPN if we hold more than totalQueued
+        _burnExcessESPN();
 
-    /**
-     * @dev Callback function for USDS flash loans (ERC-3156 compliant)
-     *
-     * This function is called by the flash loan provider after lending USDS. It:
-     * 1. Uses flashed USDS to deposit into ESPN (minting ESPN shares)
-     * 2. ESPN sends USDS to manager (this contract) as part of deposit
-     * 3. Repays the flash loan using USDS received from ESPN
-     * 4. Transfers minted ESPN to the user
-     *
-     * IMPORTANT: The ESPN manager must be set to this contract for this to work properly.
-     * When USDS is deposited, ESPN's _deposit function sends it to the manager (this contract),
-     * allowing us to repay the flash loan.
-     *
-     * @param data Encoded FlashLoanCallbackData
-     * @return The keccak256 hash of "ERC3156FlashBorrower.onFlashLoan"
-     */
-    function onFlashLoan(address, /* initiator */ address token, uint256 amount, uint256 fee, bytes calldata data)
-        external
-        override
-        returns (bytes32)
-    {
-        // Verify flash loan provider called this
-        if (msg.sender != address(flashLoanProvider)) revert InvalidFlashLoanInitiator();
-
-        // Verify the token is USDS
-        if (token != address(usds)) revert InvalidFlashLoanAsset();
-
-        // Get callback data
-        FlashLoanCallbackData memory callbackData;
-        if (data.length > 0) {
-            callbackData = abi.decode(data, (FlashLoanCallbackData));
-        }
-
-        uint256 totalToRepay = amount + fee;
-
-        // Verify the redemption hasn't been processed
-        RedemptionData storage redemption = redemptions[callbackData.tokenId];
-        if (!redemption.cancelled) revert RedemptionNotCancelled();
-
-        // Step 1: Use flashed USDS to mint ESPN by depositing into ESPN
-        // NOTE: The ESPN manager must be set to this contract for this to work properly.
-        // When USDS is deposited, ESPN's _deposit function sends it to the manager (this contract),
-        // allowing us to repay the flash loan.
-        SafeERC20.forceApprove(usds, address(espn), amount);
-        uint256 espnMinted = espn.deposit(amount, address(this));
-        SafeERC20.forceApprove(usds, address(espn), 0);
-
-        // Step 2: ESPN sends the USDS to the manager (this contract) as part of _deposit
-        // Step 3: Verify we have enough USDS to repay (including fee)
-        uint256 usdsBalance = usds.balanceOf(address(this));
-        if (usdsBalance < totalToRepay) {
-            revert InsufficientUSDS();
-        }
-
-        // Step 4: Return minted ESPN to the user
-        IERC20(address(espn)).safeTransfer(callbackData.user, espnMinted);
-
-        // Step 5: Approve flash loan provider to take back the USDS + fee
-        // msg.sender is the flash loan contract that called this callback
-        SafeERC20.forceApprove(usds, msg.sender, totalToRepay);
-
-        // NFT is NOT burned here - it stays in queue and will be processed via redeem()
-        // The cancelled flag is already set in cancelRedemption()
-
-        emit RedemptionCancelled(callbackData.user, callbackData.tokenId, espnMinted);
-
-        return keccak256("ERC3156FlashBorrower.onFlashLoan");
-    }
-
-    /**
-     * @dev Set the flash loan provider
-     * @param _flashLoanProvider The new ERC-3156 compliant flash loan provider address
-     * @dev Only callable by the owner
-     */
-    function setFlashLoanProvider(address _flashLoanProvider) external onlyOwner {
-        if (_flashLoanProvider == address(0)) revert InvalidFlashLoanProvider();
-        address oldProvider = address(flashLoanProvider);
-        flashLoanProvider = IERC3156FlashLender(_flashLoanProvider);
-        emit FlashLoanProviderUpdated(oldProvider, _flashLoanProvider);
+        // NFT stays in queue and will be processed via processCancelledRedemptions()
+        emit RedemptionCancelled(msg.sender, tokenId, espnSharesToReturn);
     }
 
     /**
@@ -355,6 +283,52 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, IERC3156F
             usds.safeTransfer(sweeper, balance);
             emit USDSwept(sweeper, balance);
         }
+    }
+
+    /**
+     * @dev Permissionless function to burn excess ESPN
+     * Burns ESPN if the contract holds more ESPN (in dollar terms) than totalQueued
+     * Should be called on each join/leave/cancel to maintain invariant
+     * @return espnBurned The amount of ESPN burned
+     * @return excessValue The dollar value of excess ESPN burned
+     */
+    function burnExcessESPN() external nonReentrant returns (uint256 espnBurned, uint256 excessValue) {
+        return _burnExcessESPN();
+    }
+
+    /**
+     * @dev Internal function to burn excess ESPN
+     * @return espnBurned The amount of ESPN burned
+     * @return excessValue The dollar value of excess ESPN burned
+     */
+    function _burnExcessESPN() internal returns (uint256 espnBurned, uint256 excessValue) {
+        uint256 espnBalance = IERC20(address(espn)).balanceOf(address(this));
+        if (espnBalance == 0) {
+            return (0, 0);
+        }
+
+        // Calculate current dollar value of ESPN held
+        uint256 espnValue = espn.previewRedeem(espnBalance);
+
+        // If we hold more than totalQueued, burn the excess
+        if (espnValue > totalQueued) {
+            excessValue = espnValue - totalQueued;
+            // Subtract 1 wei to be conservative (ensures we burn less than true excess)
+            // This guarantees we always have enough ESPN if everyone cancels
+            if (excessValue > 0) {
+                excessValue -= 1;
+            }
+            // Calculate how many ESPN shares equal the excess value
+            // excessValue is in USDS (assets), so we use previewDeposit to get shares
+            espnBurned = espn.previewDeposit(excessValue);
+            
+            // Burn the excess ESPN
+            espn.burn(espnBurned);
+            
+            emit ExcessESPNBurned(espnBurned, excessValue);
+        }
+
+        return (espnBurned, excessValue);
     }
 
     /**

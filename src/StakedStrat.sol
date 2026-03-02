@@ -293,9 +293,4 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         int256 pending = int256((staked[user] * rewardsPerShare) / PRECISION) - rewardDebt[user];
         return pending > 0 ? uint256(pending) : 0;
     }
-
-    /**
-     * @dev Receive ETH (kept for backwards compatibility, but rewards should be sent as ERC20 tokens)
-     */
-    receive() external payable {}
 }

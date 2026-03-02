@@ -6,60 +6,6 @@ import {ESPNRedemptionQueue} from "../../src/ESPNRedemptionQueue.sol";
 import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IERC3156FlashLender} from "openzeppelin-contracts/contracts/interfaces/IERC3156FlashLender.sol";
-import {IERC3156FlashBorrower} from "openzeppelin-contracts/contracts/interfaces/IERC3156FlashBorrower.sol";
-
-/**
- * @title Simple Flash Loan Provider (ERC-3156 compliant)
- * @dev Simple no-fee flash loan provider for unit testing
- */
-contract SimpleFlashLoanProvider is IERC3156FlashLender {
-    IERC20 public immutable token;
-
-    constructor(address _token) {
-        token = IERC20(_token);
-    }
-
-    function maxFlashLoan(address tokenAddress) external view override returns (uint256) {
-        if (tokenAddress != address(token)) {
-            return 0;
-        }
-        return type(uint256).max;
-    }
-
-    function flashFee(address tokenAddress, uint256) external view override returns (uint256) {
-        require(tokenAddress == address(token), "Wrong token");
-        return 0;
-    }
-
-    function flashLoan(IERC3156FlashBorrower receiver, address tokenAddress, uint256 amount, bytes calldata data)
-        external
-        override
-        returns (bool)
-    {
-        require(tokenAddress == address(token), "Wrong token");
-
-        uint256 fee = 0;
-
-        // Transfer tokens to receiver
-        token.transfer(address(receiver), amount);
-
-        // Call the receiver's callback
-        bytes32 result = receiver.onFlashLoan(msg.sender, tokenAddress, amount, fee, data);
-        require(result == keccak256("ERC3156FlashBorrower.onFlashLoan"), "Flash loan callback failed");
-
-        // Take back tokens
-        uint256 totalToRepay = amount + fee;
-        uint256 balanceBefore = token.balanceOf(address(this));
-        token.transferFrom(address(receiver), address(this), totalToRepay);
-        require(token.balanceOf(address(this)) == balanceBefore + totalToRepay, "Repayment failed");
-
-        return true;
-    }
-
-    receive() external payable {}
-}
-
 /**
  * @title ESPNRedemptionQueue Invariant Tests
  * @dev Tests for queue ordering invariants with multiple users
@@ -76,7 +22,6 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
     ESPNRedemptionQueue public queue;
     EthStrategyPerpetualNote public espn;
     MintableBurnableToken public usds;
-    SimpleFlashLoanProvider public flashLoanProvider;
 
     address public owner = address(0x1);
     address public manager = address(0x2);
@@ -126,15 +71,8 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.prank(owner);
         espn.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
 
-        // Deploy flash loan provider
-        flashLoanProvider = new SimpleFlashLoanProvider(address(usds));
-
-        // Deploy redemption queue
-        queue = new ESPNRedemptionQueue(address(espn), address(flashLoanProvider), sweeper, owner);
-
-        // Mint USDS to flash loan provider
-        vm.prank(owner);
-        usds.mint(address(flashLoanProvider), 10_000_000 * 10 ** 18);
+        // Deploy redemption queue (no flash loan provider needed)
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner);
 
         // Mint USDS to users and have them deposit to ESPN
         address[5] memory users = [user1, user2, user3, user4, user5];
@@ -147,6 +85,21 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
             espn.deposit(DEPOSIT_AMOUNT, users[i]);
             vm.stopPrank();
         }
+
+        // Enable ESPN withdrawals for tests
+        vm.prank(owner);
+        espn.setWithdrawalsDisabled(false);
+    }
+
+    /// @dev Helper function to fund queue for redemption
+    /// The queue needs USDS for both increaseAssetsPerShare (transfers to ESPN then manager)
+    /// and for transferring to ESPN for the withdrawal
+    function _fundQueueForRedemption(uint256 redemptionAmount) internal {
+        // Fund queue with redemptionAmount * 2:
+        // - redemptionAmount for increaseAssetsPerShare (transfers to ESPN, then ESPN sends to manager)
+        // - redemptionAmount for transfer to ESPN (so ESPN has USDS for withdrawal)
+        vm.prank(owner);
+        usds.mint(address(queue), redemptionAmount * 2);
     }
 
     // ============ Invariant 1: Users can only redeem USDS in order ============
@@ -179,6 +132,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // User2's redemptionsBefore = redemptionAmount1
         // availablePosition = 0 + 0 + redemptionAmount2 = redemptionAmount2
         // redemptionAmount1 < redemptionAmount2 ? No, so user2 cannot redeem
+        // Note: We fund with redemptionAmount2 (not * 2) for eligibility check, but need * 2 for actual redemption
         vm.prank(owner);
         usds.mint(address(queue), redemptionAmount2);
 
@@ -187,13 +141,15 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenId2));
         queue.redeem(tokenId2);
 
-        // Add enough for user1
-        vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1);
+        // Add enough for user1 (needs * 2 for actual redemption)
+        _fundQueueForRedemption(redemptionAmount1);
 
         // User1 redeems successfully
         vm.prank(user1);
         queue.redeem(tokenId1);
+
+        // Add enough for user2 (needs * 2 for actual redemption)
+        _fundQueueForRedemption(redemptionAmount2);
 
         // Now user2 can redeem
         vm.prank(user2);
@@ -227,7 +183,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // Fund queue with only enough for user5, not enough buffer for users 1-4
         (, uint256 redemptionAmount5,,) = queue.redemptions(tokenIds[4]);
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount5);
+        usds.mint(address(queue), redemptionAmount5 * 2);
 
         // User5 should NOT be able to redeem (insufficient buffer)
         vm.prank(user5);
@@ -236,7 +192,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Fund queue with total needed - now anyone can redeem
         vm.prank(owner);
-        usds.mint(address(queue), totalNeeded - redemptionAmount5);
+        usds.mint(address(queue), (totalNeeded - redemptionAmount5) * 2);
 
         // Redeem all in any order (all are eligible when enough USDS)
         for (uint256 i = 0; i < users.length; i++) {
@@ -266,8 +222,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenIds[1]);
 
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1 + redemptionAmount2);
-
+        usds.mint(address(queue), (redemptionAmount1 + redemptionAmount2) * 2);
         // User3, 4, 5 cannot redeem yet
         vm.prank(user3);
         vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenIds[2]));
@@ -320,9 +275,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         (, uint256 redemptionAmount3,,) = queue.redemptions(tokenId3);
 
         // Fund queue with EXACTLY enough for all three
+        uint256 totalRedemption = redemptionAmount1 + redemptionAmount2 + redemptionAmount3;
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1 + redemptionAmount2 + redemptionAmount3);
-
+        usds.mint(address(queue), totalRedemption * 2);
         // All users should be able to redeem in any order because there's enough for everyone
         // User3 can redeem first
         vm.prank(user3);
@@ -371,7 +326,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // availablePosition = totalRedemptionsProcessed + totalCancellationsProcessed + usds balance
         // availablePosition = 0 + 0 + usds balance
         // So we need: usds balance <= redemptionAmount1 + redemptionAmount2
-        // Let's fund with exactly redemptionAmount1 + redemptionAmount2
+        // Let's fund with exactly redemptionAmount1 + redemptionAmount2 (for eligibility check)
         vm.prank(owner);
         usds.mint(address(queue), redemptionAmount1 + redemptionAmount2);
 
@@ -387,9 +342,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * This tests 2b: preceding user cancelled their position
      */
     function test_Invariant2b_CanSkipIfPrecedingUserCancelled() public {
-        // Set queue as ESPN manager for cancellation
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount1 = 100 * 10 ** 18;
         uint256 espnAmount2 = 50 * 10 ** 18;
@@ -421,7 +374,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Fund queue with only enough for user2's redemption (not enough for user1 if they hadn't cancelled)
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount2);
+        usds.mint(address(queue), redemptionAmount2 * 2);
 
         // User2 should NOT be able to redeem yet because cancelled NFT hasn't been processed
         vm.prank(user2);
@@ -437,6 +390,8 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.prank(user1);
         queue.processCancelledRedemptions(cancelledIds);
 
+        // Fund ESPN for user2's redemption
+
         // Now user2 can redeem
         vm.prank(user2);
         queue.redeem(tokenId2);
@@ -446,9 +401,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * @dev Test complex scenario: multiple cancellations allow later users to redeem
      */
     function test_Invariant2b_MultipleCancellationsAllowSkipping() public {
-        // Set queue as ESPN manager
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount = 100 * 10 ** 18;
         address[5] memory users = [user1, user2, user3, user4, user5];
@@ -474,7 +427,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Fund queue with enough for user4 and user5, but NOT enough to cover cancelled positions
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount4 + redemptionAmount5);
+        usds.mint(address(queue), (redemptionAmount4 + redemptionAmount5) * 2);
 
         // User5 should NOT be able to redeem yet (cancelled NFTs block the queue)
         vm.prank(user5);
@@ -512,9 +465,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * @dev Test that if user cancels and new user joins, new user must wait for cancellation to process
      */
     function test_Invariant3_NewJoinerWaitsForCancellationProcessing() public {
-        // Set queue as ESPN manager
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount1 = 100 * 10 ** 18;
         uint256 espnAmount2 = 50 * 10 ** 18;
@@ -553,7 +504,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // availablePosition = 0 + 0 + redemptionAmount2 = redemptionAmount2
         // We need redemptionAmount2 <= redemptionAmount1, which should be true since espnAmount1 > espnAmount2
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount2);
+        usds.mint(address(queue), redemptionAmount2 * 2);
 
         // User3 should NOT be able to redeem yet (user1's cancelled position and user2 are ahead)
         vm.prank(user3);
@@ -574,13 +525,15 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.prank(user1);
         queue.processCancelledRedemptions(cancelledIds);
 
+        // Fund ESPN for user2's redemption
+
         // Now user2 can redeem
         vm.prank(user2);
         queue.redeem(tokenId2);
 
         // Add more USDS for user3 to redeem
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount3);
+        usds.mint(address(queue), redemptionAmount3 * 2);
 
         // Now user3 can redeem
         vm.prank(user3);
@@ -591,9 +544,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * @dev Test complex scenario: multiple users cancel, new users join, must process in order
      */
     function test_Invariant3_ComplexCancellationWithNewJoiners() public {
-        // Set queue as ESPN manager
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount = 100 * 10 ** 18;
 
@@ -681,7 +632,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // Add USDS for user3 to redeem
         (, uint256 redemptionAmount3,,) = queue.redemptions(tokenId3);
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount3);
+        usds.mint(address(queue), redemptionAmount3 * 2);
 
         // Now user3 can redeem
         vm.prank(user3);
@@ -691,8 +642,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         (, uint256 redemptionAmount4,,) = queue.redemptions(tokenId4);
         (, uint256 redemptionAmount5,,) = queue.redemptions(tokenId5);
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount4 + redemptionAmount5);
-
+        usds.mint(address(queue), (redemptionAmount4 + redemptionAmount5) * 2);
         // Now user4 can redeem
         vm.prank(user4);
         queue.redeem(tokenId4);
@@ -706,9 +656,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * @dev Test that queue ordering is maintained throughout cancellations and new joins
      */
     function test_Invariant3_QueueOrderingMaintained() public {
-        // Set queue as ESPN manager
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount = 100 * 10 ** 18;
 
@@ -758,9 +706,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * @dev Test comprehensive scenario with all invariants
      */
     function test_AllInvariants_ComprehensiveScenario() public {
-        // Set queue as ESPN manager
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount = 100 * 10 ** 18;
         address[5] memory users = [user1, user2, user3, user4, user5];
@@ -788,7 +734,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // User3's redemptionsBefore = redemptionAmounts[0] + redemptionAmounts[1]
         // To block user3, we need availablePosition <= redemptionAmounts[0] + redemptionAmounts[1]
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmounts[0]);
+        usds.mint(address(queue), redemptionAmounts[0] * 2);
 
         // Step 4: Invariant 1 - User3 cannot skip ahead without enough buffer
         vm.prank(user3);
@@ -813,9 +759,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.prank(user2);
         queue.processCancelledRedemptions(cancelledIds);
 
-        // Step 8: Fund for user3 and redeem
+        // Step 8: Fund queue and ESPN for user3's redemption
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmounts[2]);
+        usds.mint(address(queue), redemptionAmounts[2] * 2);
 
         vm.prank(user3);
         queue.redeem(tokenIds[2]);
@@ -840,7 +786,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Step 12: Fund for user5 and redeem
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmounts[4]);
+        usds.mint(address(queue), redemptionAmounts[4] * 2);
 
         vm.prank(user5);
         queue.redeem(tokenIds[4]);
@@ -875,9 +821,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenId2);
 
         // Fund queue with enough for both
+        uint256 totalRedemption = redemptionAmount1 + redemptionAmount2;
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1 + redemptionAmount2);
-
+        usds.mint(address(queue), totalRedemption * 2);
         // Verify both are eligible
         (bool eligible1,) = queue.isEligibleForRedemption(tokenId1);
         (bool eligible2,) = queue.isEligibleForRedemption(tokenId2);
@@ -923,9 +869,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenId2);
 
         // Fund queue with enough for both
+        uint256 totalRedemption = redemptionAmount1 + redemptionAmount2;
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1 + redemptionAmount2);
-
+        usds.mint(address(queue), totalRedemption * 2);
         // Verify both are eligible
         (bool eligible1,) = queue.isEligibleForRedemption(tokenId1);
         (bool eligible2,) = queue.isEligibleForRedemption(tokenId2);
@@ -971,9 +917,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenId2);
 
         // Fund queue with EXACTLY enough for both + 1 wei extra
+        uint256 totalRedemption = redemptionAmount1 + redemptionAmount2;
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1 + redemptionAmount2 + 1);
-
+        usds.mint(address(queue), totalRedemption * 2 + 1);
         // Verify both are eligible with minimal buffer
         (bool eligible1,) = queue.isEligibleForRedemption(tokenId1);
         (bool eligible2,) = queue.isEligibleForRedemption(tokenId2);
@@ -1018,8 +964,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Fund queue with enough for all
         vm.prank(owner);
-        usds.mint(address(queue), totalNeeded);
-
+        usds.mint(address(queue), totalNeeded * 2);
         // Test different ordering: 3, 1, 2
         vm.prank(user3);
         queue.redeem(tokenIds[2]);
@@ -1044,9 +989,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
      * @dev Test that availablePosition calculation is correct throughout queue operations
      */
     function test_AvailablePositionCalculation() public {
-        // Set queue as ESPN manager
-        vm.prank(owner);
-        espn.setManager(address(queue));
+        // No longer need to set manager - cancellation works directly
 
         uint256 espnAmount = 100 * 10 ** 18;
 
@@ -1080,7 +1023,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Add USDS
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount1);
+        usds.mint(address(queue), redemptionAmount1 * 2);
 
         // availablePosition = 0 + 0 + redemptionAmount1
         (bool eligible1After, uint256 availablePosition1After) = queue.isEligibleForRedemption(tokenId1);
@@ -1116,7 +1059,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
 
         // Add more USDS
         vm.prank(owner);
-        usds.mint(address(queue), redemptionAmount3);
+        usds.mint(address(queue), redemptionAmount3 * 2);
 
         // availablePosition = redemptionAmount1 + redemptionAmount2 + 1 + redemptionAmount3
         (bool eligible3After, uint256 availablePosition3After) = queue.isEligibleForRedemption(tokenId3);
