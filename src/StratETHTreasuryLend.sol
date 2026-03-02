@@ -24,8 +24,8 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         uint256 cdtCollateral;
         uint256 principal; // amount borrowed (esETH) sent to borrower
         uint256 maxTermInterest; // full-term interest amount for this position (principal * rate * duration / 365d)
-        uint256 rate; // per-position APR, scaled by 1e18
-        uint256 fee; // per-position fee snapshot (reserved at origination/roll)
+        uint256 rate; // scaled by 1e18
+        uint256 delinquentFee; // diliquent fee if loan isn't repaid by expiry
         uint256 startTime;
         uint256 expiry;
     }
@@ -41,20 +41,14 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     uint256 public constant SCALE = 1e18;
     uint256 public constant YEAR = 365 days;
 
-    /// @notice Maximum loan-to-value for new borrows/rolls (scaled by 1e18). Example: 0.9e18 = 90%.
-    uint256 public maxLTV;
+    /// @notice % fee payable if a borrower fails to repay their loan
+    uint256 public delinquentFeeRate;
 
     /// @notice Term length for new borrows/rolls (seconds).
     uint256 public loanDuration;
 
     /// @notice Borrow APR for new borrows/rolls (scaled by 1e18).
     uint256 public borrowRate;
-
-    /// @notice CDT required per STRAT of covered collateral (scaled by 1e18).
-    uint256 public debtPerStrat;
-
-    /// @notice Reserved fee deducted from borrow capacity for new borrows/rolls (in wei of esETH).
-    uint256 public delinquentFee;
 
     /// @notice Address that receives interest revenue (e.g. a staking rewards pool).
     address public interestRevenueRecipient;
@@ -65,7 +59,6 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
 
     // ======== State ========
     uint256 public nextTokenId;
-    uint256 public totalOutstandingPrincipal;
     mapping(uint256 tokenId => Position) internal _positions;
 
     // ======== Events ========
@@ -87,7 +80,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         uint256 principal,
         uint256 maxTermInterest,
         uint256 rate,
-        uint256 fee,
+        uint256 delinquentFee,
         uint256 startTime,
         uint256 expiry
     );
@@ -120,7 +113,6 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     error LoanExpired(uint256 tokenId);
     error LoanUnexpired(uint256 tokenId);
     error StratSupplyIsZero();
-    error BorrowTooSmall();
     error TransferFailed();
     error UnauthorizedRateSetter(address caller);
     error UnauthorizedFeeSetter(address caller);
@@ -156,11 +148,9 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         unencumberedHoldings = _unencumberedHoldings;
         encumberedHoldings = _encumberedHoldings;
 
-        // Defaults per user stories (targets).
-        maxLTV = 0.9e18;
+        // Defaults
         loanDuration = 180 days;
         borrowRate = _borrowRate;
-        debtPerStrat = 1e18; // default: 1 CDT per 1 STRAT, can be tuned by owner
 
         // Delegated roles initialized to owner.
         rateSetter = owner;
@@ -185,23 +175,10 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         emit FeeSetterUpdated(old, newSetter);
     }
 
-    // ======== Owner-managed risk parameters (US-001) ========
-    function setMaxLTV(uint256 newMaxLTV) external onlyOwner {
-        uint256 old = maxLTV;
-        maxLTV = newMaxLTV;
-        emit MaxLTVUpdated(old, newMaxLTV);
-    }
-
     function setLoanDuration(uint256 newLoanDuration) external onlyOwner {
         uint256 old = loanDuration;
         loanDuration = newLoanDuration;
         emit LoanDurationUpdated(old, newLoanDuration);
-    }
-
-    function setDebtPerStrat(uint256 newDebtPerStrat) external onlyOwner {
-        uint256 old = debtPerStrat;
-        debtPerStrat = newDebtPerStrat;
-        emit DebtPerStratUpdated(old, newDebtPerStrat);
     }
 
     // ======== Delegated parameter setters (US-500/US-501) ========
@@ -212,10 +189,10 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         emit BorrowRateUpdated(old, newBorrowRate);
     }
 
-    function setDelinquentFee(uint256 newFee) external {
+    function setDelinquentFeeRate(uint256 newFee) external {
         if (msg.sender != feeSetter) revert UnauthorizedFeeSetter(msg.sender);
-        uint256 old = delinquentFee;
-        delinquentFee = newFee;
+        uint256 old = delinquentFeeRate;
+        delinquentFeeRate = newFee;
         emit DelinquentFeeUpdated(old, newFee);
     }
 
@@ -232,25 +209,25 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     }
 
     /// @notice Preview borrow outcome using *current* global parameters (US-101).
-    function previewBorrow(uint256 stratIn, uint256 cdtIn)
-        external
+    function previewBorrow(uint256 maxStratIn, uint256 maxCdtIn)
+        public
         view
-        returns (uint256 coveredStrat, uint256 maxBorrowBeforeInterest, uint256 maxTermInterest, uint256 borrowAmount)
+        returns (uint256 stratIn, uint256 cdtIn, uint256 ethBacking, uint256 borrowAmount, uint256 maxTermInterest, uint256 delinquentFee)
     {
-        if (stratIn == 0 || cdtIn == 0) revert ZeroAmount();
-        (coveredStrat,) = _coveredStratAndRequiredCdt(stratIn, cdtIn);
+        cdtIn = maxStratIn * cdtToken.totalSupply() / stratToken.totalSupply();
+        if (cdtIn > maxCdtIn) {
+            cdtIn = maxCdtIn;
+            stratIn = cdtIn * stratToken.totalSupply() / cdtToken.totalSupply();
+        } else {
+            stratIn = maxStratIn;
+        }
+        ethBacking = (_totalHoldingsInETH() * stratIn) / stratToken.totalSupply();
 
-        uint256 collateralValue = _stratBackingValue(coveredStrat);
-        maxBorrowBeforeInterest = (collateralValue * maxLTV) / SCALE;
-
-        // principal = (maxBorrowBeforeInterest - fee) / (1 + rate * duration / YEAR)
-        // maxTermInterest = principal * rate * duration / YEAR
-        uint256 fee = delinquentFee;
-        if (maxBorrowBeforeInterest <= fee) revert BorrowTooSmall();
+        delinquentFee = (ethBacking * delinquentFeeRate) / SCALE;
 
         uint256 termFactor = (borrowRate * loanDuration) / YEAR; // scaled by 1e18
         uint256 denom = SCALE + termFactor;
-        borrowAmount = ((maxBorrowBeforeInterest - fee) * SCALE) / denom;
+        borrowAmount = ((ethBacking - delinquentFee) * SCALE) / denom;
         maxTermInterest = (borrowAmount * termFactor) / SCALE;
     }
 
@@ -269,65 +246,58 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     // ======== Core flows ========
     /// @notice Borrow by supplying up to `stratIn` and `cdtIn` as collateral. Only the covered portion is pulled
     /// (US-100).
-    function borrow(uint256 stratIn, uint256 cdtIn, uint256 minBorrowAmount, uint256 deadline) external {
+    function borrow(uint256 maxStratIn, uint256 maxCdtIn, uint256 minBorrowAmount, uint256 deadline) external {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
-        if (stratIn == 0 || cdtIn == 0) revert ZeroAmount();
+        if (maxStratIn == 0 && maxCdtIn == 0) revert ZeroAmount();
+        (uint256 stratIn
+        , uint256 cdtIn
+        , uint256 ethBacking
+        , uint256 borrowAmount
+        , uint256 maxTermInterest
+        , uint256 delinquentFee) = previewBorrow(maxStratIn, maxCdtIn);
 
-        (uint256 coveredStratAmount, uint256 requiredCdtAmount) = _coveredStratAndRequiredCdt(stratIn, cdtIn);
-
-        (
-            uint256 maxBorrowBeforeInterest,
-            uint256 maxTermInterestAmount,
-            uint256 principalAmount,
-            uint256 feeAmount,
-            uint256 rateSnapshot
-        ) = _computeBorrowTerms(coveredStratAmount);
-
-        if (principalAmount < minBorrowAmount) revert InsufficientOutput(minBorrowAmount, principalAmount);
+        if (borrowAmount < minBorrowAmount) revert InsufficientOutput(minBorrowAmount, borrowAmount);
 
         // Pull collateral (burn) only for the covered portion.
-        stratToken.burnFrom(msg.sender, coveredStratAmount);
-        cdtToken.burnFrom(msg.sender, requiredCdtAmount);
+        stratToken.burnFrom(msg.sender, stratIn);
+        cdtToken.burnFrom(msg.sender, cdtIn);
 
         uint256 tokenId = nextTokenId++;
         uint256 startTime = block.timestamp;
         uint256 expiry = startTime + loanDuration;
 
         _positions[tokenId] = Position({
-            stratCollateral: coveredStratAmount,
-            cdtCollateral: requiredCdtAmount,
-            principal: principalAmount,
-            maxTermInterest: maxTermInterestAmount,
-            rate: rateSnapshot,
-            fee: feeAmount,
+            stratCollateral: stratIn,
+            cdtCollateral: cdtIn,
+            principal: borrowAmount,
+            maxTermInterest: maxTermInterest,
+            rate: borrowRate,
+            delinquentFee: delinquentFee,
             startTime: startTime,
             expiry: expiry
         });
 
-        totalOutstandingPrincipal += principalAmount;
-
         // Mint position NFT (US-010).
         _mint(msg.sender, tokenId);
 
-        // Payout is esETH sourced from the unencumbered holdings address (US-100).
-        if (!esETHToken.transferFrom(unencumberedHoldings, msg.sender, principalAmount)) revert TransferFailed();
+        // Pull full backing (principal + reserved interest + delinquent fee) from unencumbered into this contract.
+        esETHToken.transferFrom(unencumberedHoldings, address(this), ethBacking);
+        // Send only the principal to the borrower; the remainder stays reserved in this contract.
+        esETHToken.transfer(msg.sender, borrowAmount);
 
         emit Borrowed(
             msg.sender,
             tokenId,
-            coveredStratAmount,
-            requiredCdtAmount,
-            coveredStratAmount,
-            principalAmount,
-            maxTermInterestAmount,
-            rateSnapshot,
-            feeAmount,
+            stratIn,
+            cdtIn,
+            ethBacking,
+            borrowAmount,
+            maxTermInterest,
+            borrowRate,
+            delinquentFee,
             startTime,
             expiry
         );
-
-        // silence unused warning in terms computation (kept for clarity in preview parity)
-        maxBorrowBeforeInterest;
     }
 
     /// @notice Repay before expiry (US-201). Pays accrued interest to `interestRevenueRecipient`.
@@ -339,27 +309,29 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         if (block.timestamp >= p.expiry) revert LoanExpired(tokenId);
 
         uint256 interest = accruedInterest(tokenId);
-        // Route principal + delinquent fee (reserved at origination) back to unencumbered holdings.
-        if (!esETHToken.transferFrom(msg.sender, unencumberedHoldings, p.principal)) revert TransferFailed();
+        esETHToken.transferFrom(msg.sender, address(this), p.principal + interest);
+
+        // Return full backing (principal + reserved interest + delinquent fee) to unencumbered holdings.
+        esETHToken.transfer(unencumberedHoldings, p.principal + p.maxTermInterest + p.delinquentFee);
 
         // Route interest to interest revenue recipient.
         if (interest > 0) {
-            if (!esETHToken.transferFrom(msg.sender, interestRevenueRecipient, interest)) revert TransferFailed();
+            esETHToken.transfer(interestRevenueRecipient, interest);
         }
 
         // Close: burn NFT and restore collateral (mint back).
         _burn(tokenId);
         stratToken.mint(posOwner, p.stratCollateral);
         cdtToken.mint(posOwner, p.cdtCollateral);
-        totalOutstandingPrincipal -= p.principal;
         delete _positions[tokenId];
 
         emit Repaid(msg.sender, tokenId, p.principal, interest, block.timestamp);
     }
 
     /// @notice Roll a position: settle interest to date, adjust collateral and principal, reset term (US-300/301/302).
-    function roll(uint256 tokenId, uint256 newStratCollateral, uint256 newCdtCollateral, uint256 deadline) external {
+    function roll(uint256 tokenId, uint256 maxNewStratIn, uint256 maxNewCdtIn, uint256 minNewBorrowAmount, uint256 deadline) external {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
+        if (maxNewStratIn == 0 && maxNewCdtIn == 0) revert ZeroAmount();
 
         address posOwner = ownerOf(tokenId);
         if (msg.sender != posOwner) revert NotPositionOwner(msg.sender, tokenId);
@@ -367,78 +339,53 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         Position memory p = _positions[tokenId];
         if (block.timestamp >= p.expiry) revert LoanExpired(tokenId);
 
-        if (newStratCollateral == 0 || newCdtCollateral == 0) revert ZeroAmount();
-
-        // Settle accrued interest up to now.
         uint256 interest = accruedInterest(tokenId);
-        if (interest > 0) {
-            if (!esETHToken.transferFrom(msg.sender, interestRevenueRecipient, interest)) revert TransferFailed();
+
+        (uint256 newStratIn
+        , uint256 newCdtIn
+        , uint256 newEthBacking
+        , uint256 newBorrowAmount
+        , uint256 newMaxTermInterest
+        , uint256 newDiliquentFee) = previewBorrow(maxNewStratIn, maxNewCdtIn);
+        if (newBorrowAmount < minNewBorrowAmount) revert InsufficientOutput(minNewBorrowAmount, newBorrowAmount);
+
+        uint256 oldStratIn = p.stratCollateral;
+        uint256 oldCdtIn = p.cdtCollateral;
+        uint256 oldEthBacking = p.principal + p.maxTermInterest + p.delinquentFee;
+        uint256 oldBorrowAmount = p.principal;
+
+        if ((oldBorrowAmount + interest) > newBorrowAmount) {
+            esETHToken.transferFrom(msg.sender, address(this), oldBorrowAmount + interest - newBorrowAmount);
+            esETHToken.transfer(unencumberedHoldings, oldEthBacking - newEthBacking);
+        } else {
+            esETHToken.transferFrom(unencumberedHoldings, address(this), newEthBacking - oldEthBacking);
+            esETHToken.transfer(msg.sender, newBorrowAmount - oldBorrowAmount - interest);
         }
+        esETHToken.transfer(interestRevenueRecipient, interest);
 
         // Adjust collateral (burn/mint to match target amounts).
-        if (newStratCollateral > p.stratCollateral) {
-            stratToken.burnFrom(msg.sender, newStratCollateral - p.stratCollateral);
-        } else if (newStratCollateral < p.stratCollateral) {
-            stratToken.mint(msg.sender, p.stratCollateral - newStratCollateral);
+        if (newStratIn > oldStratIn) {
+            stratToken.burnFrom(msg.sender, newStratIn - oldStratIn);
+        } else if (newStratIn < oldStratIn) {
+            stratToken.mint(msg.sender, oldStratIn - newStratIn);
         }
 
-        if (newCdtCollateral > p.cdtCollateral) {
-            cdtToken.burnFrom(msg.sender, newCdtCollateral - p.cdtCollateral);
-        } else if (newCdtCollateral < p.cdtCollateral) {
-            cdtToken.mint(msg.sender, p.cdtCollateral - newCdtCollateral);
-        }
-
-        // Recompute coveredStrat under current debt-per-strat (US-300).
-        (uint256 coveredStratAmount, uint256 requiredCdtAmount) =
-            _coveredStratAndRequiredCdt(newStratCollateral, newCdtCollateral);
-
-        // If target collateral is not fully coverable, we treat the position as resized to the covered portion only.
-        // Any "excess" over covered is effectively returned above via minting back.
-        if (coveredStratAmount != newStratCollateral) {
-            // return uncovered STRAT
-            if (newStratCollateral > coveredStratAmount) {
-                stratToken.mint(msg.sender, newStratCollateral - coveredStratAmount);
-            }
-            newStratCollateral = coveredStratAmount;
-        }
-        if (requiredCdtAmount != newCdtCollateral) {
-            // return excess CDT
-            if (newCdtCollateral > requiredCdtAmount) {
-                cdtToken.mint(msg.sender, newCdtCollateral - requiredCdtAmount);
-            }
-            newCdtCollateral = requiredCdtAmount;
-        }
-
-        // Compute new terms from covered collateral under current params.
-        (, uint256 maxTermInterestAmount, uint256 newPrincipal, uint256 feeAmount, uint256 rateSnapshot) =
-            _computeBorrowTerms(newStratCollateral);
-
-        // Adjust principal (US-301). If increasing, pay out delta; if decreasing, require pay-in delta.
-        if (newPrincipal > p.principal) {
-            uint256 delta = newPrincipal - p.principal;
-            if (!esETHToken.transferFrom(unencumberedHoldings, msg.sender, delta)) revert TransferFailed();
-        } else if (newPrincipal < p.principal) {
-            uint256 delta = p.principal - newPrincipal;
-            if (!esETHToken.transferFrom(msg.sender, unencumberedHoldings, delta)) revert TransferFailed();
-        }
-
-        // Update outstanding principal accounting.
-        if (newPrincipal > p.principal) {
-            totalOutstandingPrincipal += (newPrincipal - p.principal);
-        } else if (newPrincipal < p.principal) {
-            totalOutstandingPrincipal -= (p.principal - newPrincipal);
+        if (newCdtIn > oldCdtIn) {
+            cdtToken.burnFrom(msg.sender, newCdtIn - oldCdtIn);
+        } else if (newCdtIn < oldCdtIn) {
+            cdtToken.mint(msg.sender, oldCdtIn - newCdtIn);
         }
 
         // Reset term and snapshot new rate/fee (US-011).
         uint256 startTime = block.timestamp;
         uint256 expiry = startTime + loanDuration;
         _positions[tokenId] = Position({
-            stratCollateral: newStratCollateral,
-            cdtCollateral: newCdtCollateral,
-            principal: newPrincipal,
-            maxTermInterest: maxTermInterestAmount,
-            rate: rateSnapshot,
-            fee: feeAmount,
+            stratCollateral: newStratIn,
+            cdtCollateral: newCdtIn,
+            principal: newBorrowAmount,
+            maxTermInterest: newMaxTermInterest,
+            rate: borrowRate,
+            delinquentFee: newDiliquentFee,
             startTime: startTime,
             expiry: expiry
         });
@@ -446,13 +393,13 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         emit Rolled(
             msg.sender,
             tokenId,
-            newStratCollateral,
-            newCdtCollateral,
-            newPrincipal,
-            maxTermInterestAmount,
-            rateSnapshot,
-            feeAmount,
-            block.timestamp,
+            newStratIn,
+            newCdtIn,
+            newBorrowAmount,
+            newMaxTermInterest,
+            borrowRate,
+            newDiliquentFee,
+            startTime,
             expiry
         );
     }
@@ -467,73 +414,20 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         // On default (expiry), route the unpaid full-term interest that was reserved at origination/roll
         // from unencumbered holdings to the interest revenue recipient.
         if (p.maxTermInterest > 0) {
-            if (!esETHToken.transferFrom(unencumberedHoldings, interestRevenueRecipient, p.maxTermInterest)) {
-                revert TransferFailed();
-            }
+            esETHToken.transfer(interestRevenueRecipient, p.maxTermInterest);
+        }
+
+        if (p.delinquentFee > 0) {
+            esETHToken.transfer(unencumberedHoldings, p.delinquentFee);
         }
 
         // Burn the position NFT; collateral was already burned at origination (forfeited).
         _burn(tokenId);
-
-        totalOutstandingPrincipal -= p.principal;
         delete _positions[tokenId];
-
         emit Liquidated(tokenId, prevOwner, block.timestamp);
-    }
-
-    // ======== Internals ========
-    function _stratBackingValue(uint256 stratAmount) internal view returns (uint256) {
-        uint256 stratSupply = stratToken.totalSupply();
-        if (stratSupply == 0) revert StratSupplyIsZero();
-        // backing value in ETH wei: totalHoldings * stratAmount / totalSupply
-        return (_totalHoldingsInETH() * stratAmount) / stratSupply;
     }
 
     function _totalHoldingsInETH() internal view returns (uint256) {
         return esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
     }
-
-    function _coveredStratAndRequiredCdt(uint256 stratIn, uint256 cdtIn)
-        internal
-        view
-        returns (uint256 coveredStratAmount, uint256 requiredCdtAmount)
-    {
-        uint256 dps = debtPerStrat; // CDT per STRAT, 1e18 scaled
-        if (dps == 0) revert ZeroAmount();
-        // coveredStrat = min(stratIn, cdtIn / dps)
-        uint256 coverableStrat = (cdtIn * SCALE) / dps;
-        coveredStratAmount = stratIn < coverableStrat ? stratIn : coverableStrat;
-        if (coveredStratAmount == 0) revert ZeroAmount();
-        requiredCdtAmount = (coveredStratAmount * dps) / SCALE;
-        if (requiredCdtAmount == 0) revert ZeroAmount();
-    }
-
-    function _computeBorrowTerms(uint256 coveredStratAmount)
-        internal
-        view
-        returns (
-            uint256 maxBorrowBeforeInterest,
-            uint256 maxTermInterestAmount,
-            uint256 principalAmount,
-            uint256 feeAmount,
-            uint256 rateSnapshot
-        )
-    {
-        uint256 collateralValue = _stratBackingValue(coveredStratAmount);
-        maxBorrowBeforeInterest = (collateralValue * maxLTV) / SCALE;
-
-        feeAmount = delinquentFee;
-        if (maxBorrowBeforeInterest <= feeAmount) revert BorrowTooSmall();
-
-        rateSnapshot = borrowRate;
-
-        uint256 termFactor = (rateSnapshot * loanDuration) / YEAR; // 1e18 scaled
-        uint256 denom = SCALE + termFactor;
-        principalAmount = ((maxBorrowBeforeInterest - feeAmount) * SCALE) / denom;
-        maxTermInterestAmount = (principalAmount * termFactor) / SCALE;
-
-        if (principalAmount == 0) revert BorrowTooSmall();
-    }
-
-    // No ETH is expected to be received directly; all payouts/repayments are done in esETH.
 }

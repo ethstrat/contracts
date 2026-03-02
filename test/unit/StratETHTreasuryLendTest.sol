@@ -79,10 +79,8 @@ contract StratETHTreasuryLendTest is Test {
     }
 
     function test_Constructor_DefaultsAndRoles() public view {
-        assertEq(lend.maxLTV(), 0.9e18);
         assertEq(lend.loanDuration(), 180 days);
         assertEq(lend.borrowRate(), 0.1e18);
-        assertEq(lend.debtPerStrat(), 1e18);
         assertEq(lend.rateSetter(), owner);
         assertEq(lend.feeSetter(), owner);
         assertEq(lend.interestRevenueRecipient(), owner);
@@ -111,11 +109,12 @@ contract StratETHTreasuryLendTest is Test {
         uint256 stratIn = 100 ether;
         uint256 cdtIn = 60 ether;
 
-        (uint256 coveredStrat, uint256 maxBorrowBeforeInterest, uint256 maxTermInterest, uint256 borrowAmount) =
+        (uint256 coveredStrat, uint256 coveredCdt, uint256 ethBacking, uint256 borrowAmount, uint256 maxTermInterest, uint256 delinquentFee) =
             lend.previewBorrow(stratIn, cdtIn);
 
         assertEq(coveredStrat, 60 ether);
-        assertGt(maxBorrowBeforeInterest, 0);
+        assertEq(coveredCdt, 60 ether);
+        assertGt(ethBacking, 0);
         assertGt(borrowAmount, 0);
         assertGt(maxTermInterest, 0);
 
@@ -138,7 +137,7 @@ contract StratETHTreasuryLendTest is Test {
         assertEq(p.principal, borrowAmount);
         assertEq(p.maxTermInterest, maxTermInterest);
         assertEq(p.rate, lend.borrowRate());
-        assertEq(p.fee, lend.delinquentFee());
+        assertEq(p.delinquentFee, delinquentFee);
     }
 
     function test_US201_Repay_OnlyPositionOwner_And_BeforeExpiry() public {
@@ -209,9 +208,9 @@ contract StratETHTreasuryLendTest is Test {
         vm.prank(borrower);
         lend.repay(tokenId);
 
-        // Principal returned to unencumbered holdings as esETH.
-        assertEq(esEth.balanceOf(unencumberedHoldings), unencBefore + p.principal);
-        // Interest routed as esETH to revenue recipient.
+        // Full backing (principal + reserved interest + delinquent fee) returned to unencumbered holdings.
+        assertEq(esEth.balanceOf(unencumberedHoldings), unencBefore + p.principal + p.maxTermInterest + p.delinquentFee);
+        // Accrued interest routed as esETH to revenue recipient.
         assertEq(esEth.balanceOf(revenue) - revenueBefore, accrued);
     }
 
@@ -246,7 +245,7 @@ contract StratETHTreasuryLendTest is Test {
 
         uint256 esEthBefore = esEth.balanceOf(borrower);
         vm.prank(borrower);
-        lend.roll(tokenId, 200 ether, 200 ether, block.timestamp + 1 hours);
+        lend.roll(tokenId, 200 ether, 200 ether, 0, block.timestamp + 1 hours);
 
         // Interest settled to revenue recipient.
         assertEq(esEth.balanceOf(revenue) - revenueBefore, interest);
@@ -281,12 +280,180 @@ contract StratETHTreasuryLendTest is Test {
         esEth.wrapAndMint{value: topUp}(borrower);
 
         vm.prank(borrower);
-        lend.roll(tokenId2, 150 ether, 150 ether, block.timestamp + 1 hours);
+        lend.roll(tokenId2, 150 ether, 150 ether, 0, block.timestamp + 1 hours);
 
         StratETHTreasuryLend.Position memory pAfterDown = lend.getPosition(tokenId2);
         assertLt(pAfterDown.principal, pBeforeDown.principal);
-        // Unencumbered holdings should have received the principal reduction as esETH.
-        assertEq(esEth.balanceOf(unencumberedHoldings) - unencBefore, pBeforeDown.principal - pAfterDown.principal);
+        // Unencumbered holdings should receive the full backing reduction (principal + reserved interest + fee delta).
+        // Allow 1-wei tolerance for integer division rounding.
+        uint256 oldBacking = pBeforeDown.principal + pBeforeDown.maxTermInterest + pBeforeDown.delinquentFee;
+        uint256 newBacking = pAfterDown.principal + pAfterDown.maxTermInterest + pAfterDown.delinquentFee;
+        assertApproxEqAbs(esEth.balanceOf(unencumberedHoldings) - unencBefore, oldBacking - newBacking, 1);
+    }
+
+    // ======== Invariant / property-check tests ========
+    //
+    // INVARIANT PRECONDITION: interestRevenueRecipient must NOT be unencumberedHoldings
+    // or encumberedHoldings.  Interest sent to a holdings address would increase
+    // _totalHoldingsInETH() and violate ethPerStrat neutrality.  Every invariant
+    // test below explicitly sets the recipient to address(0xFEED), a neutral address.
+
+    /// @dev ethPerStrat = (esEth.balanceOf(unencumbered) + esEth.balanceOf(encumbered)) * 1e18 / strat.totalSupply()
+    /// This mirrors the price used by previewBorrow: ethBacking = totalHoldingsInETH * stratIn / stratSupply.
+    function _ethPerStrat() internal view returns (uint256) {
+        uint256 totalHoldings = esEth.balanceOf(unencumberedHoldings) + esEth.balanceOf(encumberedHoldings);
+        return totalHoldings * 1e18 / strat.totalSupply();
+    }
+
+    /// US-800: borrow must not change ethPerStrat.
+    /// Proof: H_new = H - H*stratIn/S, S_new = S - stratIn
+    ///        => H_new/S_new = H*(S-stratIn)/S / (S-stratIn) = H/S
+    function test_Invariant_Borrow_EthPerStratPreserved() public {
+        // Recipient must be outside holdings for the invariant to hold.
+        vm.prank(owner);
+        lend.setInterestRevenueRecipient(address(0xFEED));
+
+        uint256 before = _ethPerStrat();
+        _borrow(100 ether, 100 ether);
+        assertApproxEqAbs(_ethPerStrat(), before, 1);
+    }
+
+    /// US-800: repay must not change ethPerStrat (it exactly reverses the borrow).
+    function test_Invariant_Repay_EthPerStratPreserved() public {
+        // Recipient must be outside holdings for the invariant to hold.
+        vm.prank(owner);
+        lend.setInterestRevenueRecipient(address(0xFEED));
+
+        uint256 tokenId = _borrow(100 ether, 100 ether);
+        StratETHTreasuryLend.Position memory p = lend.getPosition(tokenId);
+
+        vm.warp(block.timestamp + 45 days);
+        uint256 interest = lend.accruedInterest(tokenId);
+
+        // Top up borrower to cover principal + interest if needed.
+        uint256 need = p.principal + interest;
+        uint256 bal = esEth.balanceOf(borrower);
+        if (bal < need) {
+            vm.deal(borrower, need - bal);
+            vm.prank(borrower);
+            esEth.wrapAndMint{value: need - bal}(borrower);
+        }
+
+        uint256 before = _ethPerStrat();
+        vm.prank(borrower);
+        lend.repay(tokenId);
+
+        assertApproxEqAbs(_ethPerStrat(), before, 1);
+    }
+
+    /// US-800: roll (up then down) must not change ethPerStrat.
+    ///
+    /// The borrower starts with 1000 STRAT / 1000 CDT.  After the initial
+    /// borrow of 100/100 they have 900/900 remaining, enough to roll up to
+    /// 200/200 (burns another 100/100 delta) and then down to 150/150 (mints
+    /// back 50/50 delta).
+    ///
+    /// NOTE: we do NOT mint extra STRAT between rolls.  External minting without
+    /// adding ETH backing changes ethPerStrat by design — the invariant only
+    /// covers protocol-internal flows.
+    ///
+    /// NOTE on deadline: after each vm.warp, we read block.timestamp into a local
+    /// variable *and* assert against position fields that embed the timestamp.
+    /// Both steps are required to prevent the Solidity optimizer from caching the
+    /// TIMESTAMP opcode result across vm.warp boundaries.
+    function test_Invariant_Roll_EthPerStratPreserved() public {
+        // Recipient must be outside holdings for the invariant to hold.
+        vm.prank(owner);
+        lend.setInterestRevenueRecipient(address(0xFEED));
+
+        uint256 tokenId = _borrow(100 ether, 100 ether);
+
+        // ---- Roll up: 100/100 → 200/200 ----
+        vm.warp(block.timestamp + 30 days);
+        // Capture fresh timestamp into a local to guard against optimizer caching.
+        uint256 ts1 = block.timestamp;
+
+        uint256 interest = lend.accruedInterest(tokenId);
+        uint256 bal = esEth.balanceOf(borrower);
+        if (bal < interest) {
+            vm.deal(borrower, interest - bal);
+            vm.prank(borrower);
+            esEth.wrapAndMint{value: interest - bal}(borrower);
+        }
+
+        uint256 beforeUp = _ethPerStrat();
+        vm.prank(borrower);
+        lend.roll(tokenId, 200 ether, 200 ether, 0, ts1 + 1 hours);
+
+        // Assert position timestamps — this forces additional TIMESTAMP opcode reads in
+        // the test frame and prevents the compiler from reusing ts1 for the next warp.
+        StratETHTreasuryLend.Position memory p1 = lend.getPosition(tokenId);
+        assertEq(p1.startTime, block.timestamp);
+        assertEq(p1.expiry, block.timestamp + lend.loanDuration());
+        assertApproxEqAbs(_ethPerStrat(), beforeUp, 2);
+
+        // ---- Roll down: 200/200 → 150/150 ----
+        vm.warp(block.timestamp + 7 days);
+        // Capture fresh timestamp after the second warp.
+        uint256 ts2 = block.timestamp;
+
+        uint256 interest2 = lend.accruedInterest(tokenId);
+        StratETHTreasuryLend.Position memory p2 = lend.getPosition(tokenId);
+
+        uint256 maxPayIn = p2.principal + interest2;
+        uint256 bal2 = esEth.balanceOf(borrower);
+        if (bal2 < maxPayIn) {
+            vm.deal(borrower, maxPayIn - bal2);
+            vm.prank(borrower);
+            esEth.wrapAndMint{value: maxPayIn - bal2}(borrower);
+        }
+
+        uint256 beforeDown = _ethPerStrat();
+        vm.prank(borrower);
+        lend.roll(tokenId, 150 ether, 150 ether, 0, ts2 + 1 hours);
+        assertApproxEqAbs(_ethPerStrat(), beforeDown, 2);
+    }
+
+    /// US-801: liquidation must increase ethPerStrat by exactly delinquentFee / STRAT.totalSupply().
+    ///
+    /// On liquidation:
+    ///   - STRAT supply is unchanged (collateral was burned at origination, not returned).
+    ///   - delinquentFee esETH is returned from TreasuryLend to unencumberedHoldings.
+    ///   => ethPerStrat_after = ethPerStrat_before + delinquentFee / stratSupply
+    function test_Invariant_Liquidate_EthPerStratIncreasedByDelinquentFee() public {
+        // Recipient must be outside holdings so only delinquentFee (not maxTermInterest)
+        // flows into holdings on liquidation.
+        vm.prank(owner);
+        lend.setInterestRevenueRecipient(address(0xFEED));
+
+        // Set a non-zero delinquent fee so the test is meaningful.
+        vm.prank(owner);
+        lend.setDelinquentFeeRate(0.05e18); // 5 %
+
+        uint256 tokenId = _borrow(100 ether, 100 ether);
+        StratETHTreasuryLend.Position memory p = lend.getPosition(tokenId);
+        assertGt(p.delinquentFee, 0, "delinquentFee should be non-zero");
+
+        // Capture supply after borrow (STRAT burned at origination, not returned on liquidation).
+        uint256 stratSupply = strat.totalSupply();
+
+        uint256 ethPerStratBefore = _ethPerStrat();
+
+        vm.warp(p.expiry);
+        vm.prank(other);
+        lend.liquidate(tokenId);
+
+        uint256 ethPerStratAfter = _ethPerStrat();
+
+        // Must increase.
+        assertGt(ethPerStratAfter, ethPerStratBefore);
+
+        // Increase must equal delinquentFee / stratSupply (scaled by 1e18), within 1 wei.
+        assertApproxEqAbs(
+            ethPerStratAfter - ethPerStratBefore,
+            p.delinquentFee * 1e18 / stratSupply,
+            1
+        );
     }
 
     function test_US400_401_Liquidation_Rules() public {
@@ -308,9 +475,10 @@ contract StratETHTreasuryLendTest is Test {
         vm.prank(other);
         lend.liquidate(tokenId);
 
-        // Reserved full-term interest should be routed on liquidation.
-        assertEq(esEth.balanceOf(unencumberedHoldings), unencBefore - p.maxTermInterest);
+        // Full-term interest (reserved at origination) routed from TreasuryLend to revenue recipient.
         assertEq(esEth.balanceOf(revenue), revenueBefore + p.maxTermInterest);
+        // Delinquent fee (reserved at origination) returned from TreasuryLend to unencumbered holdings.
+        assertEq(esEth.balanceOf(unencumberedHoldings), unencBefore + p.delinquentFee);
 
         // NFT burned
         vm.expectRevert();
