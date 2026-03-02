@@ -66,7 +66,7 @@ contract ESPNRedemptionQueueIntegrationTest is Test {
         
         // Deploy redemption queue with MorphoBlueFlashLoanProvider
         vm.prank(owner);
-        queue = new ESPNRedemptionQueue(address(espn), address(flashLoanProvider), sweeper, owner);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner);
         
         // Set queue as ESPN manager (required for cancellation to work)
         vm.prank(owner);

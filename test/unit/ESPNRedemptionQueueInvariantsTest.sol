@@ -217,28 +217,33 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
             vm.stopPrank();
         }
 
-        // Fund queue with only enough for first 2 redemptions
+        // Fund queue at the exact boundary for user3's position.
+        // This should keep user3 ineligible because redemptionsBefore == availablePosition.
         (, uint256 redemptionAmount1,,) = queue.redemptions(tokenIds[0]);
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenIds[1]);
+        (, uint256 redemptionAmount3,,) = queue.redemptions(tokenIds[2]);
 
         vm.prank(owner);
-        usds.mint(address(queue), (redemptionAmount1 + redemptionAmount2) * 2);
-        // User3, 4, 5 cannot redeem yet
+        usds.mint(address(queue), redemptionAmount1 + redemptionAmount2);
+
+        // User3, 4, 5 cannot redeem yet.
         vm.prank(user3);
         vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenIds[2]));
         queue.redeem(tokenIds[2]);
 
-        // User1 redeems
-        vm.prank(user1);
-        queue.redeem(tokenIds[0]);
+        vm.prank(user4);
+        vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenIds[3]));
+        queue.redeem(tokenIds[3]);
 
-        // User2 redeems
-        vm.prank(user2);
-        queue.redeem(tokenIds[1]);
+        vm.prank(user5);
+        vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenIds[4]));
+        queue.redeem(tokenIds[4]);
 
-        // User3 still cannot redeem (no more USDS)
+        // Add enough to move past user3's queue position and fund user3's full redemption path.
+        vm.prank(owner);
+        usds.mint(address(queue), redemptionAmount3 * 2 + 1);
+
         vm.prank(user3);
-        vm.expectRevert(abi.encodeWithSelector(ESPNRedemptionQueue.NotEligibleForRedemption.selector, tokenIds[2]));
         queue.redeem(tokenIds[2]);
     }
 
@@ -319,8 +324,6 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // Get actual redemption amounts
         (, uint256 redemptionAmount1,,) = queue.redemptions(tokenId1);
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenId2);
-        (, uint256 redemptionAmount3,,) = queue.redemptions(tokenId3);
-
         // User3's redemptionsBefore = redemptionAmount1 + redemptionAmount2
         // To make user3 NOT eligible: availablePosition <= redemptionsBefore
         // availablePosition = totalRedemptionsProcessed + totalCancellationsProcessed + usds balance
@@ -360,7 +363,6 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.stopPrank();
 
         // Get actual redemption amounts
-        (, uint256 redemptionAmount1,,) = queue.redemptions(tokenId1);
         (, uint256 redemptionAmount2,,) = queue.redemptions(tokenId2);
 
         // User1 cancels
@@ -415,8 +417,8 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
             vm.stopPrank();
         }
 
-        // Get redemption amounts
-        (, uint256 redemptionAmount4,,) = queue.redemptions(tokenIds[3]);
+        // Get redemption amounts / queue positions
+        (uint256 redemptionsBefore4,,,) = queue.redemptions(tokenIds[3]);
         (, uint256 redemptionAmount5,,) = queue.redemptions(tokenIds[4]);
 
         // User1, 2, 3 cancel
@@ -425,9 +427,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
             queue.cancelRedemption(tokenIds[i]);
         }
 
-        // Fund queue with enough for user4 and user5, but NOT enough to cover cancelled positions
+        // Fund queue at the exact boundary for user4's position (still ineligible).
         vm.prank(owner);
-        usds.mint(address(queue), (redemptionAmount4 + redemptionAmount5) * 2);
+        usds.mint(address(queue), redemptionsBefore4);
 
         // User5 should NOT be able to redeem yet (cancelled NFTs block the queue)
         vm.prank(user5);
@@ -440,9 +442,6 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         queue.redeem(tokenIds[3]);
 
         // Process all cancelled NFTs
-        vm.prank(owner);
-        usds.mint(address(queue), 3); // Add 3 wei to make cancelled NFTs eligible
-
         uint256[] memory cancelledIds = new uint256[](3);
         cancelledIds[0] = tokenIds[0];
         cancelledIds[1] = tokenIds[1];
@@ -453,6 +452,10 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         // User4 should now be able to redeem
         vm.prank(user4);
         queue.redeem(tokenIds[3]);
+
+        // Add USDS for user5's full redemption path.
+        vm.prank(owner);
+        usds.mint(address(queue), redemptionAmount5 * 2);
 
         // User5 should now be able to redeem
         vm.prank(user5);
@@ -1025,9 +1028,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.prank(owner);
         usds.mint(address(queue), redemptionAmount1 * 2);
 
-        // availablePosition = 0 + 0 + redemptionAmount1
+        // availablePosition = 0 + 0 + (redemptionAmount1 * 2)
         (bool eligible1After, uint256 availablePosition1After) = queue.isEligibleForRedemption(tokenId1);
-        assertEq(availablePosition1After, redemptionAmount1);
+        assertEq(availablePosition1After, redemptionAmount1 * 2);
         assertEq(eligible1After, true); // Now eligible
 
         // User1 redeems
@@ -1061,9 +1064,9 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         vm.prank(owner);
         usds.mint(address(queue), redemptionAmount3 * 2);
 
-        // availablePosition = redemptionAmount1 + redemptionAmount2 + 1 + redemptionAmount3
+        // availablePosition = redemptionAmount1 + redemptionAmount2 + 1 + (redemptionAmount3 * 2)
         (bool eligible3After, uint256 availablePosition3After) = queue.isEligibleForRedemption(tokenId3);
-        assertEq(availablePosition3After, redemptionAmount1 + redemptionAmount2 + 1 + redemptionAmount3);
+        assertEq(availablePosition3After, redemptionAmount1 + redemptionAmount2 + 1 + (redemptionAmount3 * 2));
         assertEq(eligible3After, true); // Now eligible
 
         // User3 redeems
