@@ -439,6 +439,14 @@ contract StakedStratTest is Test {
         vm.stopPrank();
     }
 
+    function test_MigrateStake_ToContractItself() public {
+        vm.startPrank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+        vm.expectRevert();
+        stakedStrat.migrateStake(address(stakedStrat), 0);
+        vm.stopPrank();
+    }
+
     function test_MigrateStake_NoStake() public {
         vm.prank(user1);
         vm.expectRevert(StakedStrat.InsufficientStake.selector);

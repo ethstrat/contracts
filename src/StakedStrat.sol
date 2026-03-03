@@ -251,7 +251,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
      *      remain claimable after the migration.
      */
     function migrateStake(address to, uint256 amount) external nonReentrant {
-        if (to == address(0) || to == msg.sender) revert();
+        if (to == address(0) || to == msg.sender || to == address(this)) revert();
         if (staked[msg.sender] == 0) revert InsufficientStake();
 
         syncRewards();
