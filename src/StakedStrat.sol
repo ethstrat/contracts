@@ -270,7 +270,6 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
         // Update sender — preserve non-migrated pending via incremental debt adjustment
         staked[msg.sender] -= amountToMigrate;
-        totalStaked -= amountToMigrate;
         rewardDebt[msg.sender] = (staked[msg.sender] * rewardsPerShare) / PRECISION
             - (totalPendingRewards - rewardsToMigrate);
 
@@ -285,7 +284,6 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
         // Update recipient
         staked[to] += amountToMigrate;
-        totalStaked += amountToMigrate;
         rewardDebt[to] = (staked[to] * rewardsPerShare) / PRECISION;
 
         _transfer(msg.sender, to, amountToMigrate);
