@@ -5,7 +5,6 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title Staked STRAT
@@ -73,8 +72,8 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
     mapping(address => uint256) public staked;
 
-    /// @dev MasterChef-style signed reward debt per user
-    mapping(address => int256) public rewardDebt;
+    /// @dev MasterChef-style reward debt per user
+    mapping(address => uint256) public rewardDebt;
 
     // -------------------------------------------------------------------------
     // Events / Errors
@@ -195,7 +194,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         syncRewards();
 
         // Preserve existing reward debt so prior pending rewards are untouched
-        int256 currentRewardDebt = rewardDebt[msg.sender];
+        uint256 currentRewardDebt = rewardDebt[msg.sender];
 
         stratToken.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -203,8 +202,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         totalStaked += amount;
 
         // Anchor new stake to current rewardsPerShare so it earns only future drips
-        int256 newStakeDebt = SafeCast.toInt256((amount * rewardsPerShare) / PRECISION);
-        rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
+        rewardDebt[msg.sender] = currentRewardDebt + (amount * rewardsPerShare) / PRECISION;
 
         _mint(msg.sender, amount);
         emit Staked(msg.sender, amount);
@@ -229,7 +227,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
         staked[msg.sender] -= amount;
         totalStaked -= amount;
-        rewardDebt[msg.sender] = SafeCast.toInt256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        rewardDebt[msg.sender] = (staked[msg.sender] * rewardsPerShare) / PRECISION;
 
         _burn(msg.sender, amount);
         stratToken.safeTransfer(msg.sender, amount);
@@ -245,7 +243,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         uint256 claimable = _getPendingRewards(msg.sender);
         if (claimable == 0) return;
 
-        rewardDebt[msg.sender] = SafeCast.toInt256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        rewardDebt[msg.sender] = (staked[msg.sender] * rewardsPerShare) / PRECISION;
         totalClaimed += claimable;
 
         rewardToken.safeTransfer(msg.sender, claimable);
@@ -273,22 +271,22 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         // Update sender — preserve non-migrated pending via incremental debt adjustment
         staked[msg.sender] -= amountToMigrate;
         totalStaked -= amountToMigrate;
-        rewardDebt[msg.sender] = SafeCast.toInt256((staked[msg.sender] * rewardsPerShare) / PRECISION)
-            - int256(totalPendingRewards - rewardsToMigrate);
+        rewardDebt[msg.sender] = (staked[msg.sender] * rewardsPerShare) / PRECISION
+            - (totalPendingRewards - rewardsToMigrate);
 
         // Pay out any existing pending rewards for the recipient before updating their state
         uint256 recipientPendingRewards = 0;
         if (staked[to] > 0) {
             recipientPendingRewards = _getPendingRewards(to);
             if (recipientPendingRewards > 0) {
-                rewardDebt[to] = SafeCast.toInt256((staked[to] * rewardsPerShare) / PRECISION);
+                rewardDebt[to] = (staked[to] * rewardsPerShare) / PRECISION;
             }
         }
 
         // Update recipient
         staked[to] += amountToMigrate;
         totalStaked += amountToMigrate;
-        rewardDebt[to] = SafeCast.toInt256((staked[to] * rewardsPerShare) / PRECISION);
+        rewardDebt[to] = (staked[to] * rewardsPerShare) / PRECISION;
 
         _transfer(msg.sender, to, amountToMigrate);
 
@@ -311,15 +309,14 @@ contract StakedStrat is ERC20, ReentrancyGuard {
      */
     function getPendingRewards(address user) external view returns (uint256) {
         if (staked[user] == 0) return 0;
-        uint256 currentRewardsPerShare = _currentRewardsPerShare();
-        int256 pending = SafeCast.toInt256((staked[user] * currentRewardsPerShare) / PRECISION) - rewardDebt[user];
-        return pending > 0 ? uint256(pending) : 0;
+        uint256 earned = (staked[user] * _currentRewardsPerShare()) / PRECISION;
+        return earned > rewardDebt[user] ? earned - rewardDebt[user] : 0;
     }
 
     /// @dev Internal version uses already-stored rewardsPerShare (call after _tickRewardsPerShare)
     function _getPendingRewards(address user) internal view returns (uint256) {
         if (staked[user] == 0) return 0;
-        int256 pending = SafeCast.toInt256((staked[user] * rewardsPerShare) / PRECISION) - rewardDebt[user];
-        return pending > 0 ? SafeCast.toUint256(pending) : 0;
+        uint256 earned = (staked[user] * rewardsPerShare) / PRECISION;
+        return earned > rewardDebt[user] ? earned - rewardDebt[user] : 0;
     }
 }
