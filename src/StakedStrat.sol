@@ -5,6 +5,7 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title Staked STRAT
@@ -147,12 +148,12 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     /**
      * @dev Permissionless function that:
      *   1. Ticks rewardsPerShare forward based on elapsed time and the current rewardRate.
-     *   2. Detects any new reward tokens in the contract balance and blends them into a fresh
-     *      REWARD_DURATION linear stream, merging with any remaining undistributed tokens.
+     *   2. Detects any new reward tokens in the contract balance and blends them into a new
+     *      linear stream, merging with any remaining undistributed tokens.
      *
-     *      The 7-day stream ensures that a frontrunner who stakes just before rewards arrive
-     *      and exits immediately captures nothing; they must hold for the full period to earn
-     *      a proportional share.
+     *      The new period length is a value-weighted average of the remaining stream time and
+     *      REWARD_DURATION. A full-size batch gets close to a 7-day window (anti-frontrunning),
+     *      while a dust deposit barely perturbs the ongoing stream (griefing mitigation).
      */
     function syncRewards() public {
         _tickRewardsPerShare();
@@ -165,10 +166,17 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         uint256 newRewards = totalDeposited - totalNotifiedRewards;
         totalNotifiedRewards += newRewards;
 
-        // Blend remaining undistributed tokens from any active stream with the new batch
+        // Blend remaining undistributed tokens from any active stream with the new batch.
+        // newDuration is the value-weighted average of remainingTime and REWARD_DURATION:
+        //   newDuration = (remaining * remainingTime + newRewards * REWARD_DURATION)
+        //                 / (remaining + newRewards)
+        // When remaining >> newRewards: newDuration ≈ remainingTime (dust attacks negligible).
+        // When newRewards >> remaining: newDuration ≈ REWARD_DURATION (fresh batch gets full window).
         uint256 remaining = block.timestamp < periodFinish ? rewardRate * (periodFinish - block.timestamp) : 0;
-        rewardRate = (remaining + newRewards) / REWARD_DURATION;
-        periodFinish = block.timestamp + REWARD_DURATION;
+        uint256 remainingTime = block.timestamp < periodFinish ? periodFinish - block.timestamp : 0;
+        uint256 newDuration = (remaining * remainingTime + newRewards * REWARD_DURATION) / (remaining + newRewards);
+        rewardRate = (remaining + newRewards) / newDuration;
+        periodFinish = block.timestamp + newDuration;
         lastUpdateTime = block.timestamp;
 
         emit RewardsSynced(rewardRate, newRewards, periodFinish);
@@ -195,7 +203,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         totalStaked += amount;
 
         // Anchor new stake to current rewardsPerShare so it earns only future drips
-        int256 newStakeDebt = int256((amount * rewardsPerShare) / PRECISION);
+        int256 newStakeDebt = SafeCast.toInt256((amount * rewardsPerShare) / PRECISION);
         rewardDebt[msg.sender] = currentRewardDebt + newStakeDebt;
 
         _mint(msg.sender, amount);
@@ -214,7 +222,6 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         // Auto-claim before modifying stake so no accrued rewards are lost
         uint256 claimable = _getPendingRewards(msg.sender);
         if (claimable > 0) {
-            rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
             totalClaimed += claimable;
             rewardToken.safeTransfer(msg.sender, claimable);
             emit RewardsClaimed(msg.sender, claimable);
@@ -222,7 +229,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
 
         staked[msg.sender] -= amount;
         totalStaked -= amount;
-        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        rewardDebt[msg.sender] = SafeCast.toInt256((staked[msg.sender] * rewardsPerShare) / PRECISION);
 
         _burn(msg.sender, amount);
         stratToken.safeTransfer(msg.sender, amount);
@@ -238,7 +245,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         uint256 claimable = _getPendingRewards(msg.sender);
         if (claimable == 0) return;
 
-        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION);
+        rewardDebt[msg.sender] = SafeCast.toInt256((staked[msg.sender] * rewardsPerShare) / PRECISION);
         totalClaimed += claimable;
 
         rewardToken.safeTransfer(msg.sender, claimable);
@@ -266,7 +273,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         // Update sender — preserve non-migrated pending via incremental debt adjustment
         staked[msg.sender] -= amountToMigrate;
         totalStaked -= amountToMigrate;
-        rewardDebt[msg.sender] = int256((staked[msg.sender] * rewardsPerShare) / PRECISION)
+        rewardDebt[msg.sender] = SafeCast.toInt256((staked[msg.sender] * rewardsPerShare) / PRECISION)
             - int256(totalPendingRewards - rewardsToMigrate);
 
         // Pay out any existing pending rewards for the recipient before updating their state
@@ -274,14 +281,14 @@ contract StakedStrat is ERC20, ReentrancyGuard {
         if (staked[to] > 0) {
             recipientPendingRewards = _getPendingRewards(to);
             if (recipientPendingRewards > 0) {
-                rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
+                rewardDebt[to] = SafeCast.toInt256((staked[to] * rewardsPerShare) / PRECISION);
             }
         }
 
         // Update recipient
         staked[to] += amountToMigrate;
         totalStaked += amountToMigrate;
-        rewardDebt[to] = int256((staked[to] * rewardsPerShare) / PRECISION);
+        rewardDebt[to] = SafeCast.toInt256((staked[to] * rewardsPerShare) / PRECISION);
 
         _transfer(msg.sender, to, amountToMigrate);
 
@@ -305,14 +312,14 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     function getPendingRewards(address user) external view returns (uint256) {
         if (staked[user] == 0) return 0;
         uint256 currentRewardsPerShare = _currentRewardsPerShare();
-        int256 pending = int256((staked[user] * currentRewardsPerShare) / PRECISION) - rewardDebt[user];
+        int256 pending = SafeCast.toInt256((staked[user] * currentRewardsPerShare) / PRECISION) - rewardDebt[user];
         return pending > 0 ? uint256(pending) : 0;
     }
 
     /// @dev Internal version uses already-stored rewardsPerShare (call after _tickRewardsPerShare)
     function _getPendingRewards(address user) internal view returns (uint256) {
         if (staked[user] == 0) return 0;
-        int256 pending = int256((staked[user] * rewardsPerShare) / PRECISION) - rewardDebt[user];
-        return pending > 0 ? uint256(pending) : 0;
+        int256 pending = SafeCast.toInt256((staked[user] * rewardsPerShare) / PRECISION) - rewardDebt[user];
+        return pending > 0 ? SafeCast.toUint256(pending) : 0;
     }
 }

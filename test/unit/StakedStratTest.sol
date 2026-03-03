@@ -269,7 +269,10 @@ contract StakedStratTest is Test {
 
         // Blended rate must exceed the first rate (new tokens added)
         assertGt(stakedStrat.rewardRate(), firstRate);
-        assertEq(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
+        // Weighted-average duration: remainingTime (6 days) < REWARD_DURATION (7 days),
+        // so the new period is shorter than a fresh REWARD_DURATION window.
+        assertLt(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
+        assertGt(stakedStrat.periodFinish(), block.timestamp);
         assertEq(stakedStrat.totalNotifiedRewards(), REWARD_AMOUNT_1 + REWARD_AMOUNT_2);
     }
 
@@ -674,15 +677,21 @@ contract StakedStratTest is Test {
         vm.prank(user1);
         stakedStrat.stake(STAKE_AMOUNT_1);
 
-        uint256 startTime = block.timestamp;
         _sendRewards(REWARD_AMOUNT_1, true);
+        // Capture the original 7-day period end directly from contract state
+        uint256 firstPeriodEnd = stakedStrat.periodFinish();
 
         // Midway through, second batch arrives
-        vm.warp(startTime + REWARD_DURATION / 2);
+        vm.warp(block.timestamp + REWARD_DURATION / 2);
         _sendRewards(REWARD_AMOUNT_2, true);
 
-        assertEq(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
+        // Weighted-average duration: remaining ≈ REWARD_AMOUNT_2 and remainingTime = 3.5 days,
+        // so newDuration = (3.5 days + 7 days) / 2 = 5.25 days.
+        // periodFinish is extended beyond the original 7-day end but shorter than a fresh window.
+        assertGt(stakedStrat.periodFinish(), firstPeriodEnd);
+        assertLt(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
 
+        // All rewards distributed by the new period end
         vm.warp(stakedStrat.periodFinish());
         assertApproxEqRel(
             stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1 + REWARD_AMOUNT_2, 2e15
@@ -792,6 +801,65 @@ contract StakedStratTest is Test {
         stakedStrat.claim();
 
         assertApproxEqRel(rewardToken.balanceOf(user1) - balanceBefore, expectedSenderShare, 1e15);
+    }
+
+    // ============ Griefing Mitigation Tests ============
+
+    /**
+     * @dev Sending 1 wei mid-stream should have negligible impact on the reward rate and
+     *      period end time. Before the weighted-average fix the old code would set
+     *      periodFinish = now + 7 days and rewardRate = remaining/7days (≈rate/2 at midpoint),
+     *      cutting the effective rate roughly in half each call.
+     */
+    function test_GriefingMitigation_DustDepositBarelyPerturbsStream() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+        uint256 rateAfterFirstSync = stakedStrat.rewardRate();
+
+        // Advance to midpoint; record the expected period end before the grief
+        vm.warp(block.timestamp + REWARD_DURATION / 2);
+        uint256 periodFinishBeforeGrief = stakedStrat.periodFinish();
+
+        // Grief with 1 wei
+        vm.prank(owner);
+        rewardToken.mint(address(stakedStrat), 1);
+        stakedStrat.syncRewards();
+
+        // Rate should be essentially unchanged (well within 0.01%)
+        assertApproxEqRel(stakedStrat.rewardRate(), rateAfterFirstSync, 1e14);
+
+        // Period end should be essentially unchanged (within 1 second)
+        assertApproxEqAbs(stakedStrat.periodFinish(), periodFinishBeforeGrief, 1);
+
+        // All rewards (original + 1 wei) still distribute correctly
+        vm.warp(stakedStrat.periodFinish());
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1, 1e15);
+    }
+
+    /**
+     * @dev Repeated 1-wei griefing calls should not materially dilute the stream.
+     *      With the old code, each call multiplied the rate by ~(remaining/REWARD_DURATION),
+     *      causing exponential decay. With weighted average, compounding is negligible.
+     */
+    function test_GriefingMitigation_RepeatedDustAttacksNegligible() public {
+        vm.prank(user1);
+        stakedStrat.stake(STAKE_AMOUNT_1);
+
+        _sendRewards(REWARD_AMOUNT_1, true);
+        uint256 initialRate = stakedStrat.rewardRate();
+
+        // 50 daily 1-wei grief attempts
+        for (uint256 i = 0; i < 50; i++) {
+            vm.warp(block.timestamp + 1 hours);
+            vm.prank(owner);
+            rewardToken.mint(address(stakedStrat), 1);
+            stakedStrat.syncRewards();
+        }
+
+        // Rate must remain within 0.01% of the initial rate
+        assertApproxEqRel(stakedStrat.rewardRate(), initialRate, 1e14);
     }
 
     // ============ Frontrun Attack Mitigation Tests ============
