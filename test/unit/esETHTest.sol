@@ -9,6 +9,8 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ERC4626} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 /// @dev Minimal ERC4626 vault. `totalAssets()` is derived from underlying token balance,
 ///      so tests can simulate yield/loss by donating/removing underlying assets.
@@ -88,8 +90,9 @@ contract esETHTest is Test {
         weETH.mint(user2, INITIAL_BALANCE);
 
         // Deploy esETH contract
+        ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        esETHContract = new esETH(owner, address(weth));
+        esETHContract = new esETH(owner, address(weth), ctrl);
 
         // Configure tokens
         vm.startPrank(owner);

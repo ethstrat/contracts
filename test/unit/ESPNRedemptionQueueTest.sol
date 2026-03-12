@@ -7,6 +7,8 @@ import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 contract ESPNRedemptionQueueTest is Test {
     ESPNRedemptionQueue public queue;
@@ -37,10 +39,13 @@ contract ESPNRedemptionQueueTest is Test {
         usds.mint(address(queue), redemptionAmount * 2);
     }
 
+    ITripwireController internal ctrl;
+
     function setUp() public {
+        ctrl = ITripwireController(address(new TripwireController()));
         // Deploy USDS token
         vm.prank(owner);
-        usds = new MintableBurnableToken("USD Stable", "USDS", owner);
+        usds = new MintableBurnableToken("USD Stable", "USDS", owner, ctrl);
 
         // Set owner as minter
         vm.prank(owner);
@@ -76,7 +81,7 @@ contract ESPNRedemptionQueueTest is Test {
         espn.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
 
         // Deploy redemption queue (no flash loan provider needed)
-        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl);
 
         // Enable ESPN withdrawals (required for redeem tests)
         vm.prank(owner);
@@ -1469,7 +1474,7 @@ contract ESPNRedemptionQueueTest is Test {
 
     function test_InputValidation_Constructor_ZeroSweeper() public {
         vm.expectRevert(ESPNRedemptionQueue.InvalidSweeper.selector);
-        new ESPNRedemptionQueue(address(espn), address(0), owner);
+        new ESPNRedemptionQueue(address(espn), address(0), owner, ctrl);
     }
 
     function test_InputValidation_SweepUSDS_OnlyOwner() public {

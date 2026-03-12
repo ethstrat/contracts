@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {esETH} from "../../src/esETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 /**
  * @title esETH Integration Tests
@@ -50,8 +52,9 @@ contract esETHIntegrationTest is Test {
         require(block.chainid == 1, "Must be on mainnet fork");
 
         // Deploy esETH contract
+        ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        esETHContract = new esETH(owner, WETH);
+        esETHContract = new esETH(owner, WETH, ctrl);
 
         // Configure all token types
         vm.startPrank(owner);

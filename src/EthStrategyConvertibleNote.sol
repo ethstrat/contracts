@@ -9,12 +9,14 @@ import {esETH} from "./esETH.sol";
 
 import {IERC20, IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {Permit} from "./lib/Permit.sol";
+import {ITripwireController} from "./interfaces/ITripwireController.sol";
+import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 /**
  * @title The ETH Strategy Convertible Note
  * @dev NFT-based convertible notes on STRAT. Bonders get CDT and an NFT representing the option.
  */
-contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedConsumer {
+contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedConsumer, TripwireGuard {
     using Permit for IERC20MintableBurnablePermit;
 
     uint256 public _tokenIdCounter;
@@ -113,8 +115,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         address _unencumberedHoldings,
         address _encumberedHoldings,
         address _ethUsdOracle,
-        address owner
-    ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) {
+        address owner,
+        ITripwireController controller_
+    ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) TripwireGuard(controller_) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
         esETHToken = esETH(_esETHToken);
@@ -157,6 +160,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     function bond(address bonder, uint256 minConversionAmountStrat, uint256 minConversionAmountEth, uint256 deadline)
         external
         payable
+        whenNotTripped
     {
         if (msg.value == 0) revert NoEthSent();
         if (bonder == address(0)) revert ZeroAddress();
@@ -231,7 +235,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 cdtToBurn,
         bool toEth,
         Permit.IPermitApproval memory cdtPermitApproval
-    ) public {
+    ) public whenNotTripped {
         // Check that the timelock period has passed.
         if (timelock[tokenId] > block.timestamp) {
             revert TimelockActive(msg.sender, tokenId);
@@ -312,7 +316,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
      * @notice Fully converts a note to STRAT, using an ERC-2612 permit.
      * @dev Kept for backwards-compatibility with earlier integrations/tests.
      */
-    function convertWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) external {
+    function convertWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) external whenNotTripped {
         convertPartialWithPermit(tokenId, amountOwedCdt[tokenId], false, cdtPermitApproval);
     }
 
@@ -321,14 +325,14 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
      *
      * @param tokenId The identifier of the option token to exercise.
      */
-    function convert(uint256 tokenId, bool toEth) external {
+    function convert(uint256 tokenId, bool toEth) external whenNotTripped {
         convertPartialWithPermit(tokenId, amountOwedCdt[tokenId], toEth, Permit.getEmptyApproval());
     }
 
     /**
      * @notice Partially converts a note to STRAT (no permit).
      */
-    function convertPartial(uint256 tokenId, bool toEth, uint256 cdtToBurn) external {
+    function convertPartial(uint256 tokenId, bool toEth, uint256 cdtToBurn) external whenNotTripped {
         convertPartialWithPermit(tokenId, cdtToBurn, toEth, Permit.getEmptyApproval());
     }
 
@@ -351,6 +355,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         Permit.IPermitApproval memory cdtPermitApproval
     )
         public
+        whenNotTripped
     {
         if (timelock[tokenId] > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (expiry[tokenId] > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
@@ -418,7 +423,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     ///
     /// @param tokenId    The ID of the option to redeem
     /// @param minEthOut  Minimum acceptable esETH output amount for slippage protection
-    function redeemCdtForUsdNotional(uint256 tokenId, uint256 minEthOut) external {
+    function redeemCdtForUsdNotional(uint256 tokenId, uint256 minEthOut) external whenNotTripped {
         redeemCdtForUsdNotionalWithPermit(tokenId, minEthOut, Permit.getEmptyApproval());
     }
 

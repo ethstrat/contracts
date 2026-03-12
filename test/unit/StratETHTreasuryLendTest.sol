@@ -10,6 +10,8 @@ import {StratToken} from "../../src/StratToken.sol";
 import {esETH} from "../../src/esETH.sol";
 
 import {MockWETH} from "../mocks/MockWETH.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 contract StratETHTreasuryLendTest is Test {
     address internal owner = address(0xABCD);
@@ -25,17 +27,20 @@ contract StratETHTreasuryLendTest is Test {
     address internal unencumberedHoldings = address(0x1111);
     address internal encumberedHoldings = address(0x2222);
 
+    ITripwireController internal ctrl;
+
     function setUp() public {
+        ctrl = ITripwireController(address(new TripwireController()));
         vm.startPrank(owner);
-        strat = new StratToken(owner);
-        cdt = new CdtToken(owner);
+        strat = new StratToken(owner, ctrl);
+        cdt = new CdtToken(owner, ctrl);
         weth = new MockWETH();
-        esEth = new esETH(owner, address(weth));
+        esEth = new esETH(owner, address(weth), ctrl);
         esEth.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
 
         // 10% APR
         lend = new StratETHTreasuryLend(
-            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.1e18, owner
+            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.1e18, owner, ctrl
         );
 
         // Allow owner + lend to mint STRAT/CDT (lend needs this to return collateral on repay/roll).

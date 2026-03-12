@@ -7,6 +7,8 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {ITripwireController} from "./interfaces/ITripwireController.sol";
+import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -35,7 +37,7 @@ interface IWeETH {
  * .    Yield is periodically 'harvested' by minting more esETH if the total backing
  * .    exceeds total supply
  */
-contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
+contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     using SafeERC20 for IERC20;
 
     enum TokenType {
@@ -101,7 +103,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @dev Constructor
      * @param _owner The owner of the contract
      */
-    constructor(address _owner, address _weth) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) {
+    constructor(address _owner, address _weth, ITripwireController controller_) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) TripwireGuard(controller_) {
         if (_weth == address(0)) revert ZeroAddress();
         WETH = _weth;
         yieldReceiver = _owner;
@@ -118,6 +120,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     function mint(address token, uint256 tokenAmount, address receiver)
         external
         nonReentrant
+        whenNotTripped
         returns (uint256 esETHAmount)
     {
         // Transfer tokens from user
@@ -133,7 +136,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @param receiver The address to receive minted esETH
      * @return esETHAmount The amount of esETH minted
      */
-    function wrapAndMint(address receiver) external payable nonReentrant returns (uint256 esETHAmount) {
+    function wrapAndMint(address receiver) external payable nonReentrant whenNotTripped returns (uint256 esETHAmount) {
         // Wrap into WETH (WETH is minted to this contract)
         IWETH(WETH).deposit{value: msg.value}();
 
@@ -179,6 +182,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     function redeem(address token, uint256 tokenAmount, address receiver)
         external
         nonReentrant
+        whenNotTripped
         returns (uint256 esETHAmount)
     {
         if (tokenAmount == 0) revert ZeroAmount();
@@ -289,7 +293,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     /**
      * @dev Harvest yield by minting esETH when backing exceeds total minted
      */
-    function harvestYield(address[] memory tokens) external nonReentrant {
+    function harvestYield(address[] memory tokens) external nonReentrant whenNotTripped {
         uint256 yield = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -320,7 +324,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      *      This function checks each token and calculates if more esETH is minted than backing,
      *      and burns the excess amount from the caller's balance.
      */
-    function burnExcess(address[] memory tokens) external nonReentrant {
+    function burnExcess(address[] memory tokens) external nonReentrant whenNotTripped {
         uint256 excess = 0;
 
         for (uint256 i = 0; i < tokens.length; i++) {

@@ -6,6 +6,8 @@ import {StakedStrat} from "../../src/StakedStrat.sol";
 import {StratToken} from "../../src/StratToken.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 contract StakedStratTest is Test {
     StakedStrat public stakedStrat;
@@ -44,20 +46,24 @@ contract StakedStratTest is Test {
         vm.warp(block.timestamp + REWARD_DURATION);
     }
 
+    ITripwireController internal ctrl;
+
     function setUp() public {
+        ctrl = ITripwireController(address(new TripwireController()));
+
         vm.prank(owner);
-        stratToken = new StratToken(owner);
+        stratToken = new StratToken(owner, ctrl);
 
         vm.prank(owner);
         stratToken.manageMinter(owner, true);
 
         vm.prank(owner);
-        rewardToken = new MintableBurnableToken("Reward Token", "RWD", owner);
+        rewardToken = new MintableBurnableToken("Reward Token", "RWD", owner, ctrl);
 
         vm.prank(owner);
         rewardToken.manageMinter(owner, true);
 
-        stakedStrat = new StakedStrat(address(stratToken), address(rewardToken));
+        stakedStrat = new StakedStrat(address(stratToken), address(rewardToken), ctrl);
 
         vm.prank(owner);
         stratToken.mint(user1, 10000 * 1e18);
@@ -95,12 +101,12 @@ contract StakedStratTest is Test {
 
     function test_Constructor_ZeroAddress_StratToken() public {
         vm.expectRevert();
-        new StakedStrat(address(0), address(rewardToken));
+        new StakedStrat(address(0), address(rewardToken), ctrl);
     }
 
     function test_Constructor_ZeroAddress_RewardToken() public {
         vm.expectRevert();
-        new StakedStrat(address(stratToken), address(0));
+        new StakedStrat(address(stratToken), address(0), ctrl);
     }
 
     // ============ Transfer Tests ============

@@ -1,0 +1,11 @@
+{
+  "lib/forge-std": {
+    "rev": "999be66ec94c78090087f674bbf52ce1cca12b75"
+  },
+  "lib/halmos-cheatcodes": {
+    "rev": "7328abe100445fc53885c21d0e713b95293cf14c"
+  },
+  "lib/openzeppelin-contracts": {
+    "rev": "495a287e9ab38afe8ed165b767a8a901fc47c5fb"
+  }
+}

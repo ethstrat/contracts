@@ -3,6 +3,8 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../../src/MintableBurnableToken.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 contract MintableBurnableTokenTest is Test {
     MintableBurnableToken internal token;
@@ -13,8 +15,9 @@ contract MintableBurnableTokenTest is Test {
     address internal user = address(0x789);
 
     function setUp() external {
+        ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        token = new MintableBurnableToken("name", "symbol", owner);
+        token = new MintableBurnableToken("name", "symbol", owner, ctrl);
     }
 
     function testOnlyOwnerCanManageMinters() external {

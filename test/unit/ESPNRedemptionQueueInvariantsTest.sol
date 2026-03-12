@@ -6,6 +6,8 @@ import {ESPNRedemptionQueue} from "../../src/ESPNRedemptionQueue.sol";
 import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 /**
  * @title ESPNRedemptionQueue Invariant Tests
  * @dev Tests for queue ordering invariants with multiple users
@@ -36,10 +38,13 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
     uint256 public constant INITIAL_ASSETS = 100_000 * 10 ** 18;
     uint256 public constant INITIAL_SHARES = 1000 * 10 ** 18;
 
+    ITripwireController internal ctrl;
+
     function setUp() public {
+        ctrl = ITripwireController(address(new TripwireController()));
         // Deploy USDS token
         vm.prank(owner);
-        usds = new MintableBurnableToken("USD Stable", "USDS", owner);
+        usds = new MintableBurnableToken("USD Stable", "USDS", owner, ctrl);
 
         // Set owner as minter
         vm.prank(owner);
@@ -72,7 +77,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         espn.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
 
         // Deploy redemption queue (no flash loan provider needed)
-        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl);
 
         // Mint USDS to users and have them deposit to ESPN
         address[5] memory users = [user1, user2, user3, user4, user5];
