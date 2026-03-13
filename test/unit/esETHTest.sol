@@ -92,7 +92,7 @@ contract esETHTest is Test {
         // Deploy esETH contract
         ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        esETHContract = new esETH(owner, address(weth), ctrl);
+        esETHContract = new esETH(owner, address(weth), ctrl, owner);
 
         // Configure tokens
         vm.startPrank(owner);

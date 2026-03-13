@@ -69,7 +69,7 @@ contract ESPNRedemptionQueueIntegrationTest is Test {
         // Deploy redemption queue with MorphoBlueFlashLoanProvider
         ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl, owner);
         
         // Set queue as ESPN manager (required for cancellation to work)
         vm.prank(owner);

@@ -52,18 +52,18 @@ contract StakedStratTest is Test {
         ctrl = ITripwireController(address(new TripwireController()));
 
         vm.prank(owner);
-        stratToken = new StratToken(owner, ctrl);
+        stratToken = new StratToken(owner, ctrl, owner);
 
         vm.prank(owner);
         stratToken.manageMinter(owner, true);
 
         vm.prank(owner);
-        rewardToken = new MintableBurnableToken("Reward Token", "RWD", owner, ctrl);
+        rewardToken = new MintableBurnableToken("Reward Token", "RWD", owner, ctrl, owner);
 
         vm.prank(owner);
         rewardToken.manageMinter(owner, true);
 
-        stakedStrat = new StakedStrat(address(stratToken), address(rewardToken), ctrl);
+        stakedStrat = new StakedStrat(address(stratToken), address(rewardToken), ctrl, owner);
 
         vm.prank(owner);
         stratToken.mint(user1, 10000 * 1e18);
@@ -101,12 +101,12 @@ contract StakedStratTest is Test {
 
     function test_Constructor_ZeroAddress_StratToken() public {
         vm.expectRevert();
-        new StakedStrat(address(0), address(rewardToken), ctrl);
+        new StakedStrat(address(0), address(rewardToken), ctrl, owner);
     }
 
     function test_Constructor_ZeroAddress_RewardToken() public {
         vm.expectRevert();
-        new StakedStrat(address(stratToken), address(0), ctrl);
+        new StakedStrat(address(stratToken), address(0), ctrl, owner);
     }
 
     // ============ Transfer Tests ============

@@ -8,14 +8,11 @@ import {StratEthPriceFeedConsumer} from "./lib/StratEthPriceFeedConsumer.sol";
 import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IStratOption} from "./interfaces/IStratOption.sol";
 import {Permit} from "./lib/Permit.sol";
-import {ITripwireController} from "./interfaces/ITripwireController.sol";
-import {TripwireGuard} from "./lib/TripwireGuard.sol";
-
 /**
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.
  */
-contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPriceFeedConsumer, TripwireGuard {
+contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPriceFeedConsumer {
     using Permit for IERC20MintableBurnablePermit;
 
     IERC20MintableBurnablePermit public immutable cdtToken;
@@ -51,9 +48,8 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
         address _stratEthOracle,
         address _bondConverter,
         uint256 _bcv,
-        address owner,
-        ITripwireController controller_
-    ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) StratEthPriceFeedConsumer(_stratEthOracle, _stratToken) TripwireGuard(controller_) {
+        address owner
+    ) Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) StratEthPriceFeedConsumer(_stratEthOracle, _stratToken) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratOption = IStratOption(_stratOption);
         bondConverter = _bondConverter;
@@ -72,7 +68,7 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
         uint256 minNotionalUnderlyingAmount,
         uint256 deadline,
         Permit.IPermitApproval memory cdtPermitApproval
-    ) public whenNotTripped {
+    ) public {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (amount == 0) revert ZeroAmount();
 
@@ -94,7 +90,7 @@ contract StratETHShortBonds is Ownable2Step, EthUsdPriceFeedConsumer, StratEthPr
         );
     }
 
-    function bond(address bonder, uint256 amount, uint256 minNotionalUnderlyingAmount, uint256 deadline) external whenNotTripped {
+    function bond(address bonder, uint256 amount, uint256 minNotionalUnderlyingAmount, uint256 deadline) external {
         bondWithPermit(bonder, amount, minNotionalUnderlyingAmount, deadline, Permit.getEmptyApproval());
     }
 

@@ -44,7 +44,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         ctrl = ITripwireController(address(new TripwireController()));
         // Deploy USDS token
         vm.prank(owner);
-        usds = new MintableBurnableToken("USD Stable", "USDS", owner, ctrl);
+        usds = new MintableBurnableToken("USD Stable", "USDS", owner, ctrl, owner);
 
         // Set owner as minter
         vm.prank(owner);
@@ -77,7 +77,7 @@ contract ESPNRedemptionQueueInvariantsTest is Test {
         espn.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
 
         // Deploy redemption queue (no flash loan provider needed)
-        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl, owner);
 
         // Mint USDS to users and have them deposit to ESPN
         address[5] memory users = [user1, user2, user3, user4, user5];

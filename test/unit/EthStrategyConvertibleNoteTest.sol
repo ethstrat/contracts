@@ -46,12 +46,12 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         ctrl = ITripwireController(address(new TripwireController()));
 
         vm.startPrank(owner);
-        cdtToken = new CdtToken(owner, ctrl);
-        stratToken = new StratToken(owner, ctrl);
+        cdtToken = new CdtToken(owner, ctrl, owner);
+        stratToken = new StratToken(owner, ctrl, owner);
 
         // Deploy esETH with a local WETH implementation. Mark WETH as mintable so bond() can call wrapAndMint.
         weth = new MockWETH();
-        esETHToken = new esETH(owner, address(weth), ctrl);
+        esETHToken = new esETH(owner, address(weth), ctrl, owner);
         esETHToken.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
 
         // Deploy the note contract (per current spec)
@@ -63,7 +63,8 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
             encumberedHoldings,
             address(ethUsdOracle),
             owner,
-            ctrl
+            ctrl,
+            owner
         );
 
         // Allow note contract to mint/burn required tokens

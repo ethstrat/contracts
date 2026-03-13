@@ -85,10 +85,10 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, TripwireG
      * @param _sweeper The address authorized to sweep USDS
      * @param _owner The owner of the contract
      */
-    constructor(address _espn, address _sweeper, address _owner, ITripwireController controller_)
+    constructor(address _espn, address _sweeper, address _owner, ITripwireController controller_, address guardian_)
         ERC721("ESPN Redemption Queue", "ESPN-RQ")
         Ownable(_owner)
-        TripwireGuard(controller_)
+        TripwireGuard(controller_, guardian_)
     {
         if (_sweeper == address(0)) revert InvalidSweeper();
         espn = EthStrategyPerpetualNote(_espn);

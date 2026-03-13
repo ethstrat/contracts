@@ -45,7 +45,7 @@ contract ESPNRedemptionQueueTest is Test {
         ctrl = ITripwireController(address(new TripwireController()));
         // Deploy USDS token
         vm.prank(owner);
-        usds = new MintableBurnableToken("USD Stable", "USDS", owner, ctrl);
+        usds = new MintableBurnableToken("USD Stable", "USDS", owner, ctrl, owner);
 
         // Set owner as minter
         vm.prank(owner);
@@ -81,7 +81,7 @@ contract ESPNRedemptionQueueTest is Test {
         espn.increaseAssetsPerShare(INITIAL_ASSETS - INITIAL_SHARES);
 
         // Deploy redemption queue (no flash loan provider needed)
-        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl, owner);
 
         // Enable ESPN withdrawals (required for redeem tests)
         vm.prank(owner);
@@ -1474,7 +1474,7 @@ contract ESPNRedemptionQueueTest is Test {
 
     function test_InputValidation_Constructor_ZeroSweeper() public {
         vm.expectRevert(ESPNRedemptionQueue.InvalidSweeper.selector);
-        new ESPNRedemptionQueue(address(espn), address(0), owner, ctrl);
+        new ESPNRedemptionQueue(address(espn), address(0), owner, ctrl, owner);
     }
 
     function test_InputValidation_SweepUSDS_OnlyOwner() public {

@@ -32,15 +32,15 @@ contract StratETHTreasuryLendTest is Test {
     function setUp() public {
         ctrl = ITripwireController(address(new TripwireController()));
         vm.startPrank(owner);
-        strat = new StratToken(owner, ctrl);
-        cdt = new CdtToken(owner, ctrl);
+        strat = new StratToken(owner, ctrl, owner);
+        cdt = new CdtToken(owner, ctrl, owner);
         weth = new MockWETH();
-        esEth = new esETH(owner, address(weth), ctrl);
+        esEth = new esETH(owner, address(weth), ctrl, owner);
         esEth.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
 
         // 10% APR
         lend = new StratETHTreasuryLend(
-            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.1e18, owner, ctrl
+            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.1e18, owner, ctrl, owner
         );
 
         // Allow owner + lend to mint STRAT/CDT (lend needs this to return collateral on repay/roll).

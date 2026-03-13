@@ -15,7 +15,8 @@ import {ITripwireGuard} from "../interfaces/ITripwireGuard.sol";
 /// Example usage:
 /// ```solidity
 /// contract MyVault is TripwireGuard {
-///     constructor(ITripwireController controller_) TripwireGuard(controller_) {}
+///     constructor(ITripwireController controller_, address guardian_)
+///         TripwireGuard(controller_, guardian_) {}
 ///
 ///     function withdraw(uint256 amount) external whenNotTripped {
 ///         // Individually pausable OR globally pausable
@@ -31,11 +32,13 @@ abstract contract TripwireGuard is ITripwireGuard {
     ITripwireController private immutable _CONTROLLER;
 
     /// @param controller_ The ITripwireController to defer to. Must be a deployed contract.
-    constructor(ITripwireController controller_) {
+    /// @param guardian_ The guardian address for this contract's circuit breaker management.
+    constructor(ITripwireController controller_, address guardian_) {
         if (address(controller_) == address(0) || address(controller_).code.length == 0) {
             revert InvalidController();
         }
         _CONTROLLER = controller_;
+        controller_.register(address(this), guardian_);
     }
 
     /// @notice Reverts if this function is tripped OR the contract is globally tripped.

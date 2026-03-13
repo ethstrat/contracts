@@ -17,7 +17,7 @@ contract MintableBurnableTokenTest is Test {
     function setUp() external {
         ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        token = new MintableBurnableToken("name", "symbol", owner, ctrl);
+        token = new MintableBurnableToken("name", "symbol", owner, ctrl, owner);
     }
 
     function testOnlyOwnerCanManageMinters() external {

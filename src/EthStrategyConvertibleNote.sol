@@ -116,8 +116,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         address _encumberedHoldings,
         address _ethUsdOracle,
         address owner,
-        ITripwireController controller_
-    ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) TripwireGuard(controller_) {
+        ITripwireController controller_,
+        address guardian_
+    ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) TripwireGuard(controller_, guardian_) {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
         esETHToken = esETH(_esETHToken);

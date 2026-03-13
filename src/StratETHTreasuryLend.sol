@@ -136,8 +136,9 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721, TripwireGuard {
         address _encumberedHoldings,
         uint256 _borrowRate,
         address owner,
-        ITripwireController controller_
-    ) Ownable(owner) ERC721("STRAT Treasury Lend", "tlSTRAT") TripwireGuard(controller_) {
+        ITripwireController controller_,
+        address guardian_
+    ) Ownable(owner) ERC721("STRAT Treasury Lend", "tlSTRAT") TripwireGuard(controller_, guardian_) {
         if (
             _cdtToken == address(0) || _stratToken == address(0) || _esETHToken == address(0)
                 || _unencumberedHoldings == address(0) || _encumberedHoldings == address(0)

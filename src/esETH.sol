@@ -103,7 +103,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
      * @dev Constructor
      * @param _owner The owner of the contract
      */
-    constructor(address _owner, address _weth, ITripwireController controller_) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) TripwireGuard(controller_) {
+    constructor(address _owner, address _weth, ITripwireController controller_, address guardian_) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) TripwireGuard(controller_, guardian_) {
         if (_weth == address(0)) revert ZeroAddress();
         WETH = _weth;
         yieldReceiver = _owner;
