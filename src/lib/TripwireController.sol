@@ -132,7 +132,7 @@ contract TripwireController is ITripwireController {
     function reset(address guardedContract, bytes4 selector)
         external
         onlyRegistered(guardedContract)
-        onlyOperator(guardedContract)
+        onlyGuardianOrOperator(guardedContract)
     {
         _functionTripped[guardedContract][selector] = false;
         emit FunctionReset(guardedContract, selector, msg.sender);
@@ -142,7 +142,7 @@ contract TripwireController is ITripwireController {
     function resetGlobal(address guardedContract)
         external
         onlyRegistered(guardedContract)
-        onlyOperator(guardedContract)
+        onlyGuardianOrOperator(guardedContract)
     {
         _globalTripped[guardedContract] = false;
         emit GlobalReset(guardedContract, msg.sender);
@@ -169,7 +169,7 @@ contract TripwireController is ITripwireController {
     function resetBatch(address guardedContract, bytes4[] calldata selectors)
         external
         onlyRegistered(guardedContract)
-        onlyOperator(guardedContract)
+        onlyGuardianOrOperator(guardedContract)
     {
         if (selectors.length == 0) revert EmptyBatch();
         for (uint256 i; i < selectors.length; ++i) {
@@ -182,7 +182,7 @@ contract TripwireController is ITripwireController {
     function resetAll(address guardedContract, bytes4[] calldata selectors)
         external
         onlyRegistered(guardedContract)
-        onlyOperator(guardedContract)
+        onlyGuardianOrOperator(guardedContract)
     {
         if (selectors.length == 0) revert EmptyBatch();
 

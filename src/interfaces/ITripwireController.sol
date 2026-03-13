@@ -172,13 +172,13 @@ interface ITripwireController {
     function tripGlobal(address guardedContract) external;
 
     /// @notice Reset the circuit breaker for a specific function.
-    /// @dev Only callable by an operator of the given guarded contract.
+    /// @dev Callable by an operator OR the guardian of the given guarded contract.
     /// @param guardedContract The address of the guarded contract.
     /// @param selector The 4-byte function selector to reset.
     function reset(address guardedContract, bytes4 selector) external;
 
     /// @notice Reset the global circuit breaker for a contract.
-    /// @dev Only callable by an operator of the given guarded contract.
+    /// @dev Callable by an operator OR the guardian of the given guarded contract.
     /// Does NOT clear per-function trips. Use resetAll() to clear both.
     /// @param guardedContract The address of the guarded contract.
     function resetGlobal(address guardedContract) external;
@@ -195,14 +195,14 @@ interface ITripwireController {
     function tripBatch(address guardedContract, bytes4[] calldata selectors) external;
 
     /// @notice Reset circuit breakers for multiple functions in a single call.
-    /// @dev Only callable by an operator of the given guarded contract.
+    /// @dev Callable by an operator OR the guardian of the given guarded contract.
     /// Reverts if the selectors array is empty.
     /// @param guardedContract The address of the guarded contract.
     /// @param selectors The 4-byte function selectors to reset. Must not be empty.
     function resetBatch(address guardedContract, bytes4[] calldata selectors) external;
 
     /// @notice Atomically reset the global circuit breaker AND specified function-level breakers.
-    /// @dev Only callable by an operator of the given guarded contract.
+    /// @dev Callable by an operator OR the guardian of the given guarded contract.
     /// This is the recommended way to fully restore a contract after an incident.
     /// Reverts if the selectors array is empty.
     /// @param guardedContract The address of the guarded contract.
