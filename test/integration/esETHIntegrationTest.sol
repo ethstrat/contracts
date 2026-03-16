@@ -5,6 +5,11 @@ import {Test, console2} from "forge-std/Test.sol";
 import {esETH} from "../../src/esETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
+interface IAaveV3AToken {
+    function scaledTotalSupply() external view returns (uint256);
+    function totalSupply() external view returns (uint256);
+}
+
 /**
  * @title esETH Integration Tests
  * @notice Tests for getETHValue using real mainnet token addresses
@@ -33,7 +38,9 @@ contract esETHIntegrationTest is Test {
     address public constant AWETH = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8;
     address public constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     address public constant CBETH = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
-    address public constant SWETH = 0xf951E335afb289353dc249e82926178EaC7DEd78;
+    // swETH (0xf951E335afb289353dc249e82926178EaC7DEd78) was deprecated by Swell Network;
+    // its convertToAssets() reverts at current block numbers. Use sfrxETH instead.
+    address public constant SFRXETH = 0xac3E018457B222d93114458476f3E3416Abbe38F;
 
     address public owner = address(0x1);
     uint256 public constant TEST_AMOUNT = 1e18; // 1 token for testing
@@ -60,7 +67,7 @@ contract esETHIntegrationTest is Test {
         esETHContract.setTokenConfig(AWETH, esETH.TokenType.AWETH, false, false);
         esETHContract.setTokenConfig(WEETH, esETH.TokenType.WEETH, false, false);
         esETHContract.setTokenConfig(CBETH, esETH.TokenType.CBETH, false, false);
-        esETHContract.setTokenConfig(SWETH, esETH.TokenType.ERC4626, false, false);
+        esETHContract.setTokenConfig(SFRXETH, esETH.TokenType.ERC4626, false, false);
         vm.stopPrank();
     }
 
@@ -114,14 +121,38 @@ contract esETHIntegrationTest is Test {
 
         uint256 ethValue = esETHContract.getETHValue(AWETH, TEST_AMOUNT);
 
-        // aWETH should be worth >= 1 ETH (it accrues yield)
-        assertGe(ethValue, TEST_AMOUNT, "aWETH should be worth at least 1 ETH");
+        // aWETH is a rebasing token: 1 aWETH = 1 WETH. Balance is already ETH-denominated.
+        assertEq(ethValue, TEST_AMOUNT, "aWETH ETH value must be 1:1 - no additional scaling");
+    }
 
-        // Sanity check: aWETH rate should be reasonable.
-        assertLe(ethValue, TEST_AMOUNT * 2, "aWETH rate seems unreasonably high");
+    /**
+     * @notice Regression guard: aWETH MUST NOT double-scale.
+     * @dev aWETH (Aave V3) is a rebasing token whose balance already represents the current
+     *      ETH value (1 aWETH == 1 WETH at any point in time). A previous bug applied the
+     *      Aave liquidity-index ratio (`totalSupply / scaledTotalSupply`, currently ~1.04)
+     *      on top of the already-rebased balance, inflating the reported ETH value by ~4%.
+     *
+     *      This test proves the conversion is strictly 1:1 by cross-checking with the raw
+     *      on-chain ratio: if that ratio were mistakenly applied, ethValue would exceed
+     *      TEST_AMOUNT, so we assert equality.
+     */
+    function testFork_GetETHValue_AWETH_NoDoubleScaling() public view {
+        // scaledTotalSupply < totalSupply whenever any interest has accrued.
+        // The ratio (totalSupply / scaledTotalSupply) is the Aave liquidity index (>1).
+        uint256 scaledSupply = IAaveV3AToken(AWETH).scaledTotalSupply();
+        uint256 totalSupply  = IAaveV3AToken(AWETH).totalSupply();
+        assertGt(totalSupply, scaledSupply, "Setup: interest must have accrued for this test to be meaningful");
 
-        console2.log("aWETH ETH value:", ethValue);
-        console2.log("aWETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
+        uint256 ethValue = esETHContract.getETHValue(AWETH, TEST_AMOUNT);
+
+        // aWETH is 1:1 with WETH — the rebasing balance IS the ETH value.
+        assertEq(ethValue, TEST_AMOUNT, "aWETH ETH value must equal input amount (no double scaling)");
+
+        // Cross-check: the old (buggy) formula would have returned more than TEST_AMOUNT.
+        uint256 buggyValue = TEST_AMOUNT * totalSupply / scaledSupply;
+        assertGt(buggyValue, TEST_AMOUNT, "Cross-check: old formula would have inflated the value");
+        console2.log("aWETH correct ETH value:   ", ethValue);
+        console2.log("aWETH buggy ETH value would have been:", buggyValue);
     }
 
     /**
@@ -169,20 +200,22 @@ contract esETHIntegrationTest is Test {
     }
 
     /**
-     * @notice Test getETHValue for swETH
-     * @dev swETH is an ERC4626 vault that uses convertToAssets()
+     * @notice Test getETHValue for sfrxETH (ERC4626)
+     * @dev sfrxETH is a live ERC4626 vault (Frax Ether) that uses convertToAssets().
+     *      swETH was previously used here but was deprecated by Swell Network and its
+     *      convertToAssets() reverts at current block numbers.
      */
-    function testFork_GetETHValue_SwETH() public view {
-        uint256 ethValue = esETHContract.getETHValue(SWETH, TEST_AMOUNT);
+    function testFork_GetETHValue_SfrxETH() public view {
+        uint256 ethValue = esETHContract.getETHValue(SFRXETH, TEST_AMOUNT);
 
-        // swETH should be worth >= 1 ETH (it accumulates staking rewards)
-        assertGe(ethValue, TEST_AMOUNT, "swETH should be worth at least 1 ETH");
+        // sfrxETH should be worth >= 1 ETH (it accumulates staking rewards)
+        assertGe(ethValue, TEST_AMOUNT, "sfrxETH should be worth at least 1 ETH");
 
-        // Sanity check: swETH rate should be reasonable (between 1.0 and 2.0 ETH per token)
-        assertLe(ethValue, TEST_AMOUNT * 2, "swETH rate seems unreasonably high");
+        // Sanity check: sfrxETH rate should be reasonable (between 1.0 and 2.0 ETH per token)
+        assertLe(ethValue, TEST_AMOUNT * 2, "sfrxETH rate seems unreasonably high");
 
-        console2.log("swETH ETH value:", ethValue);
-        console2.log("swETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
+        console2.log("sfrxETH ETH value:", ethValue);
+        console2.log("sfrxETH rate (ETH per token):", ethValue * 1e18 / TEST_AMOUNT);
     }
 
     /**

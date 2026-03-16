@@ -18,10 +18,6 @@ interface ILegacyVaultTypes {
     function exchangeRate() external view returns (uint256);
 }
 
-interface IAaveV3AToken {
-    function scaledTotalSupply() external view returns (uint256);
-    function totalSupply() external view returns (uint256);
-}
 
 interface IWeETH {
     function getEETHByWeETH(uint256 weETHAmount) external view returns (uint256);
@@ -268,13 +264,12 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
             // rETH: rethPerToken() returns the ETH value of 1 rETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).getExchangeRate() / 1e18;
         } else if (tokenType == TokenType.AWETH) {
-            // aWETH (Aave V3): use scaledTotalSupply() + totalSupply() to derive
-            // the current scaling factor, then apply it to `amount`.
-            IAaveV3AToken aToken = IAaveV3AToken(token);
-            uint256 scaledTotalSupply = aToken.scaledTotalSupply();
-            if (scaledTotalSupply == 0) return amount;
-            uint256 totalSupply = aToken.totalSupply();
-            return amount * totalSupply / scaledTotalSupply;
+            // aWETH (Aave V3) is a rebasing token: balanceOf() already returns the current
+            // ETH-denominated value (1 aWETH == 1 WETH at any point in time). The Aave
+            // liquidity index is baked into the rebased balance, so no further scaling is
+            // needed. Applying totalSupply/scaledTotalSupply here would double-count that
+            // factor and overstate the value by the accrued-interest ratio (~1.04x).
+            return amount;
         } else if (tokenType == TokenType.WEETH) {
             // weETH (ether.fi): convert wrapped weETH amount into its eETH/ETH-equivalent amount.
             return IWeETH(token).getEETHByWeETH(amount);
