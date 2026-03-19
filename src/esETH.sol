@@ -5,7 +5,6 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
-import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 interface IWETH {
@@ -37,7 +36,6 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
     enum TokenType {
         UNSUPPORTED,
         ERC20,
-        ERC4626,
         WSTETH,
         RETH,
         AWETH,
@@ -248,12 +246,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard {
      * @dev Internal: Convert token amount to ETH value
      */
     function _convertTokenToETH(address token, uint256 amount, TokenType tokenType) internal view returns (uint256) {
-        if (tokenType == TokenType.ERC4626) {
-            // Use ERC4626 standard: convertToAssets
-            // convertToAssets(amount) directly gives the underlying asset (ETH) value
-            IERC4626 vault = IERC4626(token);
-            return vault.convertToAssets(amount);
-        } else if (tokenType == TokenType.ERC20) {
+        if (tokenType == TokenType.ERC20) {
             return amount;
         } else if (tokenType == TokenType.WSTETH) {
             // wstETH (Wrapped stETH) is not ERC4626, but exposes stEthPerToken()

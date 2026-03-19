@@ -54,11 +54,16 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     /// @notice The timestamp after which the holder can exwrcise conversion rights
     mapping(uint256 tokenId => uint256) public timelock;
 
+    /// @notice Whether the encumbered ETH backing an expired note has been administratively
+    ///         moved to unencumbered holdings (via releaseEncumbrance) before the holder redeems.
+    mapping(uint256 tokenId => bool) public encumbranceReleased;
+
     uint256 public constant SCALE = 1e18;
 
     event OwnerChangedPCF(uint256 oldVal, uint256 newVal);
     event OwnerChangedGCF(uint256 oldVal, uint256 newVal);
     event RendererUpdated(address indexed renderer);
+    event EncumbranceReleased(uint256 indexed tokenId, uint256 ethAmount);
 
     event LongBond(
         address indexed bonder,
@@ -96,6 +101,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     error OptionUnexpired(address account, uint256 tokenId);
     error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
     error InvalidExerciseAmount(uint256 amount, uint256 remainingStrike);
+    error EncumbranceAlreadyReleased(uint256 tokenId);
 
     /**
      * @param _cdtToken The CDT token
@@ -152,6 +158,31 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     function managerRenderer(address renderer) external onlyOwner {
         tokenURIRenderer = renderer;
         emit RendererUpdated(renderer);
+    }
+
+    /**
+     * @notice Moves the encumbered ETH backing an expired note into unencumbered holdings.
+     * @dev    Only callable by the owner after the note has expired. This allows the protocol to
+     *         administratively free collateral before (or independently of) the holder calling
+     *         redeemCdtForUsdNotional. Once released, redemption will skip the redundant transfer.
+     *
+     *         Reverts if the note does not exist / has already been settled, if it has not yet
+     *         expired, or if the encumbrance was already released for this tokenId.
+     *
+     * @param tokenId The ID of the expired note whose encumbered collateral to release.
+     */
+    function releaseEncumbrance(uint256 tokenId) external onlyOwner {
+        if (expiry[tokenId] == 0 || expiry[tokenId] > block.timestamp) {
+            revert OptionUnexpired(msg.sender, tokenId);
+        }
+        if (encumbranceReleased[tokenId]) revert EncumbranceAlreadyReleased(tokenId);
+
+        encumbranceReleased[tokenId] = true;
+        uint256 ethToRelease = conversionEntitlementEth[tokenId];
+        if (ethToRelease > 0) {
+            esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, ethToRelease);
+        }
+        emit EncumbranceReleased(tokenId, ethToRelease);
     }
 
     function bond(address bonder, uint256 minConversionAmountStrat, uint256 minConversionAmountEth, uint256 deadline)
@@ -369,8 +400,11 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // Burn CDT
         cdtToken.validatePermit(msg.sender, address(this), settlementEntitlementUsd_, cdtPermitApproval);
 
-        // Move eth from encumbered holdings to unencumbered holdings, preparing for redemption
-        esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId]);
+        // Move eth from encumbered holdings to unencumbered holdings, preparing for redemption.
+        // Skip if the owner already released this encumbrance via releaseEncumbrance().
+        if (!encumbranceReleased[tokenId]) {
+            esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId]);
+        }
 
         uint256 ethAmount = 0;
         uint256 unencumberedEth = esETHToken.balanceOf(unencumberedHoldings);
@@ -400,6 +434,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         conversionEntitlementEth[tokenId] = 0;
         expiry[tokenId] = 0;
         timelock[tokenId] = 0;
+        encumbranceReleased[tokenId] = false;
 
         // Burn the NFT
         _burn(tokenId);

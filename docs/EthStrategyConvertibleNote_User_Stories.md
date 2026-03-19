@@ -96,6 +96,19 @@
   - `bond(...)` mints esETH via `esETHToken.wrapAndMint(...)`
   - If the `esETH` contract restricts minting (e.g., `treasuryManager` gating / token config), then `bond(...)` will revert if the caller is not authorized by `esETH`
 
+**US-103: Owner can release encumbrance on expired notes**
+- **As a** protocol operator (`owner`)
+- **I want** to administratively move encumbered esETH backing an expired note into unencumbered holdings
+- **So that** the protocol can free collateral before (or independently of) the holder calling `redeemCdtForUsdNotional`
+- **Acceptance Criteria:**
+  - Only `owner` can call `releaseEncumbrance(tokenId)`
+  - The note must have expired (`expiry[tokenId] != 0 && expiry[tokenId] <= block.timestamp`); otherwise reverts with `OptionUnexpired(msg.sender, tokenId)`
+  - The encumbrance must not have already been released for this tokenId; otherwise reverts with `EncumbranceAlreadyReleased(tokenId)`
+  - Sets `encumbranceReleased[tokenId] = true`
+  - Transfers `conversionEntitlementEth[tokenId]` esETH from `encumberedHoldings` to `unencumberedHoldings` (if > 0)
+  - Emits `EncumbranceReleased(tokenId, ethAmount)`
+  - Once released, subsequent `redeemCdtForUsdNotional` skips the redundant encumbered→unencumbered transfer for this note
+
 ---
 
 ## Lifecycle Gates (Timelock + Expiry)
@@ -197,8 +210,8 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - Preconditions:
     - Timelock passed; option expired; caller is the note owner
   - The contract redeems based on the note’s remaining `settlementEntitlementUsd[tokenId]`
-  - The contract moves esETH backing for the note from encumbered to unencumbered:
-    - `esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId])`
+  - Unless the owner already released this note's encumbrance via `releaseEncumbrance(tokenId)`, the contract moves esETH backing from encumbered to unencumbered:
+    - If `!encumbranceReleased[tokenId]`: `esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, conversionEntitlementEth[tokenId])`
   - Redemption payout is computed from total treasury ETH (encumbered + unencumbered) and total CDT debt:
     - Let `treasuryInETH = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings)`
     - Let `treasuryInUSD = treasuryInETH * ethPriceUSD / ORACLE_SCALE`
@@ -207,7 +220,8 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
     - Else: pay pro-rata share of total treasury holdings: `settlementUsd * treasuryInETH / totalDebt`
   - Slippage check:
     - Revert `InsufficientOutput` if computed `ethAmount < minEthOut`
-  - The contract burns the NFT and clears all per-token balances (strike, entitlements, timestamps)
+  - If the computed `ethAmount` exceeds current `unencumberedHoldings` balance, the shortfall is pulled from `encumberedHoldings` to `unencumberedHoldings`
+  - The contract clears all per-token balances (strike, entitlements, timestamps, `encumbranceReleased`) and burns the NFT
   - The contract burns CDT equal to `settlementEntitlementUsd[tokenId]` from the caller (permit-supported)
   - The contract transfers `ethAmount` esETH from `unencumberedHoldings` to the note owner
   - Emits `Redemption(optionOwner, tokenId, notionalUSDAmount, ethAmount)`
@@ -336,6 +350,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - Bonding: `NoEthSent`, `ZeroAddress`, `TransactionStale`, `InsufficientOutput`, `InvalidTimelockOrExpiry`
   - Conversion: `TimelockActive`, `OptionExpired`, `NotOwnerOrApproved`, `InvalidExerciseAmount`
   - Redemption: `TimelockActive`, `OptionUnexpired`, `NotOwnerOrApproved`, `InsufficientOutput`
+  - Release Encumbrance: `OptionUnexpired`, `EncumbranceAlreadyReleased`
 
 ---
 
@@ -349,6 +364,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - **ETH(esETH) entitlement remaining**: `conversionEntitlementEth[tokenId]`
   - **USD settlement entitlement remaining**: `settlementEntitlementUsd[tokenId]`
   - `timelock[tokenId]` and `expiry[tokenId]`
+  - `encumbranceReleased[tokenId]` — whether the owner has administratively moved encumbered backing to unencumbered via `releaseEncumbrance`
 - Conversion is **pro-rata** against remaining balances and can be repeated until fully settled; the NFT is burned when `amountOwedCdt[tokenId] == 0`.
 
 ### Global State (Affects All New Bonds)

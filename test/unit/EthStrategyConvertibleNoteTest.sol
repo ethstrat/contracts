@@ -451,6 +451,124 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         bonds.redeemCdtForUsdNotional(tokenId, expectedEth + 1);
     }
 
+    // ========= releaseEncumbrance =========
+
+    function testReleaseEncumbranceRevertsIfNotOwner() public {
+        (uint256 tokenId,,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastExpiry(tokenId);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        bonds.releaseEncumbrance(tokenId);
+    }
+
+    function testReleaseEncumbranceRevertsBeforeExpiry() public {
+        (uint256 tokenId,,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastTimelock(tokenId);
+        // still before expiry
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionUnexpired.selector, owner, tokenId));
+        bonds.releaseEncumbrance(tokenId);
+    }
+
+    function testReleaseEncumbranceRevertsForNonExistentOrSettledToken() public {
+        // tokenId 999 never existed; expiry[999] == 0 so it should revert
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionUnexpired.selector, owner, 999));
+        bonds.releaseEncumbrance(999);
+    }
+
+    function testReleaseEncumbranceMovesEthToUnencumberedAfterExpiry() public {
+        (uint256 tokenId,,, uint256 entitlementEth) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastExpiry(tokenId);
+
+        uint256 encBefore = esETHToken.balanceOf(encumberedHoldings);
+        uint256 unencBefore = esETHToken.balanceOf(unencumberedHoldings);
+
+        vm.prank(owner);
+        bonds.releaseEncumbrance(tokenId);
+
+        assertEq(esETHToken.balanceOf(encumberedHoldings), encBefore - entitlementEth);
+        assertEq(esETHToken.balanceOf(unencumberedHoldings), unencBefore + entitlementEth);
+        assertTrue(bonds.encumbranceReleased(tokenId));
+    }
+
+    function testReleaseEncumbranceRevertsIfCalledTwice() public {
+        (uint256 tokenId,,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastExpiry(tokenId);
+
+        vm.prank(owner);
+        bonds.releaseEncumbrance(tokenId);
+
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(EthStrategyConvertibleNote.EncumbranceAlreadyReleased.selector, tokenId)
+        );
+        bonds.releaseEncumbrance(tokenId);
+    }
+
+    function testReleaseEncumbranceEmitsEvent() public {
+        (uint256 tokenId,,, uint256 entitlementEth) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastExpiry(tokenId);
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit EthStrategyConvertibleNote.EncumbranceReleased(tokenId, entitlementEth);
+        bonds.releaseEncumbrance(tokenId);
+    }
+
+    function testRedeemSkipsEncumbranceTransferIfAlreadyReleased() public {
+        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) =
+            _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastExpiry(tokenId);
+
+        // Owner releases encumbrance beforehand
+        vm.prank(owner);
+        bonds.releaseEncumbrance(tokenId);
+
+        uint256 encBefore = esETHToken.balanceOf(encumberedHoldings);
+        uint256 unencBefore = esETHToken.balanceOf(unencumberedHoldings);
+
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+
+        uint256 userEthBefore = esETHToken.balanceOf(user);
+        vm.prank(user);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
+
+        // Encumbered holdings should NOT have moved again during redemption
+        assertEq(esETHToken.balanceOf(encumberedHoldings), encBefore, "Encumbered should not change during redeem");
+
+        // unencBefore is measured after releaseEncumbrance, so entitlementEth is already reflected in it.
+        // During redemption (encumbranceReleased == true) the only change is the payout draining unencumbered.
+        uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
+        assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
+        assertEq(esETHToken.balanceOf(unencumberedHoldings), unencBefore - expectedEth);
+    }
+
+    function testRedeemWithoutPriorReleaseStillMovesEncumbranceInline() public {
+        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) =
+            _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastExpiry(tokenId);
+
+        uint256 encBefore = esETHToken.balanceOf(encumberedHoldings);
+        uint256 unencBefore = esETHToken.balanceOf(unencumberedHoldings);
+
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+
+        uint256 userEthBefore = esETHToken.balanceOf(user);
+        vm.prank(user);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
+
+        uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
+        assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
+        // Encumbered drained by entitlementEth inline; net change on unencumbered = entitlementEth - ethOut
+        assertEq(esETHToken.balanceOf(encumberedHoldings), encBefore - entitlementEth);
+        assertEq(esETHToken.balanceOf(unencumberedHoldings), unencBefore + entitlementEth - expectedEth);
+    }
+
     // ========= GCF and PCF Tests =========
 
     function testOnlyOwnerCanSetGCF() public {

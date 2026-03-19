@@ -240,13 +240,13 @@
 - **I want** invalid actions to revert with explicit reasons
 - **So that** I can debug and build reliable UX
 - **Acceptance Criteria:**
-  - Zero-amount deposits are rejected
-  - Only position owner can repay/roll
-  - Repay/roll enforce `block.timestamp < expiry`
-  - Liquidate enforces `block.timestamp >= expiry`
-  - Parameter setters enforce non-zero addresses and role access control
-  - Borrow enforces a `minBorrowAmount` slippage guard and a `deadline` staleness guard
-  - Roll enforces a `minNewBorrowAmount` slippage guard and a `deadline` staleness guard
+  - Zero-amount deposits are rejected (`ZeroAmount`)
+  - Only position owner can repay/roll (`NotPositionOwner`)
+  - Repay/roll enforce `block.timestamp < expiry` (`LoanExpired`)
+  - Liquidate enforces `block.timestamp >= expiry` (`LoanUnexpired`)
+  - Parameter setters enforce non-zero addresses (`ZeroAddress`) and role access control (`UnauthorizedRateSetter`, `UnauthorizedFeeSetter`)
+  - Borrow enforces a `minBorrowAmount` slippage guard and a `deadline` staleness guard (`InsufficientOutput`, `TransactionStale`)
+  - Roll enforces a `minNewBorrowAmount` slippage guard and a `deadline` staleness guard (`InsufficientOutput`, `TransactionStale`)
 
 ---
 

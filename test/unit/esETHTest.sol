@@ -4,20 +4,9 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {esETH} from "../../src/esETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
-import {ERC4626} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
-
-/// @dev Minimal ERC4626 vault. `totalAssets()` is derived from underlying token balance,
-///      so tests can simulate yield/loss by donating/removing underlying assets.
-contract SimpleERC4626Vault is ERC4626 {
-    constructor(address underlying, string memory name_, string memory symbol_)
-        ERC4626(IERC20(underlying))
-        ERC20(name_, symbol_)
-    {}
-}
 
 /// @dev Minimal weETH-like token with configurable conversion rate to ETH-equivalent units.
 contract MockWeETH is ERC20 {
@@ -50,7 +39,6 @@ contract MintableMockERC20 is MockERC20 {
 contract esETHTest is Test {
     esETH public esETHContract;
     MockWETH public weth;
-    SimpleERC4626Vault public yieldBearingLST;
     MockWeETH public weETH;
 
     address public owner = address(0x1);
@@ -66,7 +54,7 @@ contract esETHTest is Test {
     function setUp() public {
         // Deploy mock tokens
         weth = new MockWETH();
-        // Fund and wrap ETH into WETH for test actors (WETH is underlying for ERC4626 vaults too).
+        // Fund and wrap ETH into WETH for test actors.
         vm.deal(address(this), INITIAL_BALANCE * 3);
         weth.deposit{value: INITIAL_BALANCE * 3}();
 
@@ -78,10 +66,6 @@ contract esETHTest is Test {
         vm.prank(user2);
         weth.deposit{value: INITIAL_BALANCE * 3}();
 
-        // Deploy ERC4626 vaults
-        yieldBearingLST = new SimpleERC4626Vault(address(weth), "Mock Yield Bearing LST Vault", "myLST");
-        weth.approve(address(yieldBearingLST), type(uint256).max);
-        yieldBearingLST.deposit(INITIAL_BALANCE, address(this));
         weETH = new MockWeETH(1.05e18);
         weETH.mint(address(this), INITIAL_BALANCE);
         weETH.mint(user1, INITIAL_BALANCE);
@@ -95,26 +79,18 @@ contract esETHTest is Test {
         vm.startPrank(owner);
         // WETH: ERC20 type, 1:1 with ETH, mintable and redeemable
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
-        // yieldBearingLST: ERC4626, mintable and redeemable
-        esETHContract.setTokenConfig(address(yieldBearingLST), esETH.TokenType.ERC4626, true, true);
         // weETH: custom non-ERC4626 wrapped ETH rate token
         esETHContract.setTokenConfig(address(weETH), esETH.TokenType.WEETH, true, true);
         vm.stopPrank();
 
         // user1 and user2 initial token state setup
         vm.startPrank(user1);
-        weth.approve(address(yieldBearingLST), type(uint256).max);
-        yieldBearingLST.deposit(INITIAL_BALANCE, user1);
         weth.approve(address(esETHContract), type(uint256).max);
-        yieldBearingLST.approve(address(esETHContract), type(uint256).max);
         weETH.approve(address(esETHContract), type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(user2);
-        weth.approve(address(yieldBearingLST), type(uint256).max);
-        yieldBearingLST.deposit(INITIAL_BALANCE, user2);
         weth.approve(address(esETHContract), type(uint256).max);
-        yieldBearingLST.approve(address(esETHContract), type(uint256).max);
         weETH.approve(address(esETHContract), type(uint256).max);
         vm.stopPrank();
     }
@@ -340,23 +316,6 @@ contract esETHTest is Test {
         esETHContract.wrapAndMint{value: 0}(user1);
     }
 
-    function test_Mint_WithERC4626() external {
-        uint256 amount = MINT_AMOUNT;
-
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(yieldBearingLST), amount, user1);
-
-        // For ERC4626, convertToAssets should return the underlying asset value
-        uint256 expectedETH = yieldBearingLST.convertToAssets(amount);
-        assertEq(esETHAmount, expectedETH);
-        assertEq(esETHContract.balanceOf(user1), esETHAmount);
-        assertEq(yieldBearingLST.balanceOf(address(esETHContract)), amount);
-
-        // Check totalMinted is updated
-        (,,, uint256 totalMinted) = esETHContract.tokenConfigs(address(yieldBearingLST));
-        assertEq(totalMinted, esETHAmount);
-    }
-
     function test_Mint_WithWEETH() external {
         uint256 amount = MINT_AMOUNT;
 
@@ -443,24 +402,6 @@ contract esETHTest is Test {
         assertEq(esETHContract.balanceOf(user1), 0); // All esETH burned
     }
 
-    function test_Redeem_ForERC4626() external {
-        // First mint some esETH with yieldBearingLST
-        uint256 mintAmount = MINT_AMOUNT;
-        vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(yieldBearingLST), mintAmount, user1);
-
-        // Now redeem for yieldBearingLST - redeem 1 wei less to account for rounding protection
-        uint256 balanceBefore = yieldBearingLST.balanceOf(user1);
-        vm.prank(user1);
-        uint256 esETHBurned = esETHContract.redeem(address(yieldBearingLST), mintAmount - 1, user1);
-
-        // Should get back the shares we requested (mintAmount - 1 shares)
-        assertEq(yieldBearingLST.balanceOf(user1), balanceBefore + mintAmount - 1);
-        // esETHBurned should be esETHAmount (base value + 1 wei)
-        assertEq(esETHBurned, esETHAmount);
-        assertEq(esETHContract.balanceOf(user1), 0);
-    }
-
     function test_Redeem_ForWEETH() external {
         uint256 mintAmount = MINT_AMOUNT;
         vm.prank(user1);
@@ -536,24 +477,24 @@ contract esETHTest is Test {
     function test_Redeem_CrossToken() external {
         // User1 mints with WETH
         vm.prank(user1);
-        uint256 esETHAmount = esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
 
-        // User2 mints with yieldBearingLST to ensure contract has yieldBearingLST for cross-token redemption
+        // User2 mints with weETH to ensure contract has weETH for cross-token redemption
         vm.prank(user2);
-        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT, user2);
+        esETHContract.mint(address(weETH), MINT_AMOUNT, user2);
 
-        // User1 redeems for yieldBearingLST (different token) - redeem 1 wei less to account for rounding
-        uint256 balanceBefore = yieldBearingLST.balanceOf(user1);
-        // Calculate shares needed based on esETHAmount - 1 wei
-        uint256 shares = yieldBearingLST.convertToShares(esETHAmount - 1);
-        // Contract has MINT_AMOUNT shares, so we can redeem up to that
-        uint256 sharesToRedeem = shares > MINT_AMOUNT ? MINT_AMOUNT : shares;
+        // User1 redeems for weETH (different token) using a fixed, round token amount.
+        // esETH burned = getEETHByWeETH(redeemAmt) + 1 = redeemAmt * rate / 1e18 + 1
+        uint256 weEthToRedeem = MINT_AMOUNT / 2;
+        uint256 expectedBurned = weETH.getEETHByWeETH(weEthToRedeem) + 1;
+        uint256 balanceBefore = weETH.balanceOf(user1);
+
         vm.prank(user1);
-        uint256 esETHBurned = esETHContract.redeem(address(yieldBearingLST), sharesToRedeem, user1);
+        uint256 esETHBurned = esETHContract.redeem(address(weETH), weEthToRedeem, user1);
 
-        assertEq(esETHBurned, esETHAmount); // Burns all esETH (including +1 wei)
-        assertEq(yieldBearingLST.balanceOf(user1), balanceBefore + sharesToRedeem);
-        assertEq(esETHContract.balanceOf(user1), 0); // All esETH burned
+        assertEq(esETHBurned, expectedBurned);
+        assertEq(weETH.balanceOf(user1), balanceBefore + weEthToRedeem);
+        assertGt(esETHContract.balanceOf(user1), 0); // User still has remaining esETH
     }
 
     // ============ Harvest Yield Tests ============
@@ -630,57 +571,25 @@ contract esETHTest is Test {
     function test_HarvestYield_MultipleTokens() external {
         // Mint esETH with WETH
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         esETHContract.mint(address(weth), MINT_AMOUNT, user1);
 
-        // Mint esETH with yieldBearingLST
+        // Mint esETH with weETH
         vm.prank(user2);
-        yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user2);
-        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT, user2);
+        esETHContract.mint(address(weETH), MINT_AMOUNT, user2);
 
-        // Add extra tokens to both
+        // Add extra tokens to both (simulates yield / donations)
         weth.transfer(address(esETHContract), MINT_AMOUNT / 2);
-        yieldBearingLST.transfer(address(esETHContract), MINT_AMOUNT / 2);
+        weETH.mint(address(esETHContract), MINT_AMOUNT / 2);
 
         address[] memory tokens = new address[](2);
         tokens[0] = address(weth);
-        tokens[1] = address(yieldBearingLST);
+        tokens[1] = address(weETH);
 
         uint256 supplyBefore = esETHContract.totalSupply();
         vm.prank(user1);
         esETHContract.harvestYield(tokens);
         uint256 supplyAfter = esETHContract.totalSupply();
 
-        assertGt(supplyAfter, supplyBefore);
-    }
-
-    function test_HarvestYield_WithERC4626Yield() external {
-        // Mint esETH with yieldBearingLST
-        vm.prank(user1);
-        yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
-        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT, user1);
-
-        // Simulate yield by donating underlying assets to the vault (increases totalAssets,
-        // and thus increases convertToAssets() for a fixed share amount).
-        address donor = address(0xBEEF);
-        vm.deal(donor, MINT_AMOUNT / 10);
-        vm.prank(donor);
-        weth.deposit{value: MINT_AMOUNT / 10}();
-        vm.prank(donor);
-        weth.transfer(address(yieldBearingLST), MINT_AMOUNT / 10);
-
-        address[] memory tokens = new address[](1);
-        tokens[0] = address(yieldBearingLST);
-
-        uint256 supplyBefore = esETHContract.totalSupply();
-        vm.prank(user1);
-        esETHContract.harvestYield(tokens);
-        uint256 supplyAfter = esETHContract.totalSupply();
-
-        // Should mint yield based on increased backing
         assertGt(supplyAfter, supplyBefore);
     }
 
@@ -855,12 +764,6 @@ contract esETHTest is Test {
         assertEq(value, MINT_AMOUNT);
     }
 
-    function test_GetETHValue_ERC4626() external view {
-        uint256 value = esETHContract.getETHValue(address(yieldBearingLST), MINT_AMOUNT);
-        uint256 expected = yieldBearingLST.convertToAssets(MINT_AMOUNT);
-        assertEq(value, expected);
-    }
-
     function test_GetETHValue_WEETH() external view {
         uint256 value = esETHContract.getETHValue(address(weETH), MINT_AMOUNT);
         uint256 expected = weETH.getEETHByWeETH(MINT_AMOUNT);
@@ -880,21 +783,16 @@ contract esETHTest is Test {
     function test_Integration_MintAndRedeem() external {
         // User1 mints with WETH
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
-        uint256 esETH1 = esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
 
-        // User2 mints with yieldBearingLST
+        // User2 mints with weETH
         vm.prank(user2);
-        yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user2);
-        uint256 esETH2 = esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT, user2);
+        uint256 esETH2 = esETHContract.mint(address(weETH), MINT_AMOUNT, user2);
 
-        // User1 redeems for yieldBearingLST - redeem 1 wei less to account for rounding
-        uint256 shares = yieldBearingLST.convertToShares(esETH1 - 1);
-        uint256 sharesToRedeem = shares > MINT_AMOUNT ? MINT_AMOUNT : shares;
+        // User1 redeems for weETH using a fixed, round token amount
+        uint256 weEthToRedeem = MINT_AMOUNT / 2;
         vm.prank(user1);
-        esETHContract.redeem(address(yieldBearingLST), sharesToRedeem, user1);
+        esETHContract.redeem(address(weETH), weEthToRedeem, user1);
 
         // User2 redeems for WETH - redeem 1 wei less to account for rounding
         uint256 wethBalance = weth.balanceOf(address(esETHContract));
@@ -902,10 +800,8 @@ contract esETHTest is Test {
         vm.prank(user2);
         esETHContract.redeem(address(weth), wethToRedeem, user2);
 
-        // Check balances - users should have fully redeemed
-        assertEq(esETHContract.balanceOf(user1), 0);
-        assertGt(yieldBearingLST.balanceOf(user1), 0);
-        assertEq(esETHContract.balanceOf(user2), 0);
+        // Check balances - both users received their requested tokens
+        assertGt(weETH.balanceOf(user1), 0);
         assertGt(weth.balanceOf(user2), 0);
     }
 
@@ -931,39 +827,29 @@ contract esETHTest is Test {
     function test_Integration_FullCycle() external {
         // 1. Multiple users mint with different tokens
         vm.prank(user1);
-        weth.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user1);
         uint256 esETH1 = esETHContract.mint(address(weth), MINT_AMOUNT, user1);
 
         vm.prank(user2);
-        yieldBearingLST.approve(address(esETHContract), MINT_AMOUNT);
-        vm.prank(user2);
-        uint256 esETH2 = esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT, user2);
+        uint256 esETH2 = esETHContract.mint(address(weETH), MINT_AMOUNT, user2);
 
         // 2. Yield accrues (simulated by adding tokens)
         weth.transfer(address(esETHContract), MINT_AMOUNT / 10);
-        // ERC4626 yield accrues by increasing underlying assets in the vault.
-        address donor = address(0xCAFE);
-        vm.deal(donor, MINT_AMOUNT / 10);
-        vm.prank(donor);
-        weth.deposit{value: MINT_AMOUNT / 10}();
-        vm.prank(donor);
-        weth.transfer(address(yieldBearingLST), MINT_AMOUNT / 10);
+        weETH.mint(address(esETHContract), MINT_AMOUNT / 10);
 
         // 3. Anyone can harvest
         address[] memory tokens = new address[](2);
         tokens[0] = address(weth);
-        tokens[1] = address(yieldBearingLST);
+        tokens[1] = address(weETH);
         vm.prank(randomUser);
         esETHContract.harvestYield(tokens);
 
         // 4. Users redeem - redeem 1 wei less to account for rounding protection
         vm.prank(user1);
         esETHContract.redeem(address(weth), esETH1 - 1, user1);
-        // Calculate shares needed for yieldBearingLST redemption based on esETH2 - 1
-        uint256 shares = yieldBearingLST.convertToShares(esETH2 - 1);
+        // weETH tokens for esETH2 - 1 esETH: (esETH2 - 1) * 1e18 / rate
+        uint256 weEthShares = (esETH2 - 1) * 1e18 / weETH.rate();
         vm.prank(user2);
-        esETHContract.redeem(address(yieldBearingLST), shares, user2);
+        esETHContract.redeem(address(weETH), weEthShares, user2);
 
         // 5. Owner can burn excess if needed
         // (In this case there shouldn't be excess, but test the flow)
@@ -1046,12 +932,12 @@ contract esETHTest is Test {
         esETHContract.mint(address(weth), MINT_AMOUNT, user1);
 
         vm.prank(user2);
-        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT / 2, user2);
+        esETHContract.mint(address(weETH), MINT_AMOUNT / 2, user2);
 
         // Check invariant
         (,,, uint256 totalMintedWeth) = esETHContract.tokenConfigs(address(weth));
-        (,,, uint256 totalMintedLST) = esETHContract.tokenConfigs(address(yieldBearingLST));
-        uint256 sumTotalMinted = totalMintedWeth + totalMintedLST;
+        (,,, uint256 totalMintedWeETH) = esETHContract.tokenConfigs(address(weETH));
+        uint256 sumTotalMinted = totalMintedWeth + totalMintedWeETH;
         uint256 totalSupply = esETHContract.totalSupply();
 
         assertEq(
@@ -1071,9 +957,9 @@ contract esETHTest is Test {
         // Check invariant after mint
         _checkTotalSupplyInvariant();
 
-        // Mint with LST
+        // Mint with weETH
         vm.prank(user2);
-        esETHContract.mint(address(yieldBearingLST), MINT_AMOUNT / 2, user2);
+        esETHContract.mint(address(weETH), MINT_AMOUNT / 2, user2);
 
         // Check invariant after second mint
         _checkTotalSupplyInvariant();
@@ -1082,7 +968,7 @@ contract esETHTest is Test {
         weth.transfer(address(esETHContract), MINT_AMOUNT / 10);
         address[] memory tokens = new address[](2);
         tokens[0] = address(weth);
-        tokens[1] = address(yieldBearingLST);
+        tokens[1] = address(weETH);
         esETHContract.harvestYield(tokens);
 
         // Check invariant after harvest
@@ -1275,8 +1161,8 @@ contract esETHTest is Test {
      */
     function _checkTotalSupplyInvariant() internal view {
         (,,, uint256 totalMintedWeth) = esETHContract.tokenConfigs(address(weth));
-        (,,, uint256 totalMintedLST) = esETHContract.tokenConfigs(address(yieldBearingLST));
-        uint256 sumTotalMinted = totalMintedWeth + totalMintedLST;
+        (,,, uint256 totalMintedWeETH) = esETHContract.tokenConfigs(address(weETH));
+        uint256 sumTotalMinted = totalMintedWeth + totalMintedWeETH;
         uint256 totalSupply = esETHContract.totalSupply();
 
         // With +1 wei rounding protection on redeem, totalSupply can be slightly less than sumTotalMinted
