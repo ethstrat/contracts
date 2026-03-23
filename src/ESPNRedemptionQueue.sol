@@ -7,6 +7,8 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {EthStrategyPerpetualNote} from "./EthStrategyPerpetualNote.sol";
+import {ITripwireController} from "./interfaces/ITripwireController.sol";
+import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 /**
  * @title ESPN Redemption Queue
@@ -17,7 +19,7 @@ import {EthStrategyPerpetualNote} from "./EthStrategyPerpetualNote.sol";
  * Each NFT tracks the total redemptions that came before it and the dollar backing of the queued ESPN.
  * NFT holders can redeem when their position in the queue is eligible, or cancel their redemption.
  */
-contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
+contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard, TripwireGuard {
     using SafeERC20 for IERC20;
 
     /// @dev The ESPN contract
@@ -83,9 +85,10 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * @param _sweeper The address authorized to sweep USDS
      * @param _owner The owner of the contract
      */
-    constructor(address _espn, address _sweeper, address _owner)
+    constructor(address _espn, address _sweeper, address _owner, ITripwireController controller_, address guardian_)
         ERC721("ESPN Redemption Queue", "ESPN-RQ")
         Ownable(_owner)
+        TripwireGuard(controller_, guardian_)
     {
         if (_sweeper == address(0)) revert InvalidSweeper();
         espn = EthStrategyPerpetualNote(_espn);
@@ -107,7 +110,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * @param espnAmount The amount of ESPN to queue
      * @return tokenId The minted NFT token ID
      */
-    function queueRedemption(uint256 espnAmount) external nonReentrant returns (uint256) {
+    function queueRedemption(uint256 espnAmount) external nonReentrant whenNotTripped returns (uint256) {
         if (espnAmount == 0) revert ZeroAmount();
 
         // Calculate redemption amount using ERC4626 math
@@ -146,7 +149,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * Automatically deposits USDS to ESPN, withdraws the right amount of ESPN, and sends USDS to user
      * @param tokenId The NFT token ID to redeem
      */
-    function redeem(uint256 tokenId) external nonReentrant {
+    function redeem(uint256 tokenId) external nonReentrant whenNotTripped {
         // Check ownership
         if (ownerOf(tokenId) != msg.sender) revert NotTokenOwner(tokenId);
 
@@ -211,7 +214,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * for active redemptions behind them in the queue
      * @param tokenIds Array of cancelled NFT token IDs to process
      */
-    function processCancelledRedemptions(uint256[] calldata tokenIds) external nonReentrant {
+    function processCancelledRedemptions(uint256[] calldata tokenIds) external nonReentrant whenNotTripped {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
 
@@ -248,7 +251,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * if they queued $100, regardless of how ESPN share price changed while in queue
      * @param tokenId The NFT token ID to cancel
      */
-    function cancelRedemption(uint256 tokenId) external nonReentrant {
+    function cancelRedemption(uint256 tokenId) external nonReentrant whenNotTripped {
         if (ownerOf(tokenId) != msg.sender) revert NotTokenOwner(tokenId);
         if (redemptions[tokenId].redeemed) revert AlreadyRedeemed(tokenId);
         if (redemptions[tokenId].cancelled) revert AlreadyCancelled(tokenId);
@@ -292,7 +295,7 @@ contract ESPNRedemptionQueue is ERC721, Ownable2Step, ReentrancyGuard {
      * @return espnBurned The amount of ESPN burned
      * @return excessValue The dollar value of excess ESPN burned
      */
-    function burnExcessESPN() external nonReentrant returns (uint256 espnBurned, uint256 excessValue) {
+    function burnExcessESPN() external nonReentrant whenNotTripped returns (uint256 espnBurned, uint256 excessValue) {
         return _burnExcessESPN();
     }
 

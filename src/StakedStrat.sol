@@ -5,6 +5,8 @@ import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {ITripwireController} from "./interfaces/ITripwireController.sol";
+import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 /**
  * @title Staked STRAT
@@ -25,7 +27,7 @@ import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/Reentrancy
  *
  *      StakedSTRAT is a non-transferrable ERC20 token.
  */
-contract StakedStrat is ERC20, ReentrancyGuard {
+contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant PRECISION = 1e18;
@@ -93,7 +95,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _stratToken, address _rewardToken) ERC20("Staked STRAT v2", "sSTRAT-v2") {
+    constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_) ERC20("Staked STRAT v2", "sSTRAT-v2") TripwireGuard(controller_, guardian_) {
         if (_stratToken == address(0)) revert();
         if (_rewardToken == address(0)) revert();
         stratToken = IERC20(_stratToken);
@@ -154,7 +156,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
      *      REWARD_DURATION. A full-size batch gets close to a 7-day window (anti-frontrunning),
      *      while a dust deposit barely perturbs the ongoing stream (griefing mitigation).
      */
-    function syncRewards() public {
+    function syncRewards() public whenNotTripped {
         _tickRewardsPerShare();
 
         // New rewards = total ever deposited minus total ever accepted into the stream
@@ -188,7 +190,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     /**
      * @dev Stake STRAT tokens
      */
-    function stake(uint256 amount) external nonReentrant {
+    function stake(uint256 amount) external nonReentrant whenNotTripped {
         if (amount == 0) revert ZeroAmount();
 
         syncRewards();
@@ -211,7 +213,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     /**
      * @dev Unstake STRAT tokens. Pending rewards are automatically claimed first.
      */
-    function unstake(uint256 amount) external nonReentrant {
+    function unstake(uint256 amount) external nonReentrant whenNotTripped {
         if (amount == 0) revert ZeroAmount();
         if (staked[msg.sender] < amount) revert InsufficientStake();
 
@@ -237,7 +239,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
     /**
      * @dev Claim pending reward tokens
      */
-    function claim() external nonReentrant {
+    function claim() external nonReentrant whenNotTripped {
         syncRewards();
 
         uint256 claimable = _getPendingRewards(msg.sender);
@@ -255,7 +257,7 @@ contract StakedStrat is ERC20, ReentrancyGuard {
      *      The sender's non-migrated pending rewards are preserved in their debt and
      *      remain claimable after the migration.
      */
-    function migrateStake(address to, uint256 amount) external nonReentrant {
+    function migrateStake(address to, uint256 amount) external nonReentrant whenNotTripped {
         if (to == address(0) || to == msg.sender || to == address(this)) revert();
         if (staked[msg.sender] == 0) revert InsufficientStake();
 

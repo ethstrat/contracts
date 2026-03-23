@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Ownable2Step.sol";
 import {IERC20, IERC20MintableBurnable} from "./interfaces/IERC20.sol";
 import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {ITripwireController} from "./interfaces/ITripwireController.sol";
+import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 /**
  * @title StratETHTreasuryLend
@@ -17,7 +19,7 @@ import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
  * parameter.
  * - Borrow amount is net of the maximum term interest (reserved) and a configurable fee (also reserved).
  */
-contract StratETHTreasuryLend is Ownable2Step, ERC721 {
+contract StratETHTreasuryLend is Ownable2Step, ERC721, TripwireGuard {
     // ======== Types ========
     struct Position {
         uint256 stratCollateral;
@@ -133,8 +135,10 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
         address _unencumberedHoldings,
         address _encumberedHoldings,
         uint256 _borrowRate,
-        address owner
-    ) Ownable(owner) ERC721("STRAT Treasury Lend", "tlSTRAT") {
+        address owner,
+        ITripwireController controller_,
+        address guardian_
+    ) Ownable(owner) ERC721("STRAT Treasury Lend", "tlSTRAT") TripwireGuard(controller_, guardian_) {
         if (
             _cdtToken == address(0) || _stratToken == address(0) || _esETHToken == address(0)
                 || _unencumberedHoldings == address(0) || _encumberedHoldings == address(0)
@@ -246,7 +250,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     // ======== Core flows ========
     /// @notice Borrow by supplying up to `stratIn` and `cdtIn` as collateral. Only the covered portion is pulled
     /// (US-100).
-    function borrow(uint256 maxStratIn, uint256 maxCdtIn, uint256 minBorrowAmount, uint256 deadline) external {
+    function borrow(uint256 maxStratIn, uint256 maxCdtIn, uint256 minBorrowAmount, uint256 deadline) external whenNotTripped {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (maxStratIn == 0 && maxCdtIn == 0) revert ZeroAmount();
         (uint256 stratIn
@@ -301,7 +305,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     }
 
     /// @notice Repay before expiry (US-201). Pays accrued interest to `interestRevenueRecipient`.
-    function repay(uint256 tokenId) external {
+    function repay(uint256 tokenId) external whenNotTripped {
         address posOwner = ownerOf(tokenId);
         if (msg.sender != posOwner) revert NotPositionOwner(msg.sender, tokenId);
 
@@ -329,7 +333,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     }
 
     /// @notice Roll a position: settle interest to date, adjust collateral and principal, reset term (US-300/301/302).
-    function roll(uint256 tokenId, uint256 maxNewStratIn, uint256 maxNewCdtIn, uint256 minNewBorrowAmount, uint256 deadline) external {
+    function roll(uint256 tokenId, uint256 maxNewStratIn, uint256 maxNewCdtIn, uint256 minNewBorrowAmount, uint256 deadline) external whenNotTripped {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (maxNewStratIn == 0 && maxNewCdtIn == 0) revert ZeroAmount();
 
@@ -405,7 +409,7 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721 {
     }
 
     /// @notice Permissionless liquidation after expiry (US-400/401).
-    function liquidate(uint256 tokenId) external {
+    function liquidate(uint256 tokenId) external whenNotTripped {
         Position memory p = _positions[tokenId];
         if (block.timestamp < p.expiry) revert LoanUnexpired(tokenId);
 

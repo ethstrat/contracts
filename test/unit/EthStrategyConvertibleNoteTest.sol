@@ -10,6 +10,8 @@ import "../../src/StratToken.sol";
 import "../mocks/MockWETH.sol";
 import {EthUsdPriceOracleProvider} from "../lib/EthUsdPriceOracleProvider.sol";
 import {PermitGenerator} from "../lib/Permit.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 /// @dev Unit tests aligned to docs/EthStrategyConvertibleNote_User_Stories.md and current
 /// src/EthStrategyConvertibleNote.sol.
@@ -34,18 +36,22 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
     /// @dev ETH price: $3000
     uint256 internal constant ETH_USD_PRICE = 3000e18;
 
+    ITripwireController internal ctrl;
+
     function setUp() public {
         (permitOwner, permitPk) = makeAddrAndKey("PERMIT_OWNER");
 
         _setUpEthUsdOracle(ETH_USD_PRICE);
 
+        ctrl = ITripwireController(address(new TripwireController()));
+
         vm.startPrank(owner);
-        cdtToken = new CdtToken(owner);
-        stratToken = new StratToken(owner);
+        cdtToken = new CdtToken(owner, ctrl, owner);
+        stratToken = new StratToken(owner, ctrl, owner);
 
         // Deploy esETH with a local WETH implementation. Mark WETH as mintable so bond() can call wrapAndMint.
         weth = new MockWETH();
-        esETHToken = new esETH(owner, address(weth));
+        esETHToken = new esETH(owner, address(weth), ctrl, owner);
         esETHToken.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
 
         // Deploy the note contract (per current spec)
@@ -56,6 +62,8 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
             unencumberedHoldings,
             encumberedHoldings,
             address(ethUsdOracle),
+            owner,
+            ctrl,
             owner
         );
 

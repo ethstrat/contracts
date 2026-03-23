@@ -6,6 +6,8 @@ import {ESPNRedemptionQueue} from "../../src/ESPNRedemptionQueue.sol";
 import {EthStrategyPerpetualNote} from "../../src/EthStrategyPerpetualNote.sol";
 import {MorphoBlueFlashLoanProvider} from "../../src/MorphoBlueFlashLoanProvider.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 /**
  * @title ESPN Redemption Queue Integration Tests
@@ -65,8 +67,9 @@ contract ESPNRedemptionQueueIntegrationTest is Test {
         flashLoanProvider = new MorphoBlueFlashLoanProvider();
         
         // Deploy redemption queue with MorphoBlueFlashLoanProvider
+        ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner);
+        queue = new ESPNRedemptionQueue(address(espn), sweeper, owner, ctrl, owner);
         
         // Set queue as ESPN manager (required for cancellation to work)
         vm.prank(owner);

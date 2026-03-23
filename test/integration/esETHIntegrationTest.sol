@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {esETH, ILegacyVaultTypes, IWeETH} from "../../src/esETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 interface IAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
@@ -110,8 +112,10 @@ contract esETHIntegrationTest is Test {
         vm.rollFork(FORK_BLOCK);
         require(block.chainid == 1, "Must be on mainnet fork");
 
+        // Deploy esETH contract
+        ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        esETHContract = new esETH(owner, WETH);
+        esETHContract = new esETH(owner, WETH, ctrl, owner);
 
         vm.startPrank(owner);
         esETHContract.setTokenConfig(WETH,   esETH.TokenType.ERC20,  true, true);

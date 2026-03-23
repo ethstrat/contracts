@@ -7,6 +7,8 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
+import {TripwireController} from "../../src/lib/TripwireController.sol";
+import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 /// @dev Minimal weETH-like token with configurable conversion rate to ETH-equivalent units.
 contract MockWeETH is ERC20 {
@@ -72,8 +74,9 @@ contract esETHTest is Test {
         weETH.mint(user2, INITIAL_BALANCE);
 
         // Deploy esETH contract
+        ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
-        esETHContract = new esETH(owner, address(weth));
+        esETHContract = new esETH(owner, address(weth), ctrl, owner);
 
         // Configure tokens
         vm.startPrank(owner);
