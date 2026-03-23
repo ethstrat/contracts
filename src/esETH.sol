@@ -16,7 +16,6 @@ interface IWETH {
 interface ILegacyVaultTypes {
     function stEthPerToken() external view returns (uint256);
     function getExchangeRate() external view returns (uint256);
-    function exchangeRate() external view returns (uint256);
 }
 
 
@@ -41,8 +40,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         WSTETH,
         RETH,
         AWETH,
-        WEETH,
-        CBETH
+        WEETH
     }
 
     /// @dev Structure to store token configuration
@@ -270,9 +268,6 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         } else if (tokenType == TokenType.WEETH) {
             // weETH (ether.fi): convert wrapped weETH amount into its eETH/ETH-equivalent amount.
             return IWeETH(token).getEETHByWeETH(amount);
-        } else if (tokenType == TokenType.CBETH) {
-            // cbETH: exchangeRate() returns the ETH value of 1 cbETH, scaled by 1e18.
-            return amount * ILegacyVaultTypes(token).exchangeRate() / 1e18;
         }
 
         revert UnsupportedToken(token);

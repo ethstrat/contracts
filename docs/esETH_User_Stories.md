@@ -19,7 +19,7 @@
 
 **US-001: Mint esETH with LST**
 - **As a** user holding liquid staking tokens (LST)
-- **I want to** deposit my LST tokens (wstETH, rETH, aWETH, weETH, cbETH, or ERC20 tokens) to mint esETH
+- **I want to** deposit my LST tokens (wstETH, rETH, aWETH, weETH, or ERC20 tokens) to mint esETH
 - **So that** I can get a unified token representing a basket of staked ETH positions
 - **Acceptance Criteria:**
   - Token must be **supported** (`TokenType != UNSUPPORTED`)
@@ -104,7 +104,7 @@
 - **I want to** configure which LST tokens can be used for minting and redemption
 - **So that** I can control which tokens are supported and manage protocol risk
 - **Acceptance Criteria:**
-  - Can set token type (ERC20, WSTETH, RETH, AWETH, WEETH, CBETH)
+  - Can set token type (ERC20, WSTETH, RETH, AWETH, WEETH)
   - Can enable/disable minting per token
   - Can enable/disable redemption per token
   - Preserves totalMinted value when updating config
@@ -189,7 +189,6 @@
   - rETH: Uses `getExchangeRate()`
   - aWETH (Aave V3): 1:1 (rebasing token — `balanceOf` already reflects ETH-denominated value)
   - weETH (ether.fi): Uses `getEETHByWeETH()`
-  - cbETH: Uses `exchangeRate()`
 - Redemption rounds up esETH burned by +1 wei to prevent rounding exploits; `totalMinted` only tracks the base value (without the rounding protection wei)
 - Yield is harvested periodically rather than continuously rebasing
 

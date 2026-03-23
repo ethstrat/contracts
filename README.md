@@ -10,14 +10,14 @@ Run forge tests: `yarn test`
 
 Integration tests fork mainnet to test against live protocols (e.g., Sky/MakerDAO flash loans).
 
-To run integration tests:
+To run integration tests (uses Tenderly mainnet fork by default):
 ```bash
-FORK_URL=<your_mainnet_rpc_url> yarn test:integration
+yarn test:integration
 ```
 
-Example with Alchemy:
+To use a custom RPC:
 ```bash
-FORK_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY yarn test:integration
+FORK_URL=<your_mainnet_rpc_url> yarn test:integration
 ```
 
 Integration tests are located in `test/integration/` and include:

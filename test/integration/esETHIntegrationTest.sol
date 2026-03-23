@@ -55,12 +55,12 @@ interface ILidoStEth {
  *   2. MINT PRODUCES CORRECT esETH
  *      esETH minted = depositAmount * rate / 1e18.
  *      For 1:1 tokens (WETH, aWETH) this equals the deposit amount exactly.
- *      For yield-bearing tokens (wstETH, rETH, weETH, cbETH) it is strictly greater.
+ *      For yield-bearing tokens (wstETH, rETH, weETH) it is strictly greater.
  *      The assertion also guards against double-scaling bugs where the rate is
  *      applied twice.
  *
  *   3. YIELD ADVANCE (one year)
- *      - Oracle-based tokens (wstETH, rETH, weETH, cbETH): vm.rollFork resets
+ *      - Oracle-based tokens (wstETH, rETH, weETH): vm.rollFork resets
  *        locally-deployed contract state, so yield is simulated by dealing extra
  *        tokens into the esETH contract. Cast call comments at YIELD_BLOCK show
  *        what the real oracle value would be for independent verification.
@@ -76,7 +76,7 @@ interface ILidoStEth {
  *      redeem(token, tokenAmount) burns (convertToETH(tokenAmount) + 1) esETH and
  *      returns exactly tokenAmount underlying tokens.
  *      Because rate > 1 for yield-bearing tokens, tokenAmount < the original deposit:
- *      1 esETH buys LESS than 1 wstETH/rETH/weETH/cbETH, and EXACTLY 1 WETH/aWETH.
+ *      1 esETH buys LESS than 1 wstETH/rETH/weETH, and EXACTLY 1 WETH/aWETH.
  */
 contract esETHIntegrationTest is Test {
     esETH public esETHContract;
@@ -90,7 +90,6 @@ contract esETHIntegrationTest is Test {
     address public constant RETH                  = 0xae78736Cd615f374D3085123A210448E74Fc6393;
     address public constant AWETH                 = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8;
     address public constant WEETH                 = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
-    address public constant CBETH                 = 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704;
     address public constant AAVE_V3_POOL          = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     // Lido V2 AccountingOracle: the only address allowed to call stETH.handleOracleReport().
     // Verify: cast call 0xC1d0b3DE6792Bf6b4b37EccdcC24e45978Cfd2Eb \
@@ -123,7 +122,6 @@ contract esETHIntegrationTest is Test {
         esETHContract.setTokenConfig(RETH,   esETH.TokenType.RETH,   true, true);
         esETHContract.setTokenConfig(AWETH,  esETH.TokenType.AWETH,  true, true);
         esETHContract.setTokenConfig(WEETH,  esETH.TokenType.WEETH,  true, true);
-        esETHContract.setTokenConfig(CBETH,  esETH.TokenType.CBETH,  true, true);
         vm.stopPrank();
     }
 
@@ -575,73 +573,4 @@ contract esETHIntegrationTest is Test {
         console2.log("weETH redeemed:       ", redeemAmt, "| esETH burned:", burned);
     }
 
-    // ===========================================================================
-    // 6. cbETH  (CBETH – exchangeRate oracle, Coinbase staking rewards)
-    // ===========================================================================
-    //
-    // RATE AT FORK_BLOCK
-    //   cast call 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704 \
-    //     "exchangeRate()(uint256)" \
-    //     --block 22000000 --rpc-url $RPC
-    //   -> ~1.086e18  (1 cbETH is worth ~1.086 ETH at block 22 000 000)
-    //
-    // RATE AT YIELD_BLOCK
-    //   cast call 0xBe9895146f7AF43049ca1c1AE358B0541Ea49704 \
-    //     "exchangeRate()(uint256)" \
-    //     --block 23000000 --rpc-url $RPC
-    //   -> ~1.093e18  (rate increases as Coinbase staking rewards accrue)
-    //
-    // YIELD ADVANCE STRATEGY: same deal-extra-tokens approach as wstETH (see above).
-    //
-    // REDEEM (inverse of mint)
-    //   rate > 1, so 1 esETH redeems LESS than 1 cbETH.
-    //   E.g. at rate 1.086: redeeming 1e18 esETH gives ~0.921 cbETH back.
-
-    function testFork_CbETH() public {
-        address user = makeAddr("cbeth_user");
-        uint256 depositAmt = 2e18;
-
-        // --- 1. Rate at FORK_BLOCK ---
-        uint256 rate = ILegacyVaultTypes(CBETH).exchangeRate();
-        assertGt(rate, 1e18,   "cbETH: exchangeRate must be > 1e18 at fork block");
-        assertLt(rate, 1.5e18, "cbETH: exchangeRate sanity upper bound");
-        console2.log("cbETH exchangeRate at FORK_BLOCK:", rate);
-
-        // --- 2. Mint: esETH = depositAmt * rate / 1e18 ---
-        uint256 minted = _mintEsETH(CBETH, user, depositAmt);
-        assertEq(minted, depositAmt * rate / 1e18,
-            "cbETH: minted esETH must equal depositAmt * exchangeRate / 1e18");
-        assertGt(minted, depositAmt,
-            "cbETH: minted esETH > deposited tokens because exchangeRate > 1");
-
-        // --- 3. Yield advance: deal ~5% extra cbETH to simulate oracle rate increase ---
-        uint256 extraTokens = depositAmt / 20;
-        deal(CBETH, address(esETHContract),
-            IERC20(CBETH).balanceOf(address(esETHContract)) + extraTokens);
-
-        // --- 4. Harvest ---
-        uint256 expectedYield = extraTokens * rate / 1e18;
-        _harvest(CBETH);
-        assertEq(esETHContract.balanceOf(owner), expectedYield,
-            "cbETH: harvestYield must mint exactly the esETH-valued surplus");
-
-        // --- 5. Redeem: fewer cbETH returned than deposited (rate > 1) ---
-        uint256 redeemAmt    = (minted / 2 - 1) * 1e18 / rate;
-        uint256 expectedBurn = redeemAmt * rate / 1e18 + 1;
-        assertLe(expectedBurn, esETHContract.balanceOf(user), "sanity: user has enough esETH");
-        assertLt(redeemAmt, depositAmt / 2,
-            "cbETH: cbETH returned is less than half the deposit (rate > 1)");
-
-        vm.prank(user);
-        uint256 burned = esETHContract.redeem(CBETH, redeemAmt, user);
-
-        assertEq(burned, expectedBurn,
-            "cbETH: esETH burned must equal redeemAmt * exchangeRate / 1e18 + 1");
-        assertEq(IERC20(CBETH).balanceOf(user), redeemAmt,
-            "cbETH: user receives the exact requested cbETH amount");
-
-        console2.log("cbETH minted esETH:  ", minted, "| deposited cbETH:", depositAmt);
-        console2.log("cbETH yield harvested:", expectedYield);
-        console2.log("cbETH redeemed:       ", redeemAmt, "| esETH burned:", burned);
-    }
 }

@@ -7,7 +7,7 @@
 - **Realistic deployment simulation**: Create tests that simulate real-world deployment sequence with proper initialization, approvals, and seeding
 
 ## Mainnet Fork Testing
-- **esETH conversion accuracy**: Verify all LST conversion functions (wstETH, rETH, cETH, aETHv2, ankrETH, cbETH) return correct ETH values on mainnet
+- **esETH conversion accuracy**: Verify all LST conversion functions (wstETH, rETH, cETH, aETHv2, ankrETH) return correct ETH values on mainnet
 - **Oracle price feeds**: Test with real Chainlink ETH/USD price feeds to ensure pricing calculations work correctly
 - **TreasuryLend liquidation timing**: Test liquidation mechanics with real time passage to ensure expiry logic works
 - **Flash loan dependencies**: Test ESPN redemption queue cancellation mechanics with real Sky flash loans

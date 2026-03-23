@@ -12,7 +12,7 @@
     "prepare": "husky install && forge install",
     "build": "forge build",
     "test": "forge test --fuzz-runs 20",
-    "test:integration": "sh -c 'test -n \"$FORK_URL\" || (echo \"❌ FORK_URL is required for integration tests\" && exit 1)' && FOUNDRY_PROFILE=integration forge test --fork-url $FORK_URL",
+    "test:integration": "FOUNDRY_PROFILE=integration forge test --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}",
     "lint": "yarn lint:forge",
     "lint:forge": "forge fmt --check",
     "lint:fix": "forge fmt",
