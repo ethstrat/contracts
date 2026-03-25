@@ -7,10 +7,6 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {TripwireController} from "../../src/lib/TripwireController.sol";
 import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
-interface IAavePool {
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
-}
-
 // Lido stETH V2: handleOracleReport() is the only function that actually updates the
 // rate (stEthPerToken).  In Lido V2, EL rewards received via receiveELRewards() are
 // held as "pending" and only become part of getTotalPooledEther() when the
@@ -54,7 +50,7 @@ interface ILidoStEth {
  *
  *   2. MINT PRODUCES CORRECT esETH
  *      esETH minted = depositAmount * rate / 1e18.
- *      For 1:1 tokens (WETH, aWETH) this equals the deposit amount exactly.
+ *      For 1:1 tokens (WETH) this equals the deposit amount exactly.
  *      For yield-bearing tokens (wstETH, rETH, weETH) it is strictly greater.
  *      The assertion also guards against double-scaling bugs where the rate is
  *      applied twice.
@@ -64,9 +60,6 @@ interface ILidoStEth {
  *        locally-deployed contract state, so yield is simulated by dealing extra
  *        tokens into the esETH contract. Cast call comments at YIELD_BLOCK show
  *        what the real oracle value would be for independent verification.
- *      - aWETH: Aave interest is purely timestamp-driven. vm.warp advances
- *        block.timestamp without resetting storage; a subsequent tiny pool.supply()
- *        forces updateState() which credits the elapsed interest to all aToken holders.
  *      - WETH: no yield mechanism exists; step 3/4 confirm harvestYield is zero.
  *
  *   4. HARVEST CAPTURES EXACT SURPLUS
@@ -76,7 +69,7 @@ interface ILidoStEth {
  *      redeem(token, tokenAmount) burns (convertToETH(tokenAmount) + 1) esETH and
  *      returns exactly tokenAmount underlying tokens.
  *      Because rate > 1 for yield-bearing tokens, tokenAmount < the original deposit:
- *      1 esETH buys LESS than 1 wstETH/rETH/weETH, and EXACTLY 1 WETH/aWETH.
+ *      1 esETH buys LESS than 1 wstETH/rETH/weETH, and EXACTLY 1 WETH.
  */
 contract esETHIntegrationTest is Test {
     esETH public esETHContract;
@@ -88,9 +81,7 @@ contract esETHIntegrationTest is Test {
     address public constant WSTETH                = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address public constant STETH                 = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
     address public constant RETH                  = 0xae78736Cd615f374D3085123A210448E74Fc6393;
-    address public constant AWETH                 = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8;
     address public constant WEETH                 = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
-    address public constant AAVE_V3_POOL          = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     // Lido V2 AccountingOracle: the only address allowed to call stETH.handleOracleReport().
     // Verify: cast call 0xC1d0b3DE6792Bf6b4b37EccdcC24e45978Cfd2Eb \
     //           "accountingOracle()(address)" --block 22000000 --rpc-url $RPC
@@ -120,7 +111,6 @@ contract esETHIntegrationTest is Test {
         esETHContract.setTokenConfig(WETH,   esETH.TokenType.ERC20,  true, true);
         esETHContract.setTokenConfig(WSTETH, esETH.TokenType.WSTETH, true, true);
         esETHContract.setTokenConfig(RETH,   esETH.TokenType.RETH,   true, true);
-        esETHContract.setTokenConfig(AWETH,  esETH.TokenType.AWETH,  true, true);
         esETHContract.setTokenConfig(WEETH,  esETH.TokenType.WEETH,  true, true);
         vm.stopPrank();
     }
@@ -394,114 +384,7 @@ contract esETHIntegrationTest is Test {
     }
 
     // ===========================================================================
-    // 4. aWETH  (AWETH – Aave V3 rebasing, timestamp-driven interest)
-    // ===========================================================================
-    //
-    // RATE AT FORK_BLOCK
-    //   aWETH is always 1:1 with WETH. Yield manifests as balance growth, not
-    //   a rate > 1. The Aave liquidity index tracks accrued interest, but
-    //   balanceOf() already incorporates it - no additional scaling is needed.
-    //
-    //   Verify the 1:1 peg and that interest has genuinely accrued (scaledTotalSupply
-    //   < totalSupply at any live block):
-    //   cast call 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8 \
-    //     "scaledTotalSupply()(uint256)" --block 22000000 --rpc-url $RPC
-    //   cast call 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8 \
-    //     "totalSupply()(uint256)"       --block 22000000 --rpc-url $RPC
-    //   -> totalSupply > scaledTotalSupply; the ratio is the liquidity index.
-    //      Applying it again on top of balanceOf would double-count (historical bug).
-    //
-    // RATE AFTER 1 YEAR (vm.warp)
-    //   Aave V3 WETH supply APY is approximately 1-3 %.  After vm.warp(+365 days)
-    //   and a trigger supply(), the esETH contract's aWETH balance grows by that APY.
-    //   cast call 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2 \
-    //     "getReserveNormalizedIncome(address)(uint256)" \
-    //     0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 \
-    //     --block 22000000 --rpc-url $RPC
-    //   -> a ray-scaled (1e27) liquidity index; value grows over time.
-    //
-    // WHY vm.warp NOT vm.rollFork
-    //   Aave interest is computed as: principal * linearInterest(rate, elapsed_seconds).
-    //   vm.warp advances block.timestamp without resetting EVM storage, so the esETH
-    //   contract's scaledBalance slot is preserved. vm.rollFork would clear it, wiping
-    //   the position. A subsequent tiny pool.supply() forces Aave to call updateState()
-    //   and rebase all aToken holders' balances.
-    //
-    // REDEEM (inverse of mint)
-    //   aWETH is 1:1 post-rebase: 1 esETH still redeems exactly 1 aWETH.
-
-    function testFork_AWETH() public {
-        address user = makeAddr("aweth_user");
-        uint256 wethToSupply = 2e18;
-
-        // --- 1. Rate at FORK_BLOCK: 1 aWETH = 1 ETH (1:1, balance already rebased) ---
-        uint256 rate = esETHContract.getETHValue(AWETH, 1e18);
-        assertEq(rate, 1e18, "aWETH: getETHValue must be exactly 1:1 (no index scaling on top of balance)");
-        console2.log("aWETH rate (1e18 in, ETH out):", rate);
-
-        // --- 2. Mint: supply real WETH to Aave to obtain genuine aWETH, then mint esETH ---
-        // Using pool.supply() (not deal) gives authentic Aave scaledBalance accounting,
-        // which is the only way the rebase in step 3 will be credited correctly.
-        deal(WETH, user, wethToSupply);
-        vm.startPrank(user);
-        IERC20(WETH).approve(AAVE_V3_POOL, wethToSupply);
-        IAavePool(AAVE_V3_POOL).supply(WETH, wethToSupply, user, 0);
-        vm.stopPrank();
-
-        uint256 aWethReceived = IERC20(AWETH).balanceOf(user);
-        assertApproxEqAbs(aWethReceived, wethToSupply, 1e12,
-            "aWETH: received aWETH must approximately equal supplied WETH");
-
-        vm.startPrank(user);
-        IERC20(AWETH).approve(address(esETHContract), aWethReceived);
-        uint256 minted = esETHContract.mint(AWETH, aWethReceived, user);
-        vm.stopPrank();
-
-        // 1:1 peg: esETH minted == aWETH deposited. Historical bug applied
-        // (totalSupply/scaledTotalSupply) here, inflating by ~4%.
-        assertEq(minted, aWethReceived,
-            "aWETH: 1 aWETH must mint exactly 1 esETH (no liquidity-index double-scaling)");
-
-        // --- 3. Yield advance: vm.warp 1 year; trigger pool interaction to rebase ---
-        vm.warp(block.timestamp + 365 days);
-
-        address triggerUser = makeAddr("aave_trigger");
-        deal(WETH, triggerUser, 1e15);
-        vm.startPrank(triggerUser);
-        IERC20(WETH).approve(AAVE_V3_POOL, 1e15);
-        IAavePool(AAVE_V3_POOL).supply(WETH, 1e15, triggerUser, 0);
-        vm.stopPrank();
-
-        uint256 contractAWeth = IERC20(AWETH).balanceOf(address(esETHContract));
-        assertGt(contractAWeth, aWethReceived,
-            "aWETH: 1-year rebasing must increase the contract aWETH balance (Aave interest credited)");
-        console2.log("aWETH after 1 yr (rebased):", contractAWeth, "| deposited:", aWethReceived);
-
-        // --- 4. Harvest: surplus = contractAWeth - totalMinted (still 1:1 per aWETH) ---
-        uint256 expectedYield = contractAWeth - aWethReceived;
-        _harvest(AWETH);
-        assertApproxEqAbs(esETHContract.balanceOf(owner), expectedYield, 1,
-            "aWETH: harvestYield must mint exactly the rebased surplus as esETH");
-        console2.log("aWETH yield harvested:", expectedYield);
-
-        // --- 5. Redeem: 1 esETH redeems exactly 1 aWETH (1:1 peg maintained post-rebase) ---
-        uint256 redeemAmt    = aWethReceived / 2;
-        uint256 expectedBurn = redeemAmt + 1;
-        assertLe(expectedBurn, esETHContract.balanceOf(user), "sanity: user has enough esETH");
-
-        vm.prank(user);
-        uint256 burned = esETHContract.redeem(AWETH, redeemAmt, user);
-
-        assertEq(burned, expectedBurn,
-            "aWETH: esETH burned must equal redeemAmt + 1 (1:1 peg)");
-        assertApproxEqAbs(IERC20(AWETH).balanceOf(user), redeemAmt, 1,
-            "aWETH: user receives the correct aWETH amount");
-
-        console2.log("aWETH redeemed:", redeemAmt, "| esETH burned:", burned);
-    }
-
-    // ===========================================================================
-    // 5. weETH  (WEETH – getEETHByWeETH oracle, ether.fi restaking rewards)
+    // 4. weETH  (WEETH – getEETHByWeETH oracle, ether.fi restaking rewards)
     // ===========================================================================
     //
     // RATE AT FORK_BLOCK
