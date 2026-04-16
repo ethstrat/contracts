@@ -8,7 +8,7 @@ import {TripwireController} from "../../src/lib/TripwireController.sol";
 import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
 // Lido stETH V2: handleOracleReport() is the only function that actually updates the
-// rate (stEthPerToken).  In Lido V2, EL rewards received via receiveELRewards() are
+// wstETH↔stETH conversion rate.  In Lido V2, EL rewards received via receiveELRewards() are
 // held as "pending" and only become part of getTotalPooledEther() when the
 // AccountingOracle calls handleOracleReport() to distribute them alongside CL rewards.
 interface ILidoStEth {
@@ -49,7 +49,8 @@ interface ILidoStEth {
  *      A cast call comment lets the reader independently verify the exact value.
  *
  *   2. MINT PRODUCES CORRECT esETH
- *      esETH minted = depositAmount * rate / 1e18.
+ *      esETH minted matches _convertTokenToETH (WETH: 1:1; wstETH: getStETHByWstETH;
+ *      rETH/weETH: respective oracle helpers).
  *      For 1:1 tokens (WETH) this equals the deposit amount exactly.
  *      For yield-bearing tokens (wstETH, rETH, weETH) it is strictly greater.
  *      The assertion also guards against double-scaling bugs where the rate is
@@ -191,16 +192,16 @@ contract esETHIntegrationTest is Test {
     }
 
     // ===========================================================================
-    // 2. wstETH  (WSTETH – stEthPerToken oracle, validator rewards)
+    // 2. wstETH  (WSTETH – getStETHByWstETH on-chain conversion, validator rewards)
     // ===========================================================================
     //
-    // RATE AT FORK_BLOCK
+    // RATE AT FORK_BLOCK (stETH per 1 wstETH)
     //   cast call 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0 \
-    //     "stEthPerToken()(uint256)" \
+    //     "getStETHByWstETH(uint256)(uint256)" 1000000000000000000 \
     //     --block 22000000 --rpc-url $RPC
     //   -> ~1.196e18  (1 wstETH is worth ~1.196 stETH/ETH at block 22 000 000)
     //
-    // HOW stEthPerToken INCREASES
+    // HOW THE RATE INCREASES
     //   stEthPerToken = stETH.getTotalPooledEther() / stETH.getTotalShares() * 1e18
     //   It rises when totalPooledEther grows without new shares being issued, which
     //   happens in two ways in the real protocol:
@@ -219,9 +220,9 @@ contract esETHIntegrationTest is Test {
     //       "elRewardsVault()(address)" --block 22000000 --rpc-url $RPC
     //     -> 0x388C818CA8B9251b393131C08a736A67ccB19297
     //
-    //   Observe the real stEthPerToken increase at YIELD_BLOCK:
+    //   Observe the real stETH-per-wstETH increase at YIELD_BLOCK:
     //     cast call 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0 \
-    //       "stEthPerToken()(uint256)" --block 23000000 --rpc-url $RPC
+    //       "getStETHByWstETH(uint256)(uint256)" 1000000000000000000 --block 23000000 --rpc-url $RPC
     //     -> ~1.204e18
     //
     // REDEEM (inverse of mint)
@@ -232,18 +233,18 @@ contract esETHIntegrationTest is Test {
         address user = makeAddr("wsteth_user");
         uint256 depositAmt = 2e18;
 
-        // --- 1. Rate at FORK_BLOCK ---
-        uint256 rateAtMint = ILegacyVaultTypes(WSTETH).stEthPerToken();
-        assertGt(rateAtMint, 1e18,   "wstETH: stEthPerToken must be > 1e18 at fork block");
-        assertLt(rateAtMint, 1.5e18, "wstETH: stEthPerToken sanity upper bound");
-        console2.log("wstETH stEthPerToken at FORK_BLOCK:", rateAtMint);
+        // --- 1. Rate at FORK_BLOCK (stETH per 1 wstETH) ---
+        uint256 rateAtMint = ILegacyVaultTypes(WSTETH).getStETHByWstETH(1e18);
+        assertGt(rateAtMint, 1e18,   "wstETH: getStETHByWstETH(1e18) must be > 1e18 at fork block");
+        assertLt(rateAtMint, 1.5e18, "wstETH: getStETHByWstETH(1e18) sanity upper bound");
+        console2.log("wstETH getStETHByWstETH(1e18) at FORK_BLOCK:", rateAtMint);
 
-        // --- 2. Mint: esETH = depositAmt * rateAtMint / 1e18 (> depositAmt because rate > 1) ---
+        // --- 2. Mint: esETH = getStETHByWstETH(depositAmt) (> depositAmt because rate > 1) ---
         uint256 minted = _mintEsETH(WSTETH, user, depositAmt);
-        assertEq(minted, depositAmt * rateAtMint / 1e18,
-            "wstETH: minted esETH must equal depositAmt * stEthPerToken / 1e18");
+        assertEq(minted, ILegacyVaultTypes(WSTETH).getStETHByWstETH(depositAmt),
+            "wstETH: minted esETH must equal getStETHByWstETH(depositAmt)");
         assertGt(minted, depositAmt,
-            "wstETH: minted esETH > deposited tokens because stEthPerToken > 1");
+            "wstETH: minted esETH > deposited tokens because stETH per wstETH > 1");
 
         // --- 3. Yield advance: submit oracle report with higher CL balance ---
         // wstETH's rate is stEthPerToken = getTotalPooledEther() / getTotalShares() * 1e18.
@@ -283,16 +284,15 @@ contract esETHIntegrationTest is Test {
             simulatedShareRate      // _simulatedShareRate
         );
 
-        uint256 rateAfterRebase = ILegacyVaultTypes(WSTETH).stEthPerToken();
+        uint256 rateAfterRebase = ILegacyVaultTypes(WSTETH).getStETHByWstETH(1e18);
         assertGt(rateAfterRebase, rateAtMint,
-            "wstETH: stEthPerToken must be higher after oracle report");
-        console2.log("wstETH stEthPerToken after oracle report:", rateAfterRebase);
+            "wstETH: getStETHByWstETH(1e18) must be higher after oracle report");
+        console2.log("wstETH getStETHByWstETH(1e18) after oracle report:", rateAfterRebase);
 
         // --- 4. Harvest: capture the rate-increase surplus as esETH ---
-        // The same depositAmt wstETH is now valued at rateAfterRebase, which exceeds
-        // the totalMinted recorded at mint time (rateAtMint).
-        // surplus = depositAmt * rateAfterRebase / 1e18 - minted
-        uint256 expectedYield = depositAmt * rateAfterRebase / 1e18 - minted;
+        // The same depositAmt wstETH is now valued higher in stETH terms, which exceeds
+        // the totalMinted recorded at mint time.
+        uint256 expectedYield = ILegacyVaultTypes(WSTETH).getStETHByWstETH(depositAmt) - minted;
         _harvest(WSTETH);
         assertEq(esETHContract.balanceOf(owner), expectedYield,
             "wstETH: harvestYield must mint exactly the rate-increase surplus as esETH");
@@ -300,9 +300,9 @@ contract esETHIntegrationTest is Test {
 
         // --- 5. Redeem: fewer wstETH returned because post-rebase rate > 1 ---
         // redeemAmt chosen so that burned ≈ minted / 2.
-        // burned = redeemAmt * rateAfterRebase / 1e18 + 1
+        // burned = getStETHByWstETH(redeemAmt) + 1
         uint256 redeemAmt    = (minted / 2 - 1) * 1e18 / rateAfterRebase;
-        uint256 expectedBurn = redeemAmt * rateAfterRebase / 1e18 + 1;
+        uint256 expectedBurn = ILegacyVaultTypes(WSTETH).getStETHByWstETH(redeemAmt) + 1;
         assertLe(expectedBurn, esETHContract.balanceOf(user), "sanity: user has enough esETH");
         assertLt(redeemAmt, depositAmt / 2,
             "wstETH: wstETH returned is less than half the deposit (rate > 1)");
@@ -311,7 +311,7 @@ contract esETHIntegrationTest is Test {
         uint256 burned = esETHContract.redeem(WSTETH, redeemAmt, user);
 
         assertEq(burned, expectedBurn,
-            "wstETH: esETH burned must equal redeemAmt * stEthPerToken / 1e18 + 1");
+            "wstETH: esETH burned must equal getStETHByWstETH(redeemAmt) + 1");
         assertEq(IERC20(WSTETH).balanceOf(user), redeemAmt,
             "wstETH: user receives the exact requested wstETH amount");
 

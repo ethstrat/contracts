@@ -14,7 +14,8 @@ interface IWETH {
 }
 
 interface ILegacyVaultTypes {
-    function stEthPerToken() external view returns (uint256);
+    /// @dev wstETH: stETH amount for a given wstETH amount (single rounding vs amount * stEthPerToken / 1e18)
+    function getStETHByWstETH(uint256 _wstETHAmount) external view returns (uint256);
     function getExchangeRate() external view returns (uint256);
 }
 
@@ -260,10 +261,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         if (tokenType == TokenType.ERC20) {
             return amount;
         } else if (tokenType == TokenType.WSTETH) {
-            // wstETH (Wrapped stETH) is not ERC4626, but exposes stEthPerToken()
-            // Converting wstETH to its underlying ETH (stETH)
-            // Interface: function stEthPerToken() external view returns (uint256);
-            return amount * ILegacyVaultTypes(token).stEthPerToken() / 1e18;
+            // wstETH: use Lido helper so conversion uses one floor round (not amount * stEthPerToken / 1e18).
+            return ILegacyVaultTypes(token).getStETHByWstETH(amount);
         } else if (tokenType == TokenType.RETH) {
             // rETH: rethPerToken() returns the ETH value of 1 rETH, scaled by 1e18.
             return amount * ILegacyVaultTypes(token).getExchangeRate() / 1e18;
