@@ -389,6 +389,9 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         public
         whenNotTripped
     {
+        // Redundant with the expiry check below (bonding enforces expiry > timelock, so redeem only runs after
+        // timelock has passed). Intentionally retained: same ordering as convert, explicit TimelockActive reverts,
+        // and readable completeness at the cost of a small amount of gas.
         if (timelock[tokenId] > block.timestamp) revert TimelockActive(msg.sender, tokenId);
         if (expiry[tokenId] > block.timestamp) revert OptionUnexpired(msg.sender, tokenId);
 
