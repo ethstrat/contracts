@@ -185,9 +185,9 @@
 - Uses OpenZeppelin's Ownable2Step for secure ownership management
 - Supports multiple LST types with different conversion mechanisms:
   - ERC20: 1:1 (e.g. WETH — no exchange rate applied)
-  - wstETH: Uses `stEthPerToken()`
-  - rETH: Uses `getExchangeRate()`
-  - weETH (ether.fi): Uses `getEETHByWeETH()`
+  - wstETH: Uses Lido `getStETHByWstETH(uint256)` (stETH amount for a given wstETH amount; avoids double truncation from `amount * stEthPerToken / 1e18`)
+  - rETH: Uses Rocket Pool `getEthValue(uint256)` (ETH value for a given rETH amount; avoids double truncation from `amount * getExchangeRate / 1e18`)
+  - weETH (ether.fi): Uses `getEETHByWeETH(uint256)`
 - Redemption rounds up esETH burned by +1 wei to prevent rounding exploits; `totalMinted` only tracks the base value (without the rounding protection wei)
 - Yield is harvested periodically rather than continuously rebasing
 

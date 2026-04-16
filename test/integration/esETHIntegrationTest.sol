@@ -50,7 +50,7 @@ interface ILidoStEth {
  *
  *   2. MINT PRODUCES CORRECT esETH
  *      esETH minted matches _convertTokenToETH (WETH: 1:1; wstETH: getStETHByWstETH;
- *      rETH/weETH: respective oracle helpers).
+ *      rETH: getEthValue; weETH: getEETHByWeETH).
  *      For 1:1 tokens (WETH) this equals the deposit amount exactly.
  *      For yield-bearing tokens (wstETH, rETH, weETH) it is strictly greater.
  *      The assertion also guards against double-scaling bugs where the rate is
@@ -320,18 +320,18 @@ contract esETHIntegrationTest is Test {
     }
 
     // ===========================================================================
-    // 3. rETH  (RETH – getExchangeRate oracle, Rocket Pool node operators)
+    // 3. rETH  (RETH – getEthValue, Rocket Pool node operators)
     // ===========================================================================
     //
-    // RATE AT FORK_BLOCK
+    // RATE AT FORK_BLOCK (ETH value of 1 rETH)
     //   cast call 0xae78736Cd615f374D3085123A210448E74Fc6393 \
-    //     "getExchangeRate()(uint256)" \
+    //     "getEthValue(uint256)(uint256)" 1000000000000000000 \
     //     --block 22000000 --rpc-url $RPC
     //   -> ~1.108e18  (1 rETH is worth ~1.108 ETH at block 22 000 000)
     //
     // RATE AT YIELD_BLOCK
     //   cast call 0xae78736Cd615f374D3085123A210448E74Fc6393 \
-    //     "getExchangeRate()(uint256)" \
+    //     "getEthValue(uint256)(uint256)" 1000000000000000000 \
     //     --block 23000000 --rpc-url $RPC
     //   -> ~1.115e18  (rate increases as Rocket Pool node operators earn rewards)
     //
@@ -345,18 +345,18 @@ contract esETHIntegrationTest is Test {
         address user = makeAddr("reth_user");
         uint256 depositAmt = 2e18;
 
-        // --- 1. Rate at FORK_BLOCK ---
-        uint256 rate = ILegacyVaultTypes(RETH).getExchangeRate();
-        assertGt(rate, 1e18,   "rETH: getExchangeRate must be > 1e18 at fork block");
-        assertLt(rate, 1.5e18, "rETH: getExchangeRate sanity upper bound");
-        console2.log("rETH getExchangeRate at FORK_BLOCK:", rate);
+        // --- 1. Rate at FORK_BLOCK (ETH per 1 rETH) ---
+        uint256 rate = ILegacyVaultTypes(RETH).getEthValue(1e18);
+        assertGt(rate, 1e18,   "rETH: getEthValue(1e18) must be > 1e18 at fork block");
+        assertLt(rate, 1.5e18, "rETH: getEthValue(1e18) sanity upper bound");
+        console2.log("rETH getEthValue(1e18) at FORK_BLOCK:", rate);
 
-        // --- 2. Mint: esETH = depositAmt * rate / 1e18 ---
+        // --- 2. Mint: esETH = getEthValue(depositAmt) ---
         uint256 minted = _mintEsETH(RETH, user, depositAmt);
-        assertEq(minted, depositAmt * rate / 1e18,
-            "rETH: minted esETH must equal depositAmt * getExchangeRate / 1e18");
+        assertEq(minted, ILegacyVaultTypes(RETH).getEthValue(depositAmt),
+            "rETH: minted esETH must equal getEthValue(depositAmt)");
         assertGt(minted, depositAmt,
-            "rETH: minted esETH > deposited tokens because getExchangeRate > 1");
+            "rETH: minted esETH > deposited tokens because ETH per rETH > 1");
 
         // --- 3. Yield advance: deal ~5% extra rETH to simulate oracle rate increase ---
         uint256 extraTokens = depositAmt / 20;
@@ -364,14 +364,14 @@ contract esETHIntegrationTest is Test {
             IERC20(RETH).balanceOf(address(esETHContract)) + extraTokens);
 
         // --- 4. Harvest ---
-        uint256 expectedYield = extraTokens * rate / 1e18;
+        uint256 expectedYield = ILegacyVaultTypes(RETH).getEthValue(extraTokens);
         _harvest(RETH);
         assertEq(esETHContract.balanceOf(owner), expectedYield,
             "rETH: harvestYield must mint exactly the esETH-valued surplus");
 
         // --- 5. Redeem: fewer rETH returned than deposited (rate > 1) ---
         uint256 redeemAmt    = (minted / 2 - 1) * 1e18 / rate;
-        uint256 expectedBurn = redeemAmt * rate / 1e18 + 1;
+        uint256 expectedBurn = ILegacyVaultTypes(RETH).getEthValue(redeemAmt) + 1;
         assertLe(expectedBurn, esETHContract.balanceOf(user), "sanity: user has enough esETH");
         assertLt(redeemAmt, depositAmt / 2,
             "rETH: rETH returned is less than half the deposit (rate > 1)");
@@ -380,7 +380,7 @@ contract esETHIntegrationTest is Test {
         uint256 burned = esETHContract.redeem(RETH, redeemAmt, user);
 
         assertEq(burned, expectedBurn,
-            "rETH: esETH burned must equal redeemAmt * getExchangeRate / 1e18 + 1");
+            "rETH: esETH burned must equal getEthValue(redeemAmt) + 1");
         assertEq(IERC20(RETH).balanceOf(user), redeemAmt,
             "rETH: user receives the exact requested rETH amount");
 
