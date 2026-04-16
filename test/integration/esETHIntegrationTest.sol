@@ -115,11 +115,17 @@ contract esETHIntegrationTest is Test {
         vm.stopPrank();
     }
 
+    function _ensureMinter(address account) internal {
+        vm.prank(owner);
+        esETHContract.addMinter(account);
+    }
+
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
 
     function _mintEsETH(address token, address user, uint256 amount) internal returns (uint256 minted) {
+        _ensureMinter(user);
         deal(token, user, amount);
         vm.startPrank(user);
         IERC20(token).approve(address(esETHContract), amount);

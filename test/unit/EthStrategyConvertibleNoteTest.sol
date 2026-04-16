@@ -53,6 +53,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         weth = new MockWETH();
         esETHToken = new esETH(owner, address(weth), ctrl, owner);
         esETHToken.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
+        esETHToken.addMinter(owner);
 
         // Deploy the note contract (per current spec)
         bonds = new EthStrategyConvertibleNote(
@@ -66,6 +67,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
             ctrl,
             owner
         );
+        esETHToken.addMinter(address(bonds));
 
         // Allow note contract to mint/burn required tokens
         cdtToken.manageMinter(address(bonds), true);

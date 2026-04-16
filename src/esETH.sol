@@ -53,6 +53,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     /// @dev Mapping from token address to its configuration
     mapping(address token => TokenConfig) public tokenConfigs;
 
+    /// @dev Addresses allowed to call `mint` and `wrapAndMint`
+    mapping(address minter => bool) public isMinter;
+
     address public immutable WETH;
     address public yieldReceiver;
     address public treasuryManager;
@@ -81,6 +84,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     event TreasuryManagerUpdated(address indexed oldManager, address indexed newManager);
 
     event TokenConfigUpdated(address indexed token, TokenType tokenType, bool isMintable, bool isRedeemable);
+    event MinterAdded(address indexed minter);
+    event MinterRemoved(address indexed minter);
 
     /// @dev Errors
     error TokenNotWhitelistedForMint(address token);
@@ -89,6 +94,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     error ZeroAmount();
     error ZeroAddress();
     error InsufficientBalance(address token);
+    error NotMinter();
 
     /**
      * @dev Constructor
@@ -114,6 +120,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         whenNotTripped
         returns (uint256 esETHAmount)
     {
+        if (!isMinter[msg.sender]) revert NotMinter();
+
         // Transfer tokens from user
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
@@ -128,6 +136,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
      * @return esETHAmount The amount of esETH minted
      */
     function wrapAndMint(address receiver) external payable nonReentrant whenNotTripped returns (uint256 esETHAmount) {
+        if (!isMinter[msg.sender]) revert NotMinter();
+
         // Wrap into WETH (WETH is minted to this contract)
         IWETH(WETH).deposit{value: msg.value}();
 
@@ -348,5 +358,22 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         address old = treasuryManager;
         treasuryManager = _manager;
         emit TreasuryManagerUpdated(old, _manager);
+    }
+
+    /**
+     * @notice Owner-only: allow an address to call `mint` and `wrapAndMint`
+     */
+    function addMinter(address minter) external onlyOwner {
+        if (minter == address(0)) revert ZeroAddress();
+        isMinter[minter] = true;
+        emit MinterAdded(minter);
+    }
+
+    /**
+     * @notice Owner-only: revoke minter privileges
+     */
+    function removeMinter(address minter) external onlyOwner {
+        isMinter[minter] = false;
+        emit MinterRemoved(minter);
     }
 }

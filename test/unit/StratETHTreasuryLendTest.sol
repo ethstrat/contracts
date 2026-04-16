@@ -37,6 +37,9 @@ contract StratETHTreasuryLendTest is Test {
         weth = new MockWETH();
         esEth = new esETH(owner, address(weth), ctrl, owner);
         esEth.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
+        esEth.addMinter(owner);
+        esEth.addMinter(borrower);
+        esEth.addMinter(other);
 
         // 10% APR
         lend = new StratETHTreasuryLend(

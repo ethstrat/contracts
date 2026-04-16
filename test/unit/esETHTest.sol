@@ -39,6 +39,9 @@ contract MintableMockERC20 is MockERC20 {
 }
 
 contract esETHTest is Test {
+    event MinterAdded(address indexed minter);
+    event MinterRemoved(address indexed minter);
+
     esETH public esETHContract;
     MockWETH public weth;
     MockWeETH public weETH;
@@ -84,6 +87,9 @@ contract esETHTest is Test {
         esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, true, true);
         // weETH: custom non-ERC4626 wrapped ETH rate token
         esETHContract.setTokenConfig(address(weETH), esETH.TokenType.WEETH, true, true);
+        esETHContract.addMinter(user1);
+        esETHContract.addMinter(user2);
+        esETHContract.addMinter(treasuryManager);
         vm.stopPrank();
 
         // user1 and user2 initial token state setup
@@ -110,6 +116,8 @@ contract esETHTest is Test {
         assertEq(esETHContract.yieldReceiver(), owner);
         // treasuryManager should be initialized to owner
         assertEq(esETHContract.treasuryManager(), owner);
+        assertEq(esETHContract.isMinter(owner), false);
+        assertEq(esETHContract.isMinter(user1), true);
     }
 
     // ============ Token Configuration Tests ============
@@ -180,6 +188,133 @@ contract esETHTest is Test {
         vm.prank(owner);
         vm.expectRevert(esETH.ZeroAddress.selector);
         esETHContract.setTreasuryManager(address(0));
+    }
+
+    // ============ Minter Tests ============
+
+    function test_AddMinter() external {
+        assertEq(esETHContract.isMinter(randomUser), false);
+        vm.prank(owner);
+        esETHContract.addMinter(randomUser);
+        assertEq(esETHContract.isMinter(randomUser), true);
+    }
+
+    function test_AddMinter_OnlyOwner() external {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1));
+        esETHContract.addMinter(randomUser);
+    }
+
+    function test_AddMinter_ZeroAddress() external {
+        vm.prank(owner);
+        vm.expectRevert(esETH.ZeroAddress.selector);
+        esETHContract.addMinter(address(0));
+    }
+
+    function test_RemoveMinter() external {
+        vm.startPrank(owner);
+        esETHContract.addMinter(randomUser);
+        esETHContract.removeMinter(randomUser);
+        vm.stopPrank();
+        assertEq(esETHContract.isMinter(randomUser), false);
+    }
+
+    function test_RemoveMinter_OnlyOwner() external {
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), user1));
+        esETHContract.removeMinter(user2);
+    }
+
+    function test_Mint_NotMinter_Reverts() external {
+        vm.deal(randomUser, MINT_AMOUNT);
+        vm.prank(randomUser);
+        weth.deposit{value: MINT_AMOUNT}();
+        vm.prank(randomUser);
+        weth.approve(address(esETHContract), MINT_AMOUNT);
+        vm.prank(randomUser);
+        vm.expectRevert(esETH.NotMinter.selector);
+        esETHContract.mint(address(weth), MINT_AMOUNT, randomUser);
+    }
+
+    function test_WrapAndMint_NotMinter_Reverts() external {
+        vm.deal(randomUser, 1 ether);
+        vm.prank(randomUser);
+        vm.expectRevert(esETH.NotMinter.selector);
+        esETHContract.wrapAndMint{value: 1 ether}(randomUser);
+    }
+
+    function test_FreshDeploy_NoAddressIsMinterByDefault() external {
+        ITripwireController ctrl2 = ITripwireController(address(new TripwireController()));
+        vm.prank(owner);
+        esETH fresh = new esETH(owner, address(weth), ctrl2, owner);
+        assertEq(fresh.isMinter(owner), false);
+        assertEq(fresh.isMinter(address(0xBEEF)), false);
+    }
+
+    function test_AddMinter_EmitsMinterAdded() external {
+        vm.expectEmit(true, true, true, true);
+        emit MinterAdded(randomUser);
+        vm.prank(owner);
+        esETHContract.addMinter(randomUser);
+    }
+
+    function test_RemoveMinter_EmitsMinterRemoved() external {
+        vm.prank(owner);
+        esETHContract.addMinter(randomUser);
+        vm.expectEmit(true, true, true, true);
+        emit MinterRemoved(randomUser);
+        vm.prank(owner);
+        esETHContract.removeMinter(randomUser);
+    }
+
+    /// @dev NotMinter is checked before `safeTransferFrom`; no approval needed to observe it.
+    function test_Mint_NotMinter_RevertsBeforeTokenPull() external {
+        vm.prank(randomUser);
+        vm.expectRevert(esETH.NotMinter.selector);
+        esETHContract.mint(address(weth), MINT_AMOUNT, randomUser);
+    }
+
+    /// @dev Treasury bypass for `isMintable` does not substitute for `isMinter`.
+    function test_TreasuryManager_MustBeMinter_ToMint() external {
+        address tm = address(0xABC0);
+        vm.startPrank(owner);
+        esETHContract.setTreasuryManager(tm);
+        esETHContract.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, true);
+        vm.stopPrank();
+
+        vm.deal(tm, MINT_AMOUNT);
+        vm.prank(tm);
+        weth.deposit{value: MINT_AMOUNT}();
+        vm.prank(tm);
+        weth.approve(address(esETHContract), type(uint256).max);
+        vm.prank(tm);
+        vm.expectRevert(esETH.NotMinter.selector);
+        esETHContract.mint(address(weth), MINT_AMOUNT, tm);
+    }
+
+    function test_RemoveMinter_ThenReAdd_AllowsMint() external {
+        vm.prank(owner);
+        esETHContract.removeMinter(user2);
+        vm.prank(user2);
+        vm.expectRevert(esETH.NotMinter.selector);
+        esETHContract.mint(address(weth), 1, user2);
+
+        vm.prank(owner);
+        esETHContract.addMinter(user2);
+        vm.prank(user2);
+        uint256 minted = esETHContract.mint(address(weth), MINT_AMOUNT, user2);
+        assertEq(minted, MINT_AMOUNT);
+    }
+
+    /// @dev Only `mint` / `wrapAndMint` are minter-gated; `redeem` remains permissionless for holders.
+    function test_Redeem_DoesNotRequireMinterRole() external {
+        vm.prank(user1);
+        esETHContract.mint(address(weth), MINT_AMOUNT, user1);
+        vm.prank(owner);
+        esETHContract.removeMinter(user1);
+        vm.prank(user1);
+        uint256 burned = esETHContract.redeem(address(weth), MINT_AMOUNT - 1, user1);
+        assertEq(burned, MINT_AMOUNT);
     }
 
     function test_TreasuryManager_CanMint_WhenNotMintable() external {
@@ -814,6 +949,8 @@ contract esETHTest is Test {
         // Multiple users mint
         for (uint256 i = 0; i < 5; i++) {
             address user = address(uint160(1000 + i));
+            vm.prank(owner);
+            esETHContract.addMinter(user);
             vm.deal(user, amount);
             vm.prank(user);
             weth.deposit{value: amount}();
