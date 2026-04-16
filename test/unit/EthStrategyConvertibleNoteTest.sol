@@ -117,6 +117,48 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         vm.warp(bonds.expiry(tokenId) + 1);
     }
 
+    /// @dev No boundary overlap: conversion requires `block.timestamp < expiry`; redemption allows
+    ///      `expiry <= block.timestamp`. At `expiry == block.timestamp`, convert reverts and redeem works.
+    function testNoBoundaryOverlap_ConvertAtExpiryReverts_RedeemSucceeds() public {
+        (uint256 tokenId, uint256 settlementUsd,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastTimelock(tokenId);
+
+        uint256 exp = bonds.expiry(tokenId);
+        vm.warp(exp);
+        assertEq(block.timestamp, exp, "sanity: warp to exact expiry");
+
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.OptionExpired.selector, user, tokenId));
+        bonds.convertPartial(tokenId, false, 1);
+
+        vm.deal(owner, 20_000 ether);
+        vm.prank(owner);
+        esETHToken.wrapAndMint{value: 10_000 ether}(unencumberedHoldings);
+
+        uint256 userEthBefore = esETHToken.balanceOf(user);
+        vm.prank(user);
+        bonds.redeemCdtForUsdNotional(tokenId, 0);
+        uint256 expectedEth = (settlementUsd * 1e18) / ETH_USD_PRICE;
+        assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
+    }
+
+    function testConvertSucceedsOneSecondBeforeExpiry() public {
+        (uint256 tokenId,,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
+        _warpPastTimelock(tokenId);
+
+        uint256 exp = bonds.expiry(tokenId);
+        vm.warp(exp - 1);
+
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+
+        vm.prank(user);
+        bonds.convertPartial(tokenId, false, 1);
+    }
+
     // ========= Admin =========
 
     function testOnlyOwnerCanSetPCF() public {
@@ -413,7 +455,10 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertEq(esETHToken.balanceOf(user) - userEthBefore, expectedEth);
     }
 
-    function testRedeemInsolventPaysProRataShare() public {
+    /// @notice Recovery mode: oracle marks treasury underwater (USD value of all esETH <= CDT supply), so each CDT
+    ///         dollar redeemed gets a pro-rata share of all treasury ETH (encumbered + unencumbered). Draining
+    ///         unencumbered forces consolidation from encumbered for the payout.
+    function testRedeemRecoveryModeProRataClaimsOnFullTreasuryEth() public {
         (uint256 tokenId, uint256 settlementUsd,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
         _warpPastTimelock(tokenId);
         _warpPastExpiry(tokenId);
@@ -425,7 +470,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
             esETHToken.transfer(address(0xCAFE), unencBal - 1 ether);
         }
 
-        // Push oracle price low so total treasury value is below debt while preserving ETH balances.
+        // Push oracle price low so total treasury USD is below CDT supply (recovery / pro-rata path).
         uint256 lowEthPrice = 1e18;
         ethUsdOracle.setBasePerQuote(lowEthPrice);
 

@@ -273,8 +273,8 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             revert TimelockActive(msg.sender, tokenId);
         }
 
-        // Ensure the option has not expired.
-        if (expiry[tokenId] < block.timestamp) {
+        // Conversion is strictly before expiry; at t == expiry only redemption is valid (no overlap).
+        if (expiry[tokenId] <= block.timestamp) {
             revert OptionExpired(msg.sender, tokenId);
         }
 
@@ -440,7 +440,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         conversionEntitlementEth[tokenId] = 0;
         expiry[tokenId] = 0;
         timelock[tokenId] = 0;
-        encumbranceReleased[tokenId] = false;
+        delete encumbranceReleased[tokenId];
 
         // Burn the NFT
         _burn(tokenId);
