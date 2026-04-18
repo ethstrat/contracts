@@ -27,28 +27,37 @@ interface IWeETH {
 
 /**
  * @title esETH - ETH Strategy's ETH
- * @dev A wrapped token that represents a basket of staked ETH/LSTs (Eth Strategy's Treasury)
+ * @dev A wrapped token that represents a basket of staked ETH/LSTs (Eth Strategy's Treasury).
  *      Users can mint esETH by depositing whitelisted LSTs, and redeem esETH
  *      for any whitelisted LST. The token does not rebase and is not yield-bearing.
- * .    Yield is periodically 'harvested' by minting more esETH if the total backing
- * .    exceeds total supply
+ *      Yield is periodically harvested by minting more esETH when total backing exceeds total supply.
  */
 contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     using SafeERC20 for IERC20;
 
+    /// @dev Discriminant for how a whitelisted token's balance is converted to an ETH-equivalent amount.
     enum TokenType {
+        /// @dev Not configured; mint and redeem revert for this token.
         UNSUPPORTED,
+        /// @dev 1 token == 1 ETH unit of backing (e.g. WETH and other 1:1-pegged ERC-20s).
         ERC20,
+        /// @dev wstETH: uses the token's `getStETHByWstETH` view for conversion.
         WSTETH,
+        /// @dev rETH: uses the token's `getEthValue` view for conversion.
         RETH,
+        /// @dev weETH: uses the token's `getEETHByWeETH` view for conversion.
         WEETH
     }
 
-    /// @dev Structure to store token configuration
+    /// @dev Per-token settings and accounting for harvest/burnExcess.
     struct TokenConfig {
-        TokenType tokenType; // Type of the token (ERC4626, STETH, WETH, WSTETH)
-        bool isMintable; // Whether this token can be used to mint esETH
-        bool isRedeemable; // Whether this token can be redeemed for esETH
+        /// @dev Conversion path for `_convertTokenToETH` (see `TokenType`).
+        TokenType tokenType;
+        /// @dev If false, only `treasuryManager` may call `mint` / `wrapAndMint` for this token.
+        bool isMintable;
+        /// @dev If false, only `treasuryManager` may call `redeem` for this token.
+        bool isRedeemable;
+        /// @dev esETH liability attributed to this token for harvest/burnExcess accounting.
         uint256 totalMinted;
     }
 
@@ -100,7 +109,10 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
 
     /**
      * @dev Constructor
-     * @param _owner The owner of the contract
+     * @param _owner Initial owner (also initial `yieldReceiver` and `treasuryManager`)
+     * @param _weth Canonical WETH used by `wrapAndMint`
+     * @param controller_ Tripwire controller passed to `TripwireGuard`
+     * @param guardian_ Tripwire guardian passed to `TripwireGuard`
      */
     constructor(address _owner, address _weth, ITripwireController controller_, address guardian_) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) TripwireGuard(controller_, guardian_) {
         if (_weth == address(0)) revert ZeroAddress();
@@ -217,7 +229,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     /**
      * @notice Owner-only: Update token configuration
      * @param token The token address
-     * @param tokenType The type of the token (ERC4626, STETH, WETH, WSTETH)
+     * @param tokenType How to value the token for mint/redeem (`TokenType` enum)
      * @param isMintable Whether this token can be used to mint esETH
      * @param isRedeemable Whether this token can be redeemed for esETH
      */
@@ -256,7 +268,8 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
     }
 
     /**
-     * @dev Internal: Convert token amount to ETH value
+     * @dev Convert `amount` of `token` to an ETH-equivalent amount using `tokenType`.
+     *      `ERC20` is treated as 1:1; other variants call the respective LST view helpers.
      */
     function _convertTokenToETH(address token, uint256 amount, TokenType tokenType) internal view returns (uint256) {
         if (tokenType == TokenType.ERC20) {
