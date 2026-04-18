@@ -98,6 +98,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_) ERC20("Staked STRAT v2", "sSTRAT-v2") TripwireGuard(controller_, guardian_) {
         if (_stratToken == address(0)) revert();
         if (_rewardToken == address(0)) revert();
+        if (_stratToken == _rewardToken) revert();
         stratToken = IERC20(_stratToken);
         rewardToken = IERC20(_rewardToken);
         lastUpdateTime = block.timestamp;

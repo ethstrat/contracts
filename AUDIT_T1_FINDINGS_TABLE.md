@@ -50,7 +50,7 @@
 | StakedStrat | `migrateStake` force-claims rewards on `to` (tax / surprise) | Ack | Report Acknowledged. |
 | StakedStrat | Deposit reward-debt split → dust extraction edge case | Ack | Report Acknowledged. |
 | StakedStrat | Negative rebase on reward token + `syncRewards` accounting | Ack | Report Acknowledged; avoid rebasing reward token. |
-| StakedStrat | `rewardToken == stakeToken` can mis-account deposits as rewards | Ack | Report Acknowledged; don’t configure equal. |
+| StakedStrat | `rewardToken == stakeToken` can mis-account deposits as rewards | Fixed | Constructor guard: `require(_stratToken != _rewardToken)`. |
 | StakedStrat | Migration moves sSTRAT despite non-transferable design | Ack | Report Acknowledged; same as stake flow. |
 | StakedStrat | `migrateStake` rewardDebt math underflow edge case | Ack | |
 | StakedStrat | Reward token blacklist → unstake reverts, principal stuck | Ack | |

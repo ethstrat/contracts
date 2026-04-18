@@ -10,7 +10,7 @@ import {ITripwireController} from "../interfaces/ITripwireController.sol";
 /// @notice Reference implementation of the ITripwireController interface.
 /// @dev Manages circuit breaker state for any number of guarded contracts. Each guarded
 /// contract has a guardian (manages operators) and a set of operators (can trip/reset
-/// circuit breakers). Guardians can also trip (but not reset) for emergency scenarios.
+/// circuit breakers). Guardians can also trip and reset for emergency scenarios.
 /// State is stored as simple boolean mappings for minimal gas on reads.
 contract TripwireController is ITripwireController {
     // ========================================================================
