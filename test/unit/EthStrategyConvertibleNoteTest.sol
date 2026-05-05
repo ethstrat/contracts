@@ -456,19 +456,19 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
     }
 
     /// @notice Recovery mode: oracle marks treasury underwater (USD value of all esETH <= CDT supply), so each CDT
-    ///         dollar redeemed gets a pro-rata share of all treasury ETH (encumbered + unencumbered). Draining
-    ///         unencumbered forces consolidation from encumbered for the payout.
+    ///         dollar redeemed gets a pro-rata share of all treasury ETH (encumbered + unencumbered in the formula).
+    ///         Payout is taken from unencumbered after moving this note's encumbrance entitlement only, so idle esETH
+    ///         must live in unencumbered for a full-treasury pro-rata redemption to succeed.
     function testRedeemRecoveryModeProRataClaimsOnFullTreasuryEth() public {
+        // Move fixture seed from encumbered → unencumbered: redemption no longer sweeps all encumbered balance for
+        // payout, but burning 100% of CDT here pays essentially the whole treasury in esETH out of unencumbered.
+        uint256 encSeed = esETHToken.balanceOf(encumberedHoldings);
+        vm.prank(encumberedHoldings);
+        esETHToken.transfer(unencumberedHoldings, encSeed);
+
         (uint256 tokenId, uint256 settlementUsd,,) = _bond(user, 1 ether, 0, 0, block.timestamp);
         _warpPastTimelock(tokenId);
         _warpPastExpiry(tokenId);
-
-        // Drain unencumbered holdings down to a tiny amount (keep allowances intact).
-        uint256 unencBal = esETHToken.balanceOf(unencumberedHoldings);
-        if (unencBal > 1 ether) {
-            vm.prank(unencumberedHoldings);
-            esETHToken.transfer(address(0xCAFE), unencBal - 1 ether);
-        }
 
         // Push oracle price low so total treasury USD is below CDT supply (recovery / pro-rata path).
         uint256 lowEthPrice = 1e18;

@@ -430,12 +430,6 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             revert InsufficientOutput(minEthOut, ethAmount);
         }
 
-        // If needed, move additional esETH from encumbered holdings so payout can be served from unencumbered holdings.
-        if (ethAmount > unencumberedEth) {
-            uint256 shortfall = ethAmount - unencumberedEth;
-            esETHToken.transferFrom(encumberedHoldings, unencumberedHoldings, shortfall);
-        }
-
         // Clear the option data
         amountOwedCdt[tokenId] = 0;
         conversionEntitlementStrat[tokenId] = 0;
