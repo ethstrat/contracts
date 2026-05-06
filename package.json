@@ -1,7 +1,7 @@
 {
   "name": "ETH-Strategy",
   "description": "ETH Strategy core contracts and helpers",
-  "license": "GPL-2.0-only",
+  "license": "GPL-2.0-or-later",
   "version": "1.0.0",
   "files": [
     "src",
