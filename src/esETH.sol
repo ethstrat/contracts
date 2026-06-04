@@ -8,6 +8,7 @@ import {Ownable2Step, Ownable} from "openzeppelin-contracts/contracts/access/Own
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {ITripwireController} from "./interfaces/ITripwireController.sol";
 import {TripwireGuard} from "./lib/TripwireGuard.sol";
+import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -46,7 +47,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         /// @dev rETH: uses the token's `getEthValue` view for conversion.
         RETH,
         /// @dev weETH: uses the token's `getEETHByWeETH` view for conversion.
-        WEETH
+        WEETH,
+        /// @dev ERC-4626 vault shares: `convertToAssets(shares)`. Assumes asset is always ETH
+        ERC4626
     }
 
     /// @dev Per-token settings and accounting for harvest/burnExcess.
@@ -269,7 +272,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
 
     /**
      * @dev Convert `amount` of `token` to an ETH-equivalent amount using `tokenType`.
-     *      `ERC20` is treated as 1:1; other variants call the respective LST view helpers.
+     *      `ERC20` is treated as 1:1; 
+     *      `ERC4626` uses `convertToAssets`;
+     *      other variants call the respective LST view helpers.
      */
     function _convertTokenToETH(address token, uint256 amount, TokenType tokenType) internal view returns (uint256) {
         if (tokenType == TokenType.ERC20) {
@@ -283,6 +288,9 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         } else if (tokenType == TokenType.WEETH) {
             // weETH (ether.fi): convert wrapped weETH amount into its eETH/ETH-equivalent amount.
             return IWeETH(token).getEETHByWeETH(amount);
+        } else if (tokenType == TokenType.ERC4626) {
+            IERC4626 vault = IERC4626(token);
+            return vault.convertToAssets(amount);
         }
 
         revert UnsupportedToken(token);

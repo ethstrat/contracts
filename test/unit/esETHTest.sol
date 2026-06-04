@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {esETH} from "../../src/esETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
+import {ERC4626Mock} from "openzeppelin-contracts/contracts/mocks/token/ERC4626Mock.sol";
 import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {MockERC20} from "forge-std/mocks/MockERC20.sol";
 import {MockWETH} from "../mocks/MockWETH.sol";
@@ -1294,6 +1296,28 @@ contract esETHTest is Test {
             totalMintedBefore,
             "INV-ESETH-006: totalMinted must remain unchanged after multiple config updates"
         );
+    }
+
+    function test_MintAndRedeem_ERC4626_WETHUnderlying() external {
+        ERC4626Mock vault = new ERC4626Mock(address(weth));
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(vault), esETH.TokenType.ERC4626, true, true);
+
+        vm.startPrank(user1);
+        uint256 dep = 500e18;
+        weth.approve(address(vault), dep);
+        IERC4626(address(vault)).deposit(dep, user1);
+        uint256 shares = IERC20(address(vault)).balanceOf(user1);
+        uint256 expected = IERC4626(address(vault)).convertToAssets(shares);
+        IERC20(address(vault)).approve(address(esETHContract), shares);
+        uint256 minted = esETHContract.mint(address(vault), shares, user1);
+        assertEq(minted, expected);
+
+        uint256 redeemShares = shares / 2;
+        uint256 burnExpected = IERC4626(address(vault)).convertToAssets(redeemShares) + 1;
+        uint256 burned = esETHContract.redeem(address(vault), redeemShares, user1);
+        assertEq(burned, burnExpected);
+        vm.stopPrank();
     }
 
     /**

@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, console2} from "forge-std/Test.sol";
 import {esETH, ILegacyVaultTypes, IWeETH} from "../../src/esETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
+import {ERC4626Mock} from "openzeppelin-contracts/contracts/mocks/token/ERC4626Mock.sol";
 import {TripwireController} from "../../src/lib/TripwireController.sol";
 import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 
@@ -50,7 +52,7 @@ interface ILidoStEth {
  *
  *   2. MINT PRODUCES CORRECT esETH
  *      esETH minted matches _convertTokenToETH (WETH: 1:1; wstETH: getStETHByWstETH;
- *      rETH: getEthValue; weETH: getEETHByWeETH).
+ *      rETH: getEthValue; weETH: getEETHByWeETH; ERC4626: convertToAssets then underlying rules).
  *      For 1:1 tokens (WETH) this equals the deposit amount exactly.
  *      For yield-bearing tokens (wstETH, rETH, weETH) it is strictly greater.
  *      The assertion also guards against double-scaling bugs where the rate is
@@ -462,4 +464,55 @@ contract esETHIntegrationTest is Test {
         console2.log("weETH redeemed:       ", redeemAmt, "| esETH burned:", burned);
     }
 
+    // ===========================================================================
+    // 5. ERC-4626 vault (WETH underlying — real mainnet WETH, mock vault on fork)
+    // ===========================================================================
+    //
+    // RATE
+    //   esETH values vault shares as IERC4626.convertToAssets(shares), then applies
+    //   the underlying token's `TokenType` (here WETH as ERC20 = 1:1).
+    //
+    // YIELD ADVANCE
+    //   Donate extra WETH into the vault so totalAssets rises without new shares;
+    //   harvestYield mints esETH for the surplus.
+    //
+    // REDEEM
+    //   Same rounding rule: burn convertToAssets(redeemShares) + 1 wei of esETH.
+
+    function testFork_ERC4626_WETHVault() public {
+        ERC4626Mock vault = new ERC4626Mock(WETH);
+
+        vm.prank(owner);
+        esETHContract.setTokenConfig(address(vault), esETH.TokenType.ERC4626, true, true);
+
+        address user = makeAddr("erc4626_weth_user");
+        uint256 depositToVault = 5e18;
+
+        deal(WETH, user, depositToVault);
+        vm.startPrank(user);
+        IERC20(WETH).approve(address(vault), depositToVault);
+        IERC4626(address(vault)).deposit(depositToVault, user);
+        uint256 shares = IERC20(address(vault)).balanceOf(user);
+        vm.stopPrank();
+
+        uint256 ethVal = esETHContract.getETHValue(address(vault), shares);
+        assertEq(ethVal, IERC4626(address(vault)).convertToAssets(shares), "ERC4626 WETH: getETHValue");
+
+        uint256 minted = _mintEsETH(address(vault), user, shares);
+        assertEq(minted, ethVal, "ERC4626 WETH: minted esETH");
+
+        uint256 donation = 1e18;
+        deal(WETH, address(vault), IERC20(WETH).balanceOf(address(vault)) + donation);
+        uint256 newVal = IERC4626(address(vault)).convertToAssets(shares);
+        uint256 expectedYield = newVal - minted;
+        _harvest(address(vault));
+        assertEq(esETHContract.balanceOf(owner), expectedYield, "ERC4626 WETH: harvest");
+
+        uint256 expectedBurn = vault.convertToAssets(1e18);
+        vm.prank(user);
+        uint256 burned = esETHContract.redeem(address(vault), 1e18, user);
+
+        assertApproxEqAbs(burned, expectedBurn, 1);
+        assertEq(IERC20(address(vault)).balanceOf(user), 1e18);
+    }
 }
