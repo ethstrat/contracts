@@ -15,7 +15,6 @@ Useful references:
 - Seaport overview: https://docs.opensea.io/docs/seaport
 - Seaport models: https://docs.opensea.io/docs/seaport-models
 - Seaport interface: https://docs.opensea.io/docs/seaport-interface
-- Seaport hooks/zones: https://docs.opensea.io/docs/seaport-hooks
 - Seaport repo: https://github.com/ProjectOpenSea/seaport
 
 ## Files
@@ -28,7 +27,7 @@ SeaportOrderLib.sol
   Helper for building the EIP-712 digest to sign.
 
 SeaportRageQuit.t.sol
-  End-to-end mainnet-fork test.
+  End-to-end mainnet-fork test suite.
 ```
 
 ## Test setup
@@ -50,6 +49,35 @@ MAINNET_RPC_URL="$MAINNET_RPC_URL" forge test \
   -vvv
 ```
 
+## What the test suite proves
+
+The suite covers two valid fulfillment models:
+
+```text
+1. Signed order flow
+   Treasury signs the Seaport order offchain.
+   Rage quitter includes the signature in each fill transaction.
+
+2. On-chain validation flow
+   Treasury calls Seaport.validate(order) once onchain.
+   Rage quitters can then fill with an empty signature.
+```
+
+It also tests useful failure/edge cases:
+
+```text
+empty-signature fill before validation fails
+UI metrics before and after fill
+UI metrics after on-chain validation
+explicit Seaport cancellation
+cancellation after validation
+counter invalidation
+counter invalidation after validation
+revoked WETH allowance
+treasury moving WETH away
+expiry
+```
+
 ## High-level flow
 
 There are two actor roles.
@@ -59,7 +87,7 @@ Treasury:
   1. Holds WETH.
   2. Approves Seaport, or the chosen conduit, to spend WETH.
   3. Creates the fixed order terms.
-  4. Signs the Seaport order.
+  4. Either signs the order offchain or validates it onchain.
 
 Rage quitter:
   1. Chooses how much of the order to fill.
@@ -68,9 +96,9 @@ Rage quitter:
   4. Calls fulfillAdvancedOrder().
 ```
 
-The treasury signs the menu. The rage quitter chooses the portion.
+The treasury signs or validates the menu. The rage quitter chooses the portion.
 
-The treasury signs fixed terms such as:
+The treasury's fixed terms are:
 
 ```text
 3000 WETH is available.
@@ -88,7 +116,7 @@ denominator = 100;
 
 That fills 1% of the original order.
 
-The treasury does **not** sign or choose each fulfiller's numerator / denominator.
+The treasury does **not** choose each fulfiller's `numerator / denominator`.
 
 ## Order shape
 
@@ -111,7 +139,7 @@ orderType = PARTIAL_OPEN;
 
 That means anyone can partially fill the order.
 
-`fulfillAdvancedOrder` is used because it supports partial fills. A normal `fulfillOrder` is simpler, but it fills the whole order.
+`fulfillAdvancedOrder` is used because it supports partial fills. A normal `fulfillOrder` fills the whole order.
 
 ## Key parameters
 
@@ -123,7 +151,15 @@ offerer = treasury;
 
 The treasury is the account offering WETH.
 
-The test uses a mock EOA treasury so it can sign directly. A production treasury is likely a Safe, which means using Safe EIP-1271 signatures or having the Safe call `Seaport.validate()`.
+The test uses a mock EOA treasury so it can both sign and call `validate()` directly. A production treasury is likely a Safe.
+
+For a Safe, the clean production path is often:
+
+```text
+Safe approves WETH.
+Safe calls Seaport.validate(order).
+Users fill with empty signatures.
+```
 
 ### `offer`
 
@@ -141,7 +177,7 @@ consideration = [STRAT to treasury, USDC to treasury];
 
 The rage quitter pays both STRAT and USDC.
 
-Sending STRAT to treasury proves settlement, but it does not burn STRAT. If the protocol needs burning or accounting, send STRAT to a redemption/burner contract instead.
+Sending STRAT to treasury proves settlement, but it does not burn STRAT. If the protocol needs burning or custom accounting, send STRAT to a redemption/burner contract instead.
 
 ### `orderType`
 
@@ -151,9 +187,9 @@ orderType = PARTIAL_OPEN;
 
 This allows public partial fills.
 
-Use a restricted order type or a zone if only eligible users should be allowed to fill.
+Use a restricted order type or zone if only eligible users should be allowed to fill.
 
-### `zone` and `zoneHash`
+### `zone`, `zoneHash`, and `extraData`
 
 ```solidity
 zone = address(0);
@@ -163,7 +199,7 @@ extraData = "";
 
 No zone is used. This keeps the order simple and public.
 
-Use a zone for custom restrictions such as allowlists, Merkle proofs, or policy checks.
+Use a zone for custom restrictions such as allowlists, Merkle proofs, custom eligibility, or policy checks.
 
 ### `startTime` and `endTime`
 
@@ -179,6 +215,8 @@ This defines the rage-quit window.
 ```solidity
 salt = uint256(...);
 ```
+
+`salt` makes the order unique. It lets the treasury create multiple otherwise-identical orders with different order hashes.
 
 Seaport's deployed ABI uses `uint256 salt`, not `bytes32 salt`. Getting this wrong changes tuple-based function selectors.
 
@@ -209,21 +247,88 @@ recipient = address(0);
 
 For `fulfillAdvancedOrder`, `address(0)` means the offered WETH goes to `msg.sender`, the rage quitter.
 
-## Signing
+## Signed order flow
+
+In the signed flow:
+
+```text
+1. Treasury creates OrderParameters.
+2. Treasury signs the Seaport order digest.
+3. Rage quitter includes that signature in AdvancedOrder.
+4. Seaport verifies the signature during fulfillment.
+```
 
 `SeaportOrderLib` builds the digest by:
 
 ```text
 1. Converting OrderParameters to OrderComponents.
-2. Reading the offerer's Seaport counter.
+2. Reading the offerer's current Seaport counter.
 3. Calling Seaport.getOrderHash(OrderComponents).
 4. Calling Seaport.information() for the domain separator.
 5. Building keccak256(0x1901 || domainSeparator || orderHash).
 ```
 
-The signed order includes the fixed treasury terms and the current Seaport counter.
+The signed order includes:
+
+```text
+offerer
+zone
+offer items
+consideration items
+order type
+start time
+end time
+zone hash
+salt
+conduit key
+current Seaport counter
+```
 
 It does **not** include the rage quitter's fill `numerator / denominator`. That fraction is supplied later in `AdvancedOrder`.
+
+## On-chain validation flow
+
+Seaport also supports pre-validating orders onchain:
+
+```solidity
+seaport.validate(orders);
+```
+
+In this flow:
+
+```text
+1. Treasury creates OrderParameters.
+2. Treasury calls Seaport.validate(order) onchain.
+3. Seaport records the order hash as validated.
+4. Rage quitters fill with signature = "".
+```
+
+This is useful for a treasury Safe because the Safe can execute one onchain validation transaction instead of requiring a Safe signature to be passed through every rage quitter transaction.
+
+The order passed to `validate()` is an `Order`, not an `AdvancedOrder`:
+
+```solidity
+Order({
+    parameters: params,
+    signature: ""
+});
+```
+
+This works when `msg.sender == params.offerer`, which is why the Safe can validate its own order without a signature.
+
+After validation, the rage quitter can build:
+
+```solidity
+AdvancedOrder({
+    parameters: params,
+    numerator: userChosenNumerator,
+    denominator: userChosenDenominator,
+    signature: "",
+    extraData: ""
+});
+```
+
+Validation only proves that the offerer has authorised the order. It does not guarantee that the order is fillable forever. Fills can still fail because of allowance, balance, expiry, cancellation, counter invalidation, invalid fractions, or full fill.
 
 ## UI guidance
 
@@ -271,7 +376,7 @@ still means 10% of the original order, not 10% of the remaining order.
 
 ## UI metrics
 
-Use `getOrderStatus(orderHash)` to get Seaport's fill/cancel state:
+Use `getOrderStatus(orderHash)` to get Seaport's validation, fill, and cancellation state:
 
 ```solidity
 (
@@ -282,18 +387,18 @@ Use `getOrderStatus(orderHash)` to get Seaport's fill/cancel state:
 ) = seaport.getOrderStatus(orderHash);
 ```
 
-For a partially filled order:
-
-```text
-filled fraction    = totalFilled / totalSize
-remaining fraction = (totalSize - totalFilled) / totalSize
-```
-
 For an untouched order, Seaport reports `0 / 0`. Treat this as:
 
 ```text
 filled = 0
 remaining = full order
+```
+
+For a partially filled order:
+
+```text
+filled fraction    = totalFilled / totalSize
+remaining fraction = (totalSize - totalFilled) / totalSize
 ```
 
 The UI can derive:
@@ -304,6 +409,19 @@ remaining WETH = TOTAL_WETH_OFFER - filled WETH
 
 remaining STRAT = TOTAL_STRAT_ASK - filled STRAT
 remaining USDC  = TOTAL_USDC_ASK  - filled USDC
+```
+
+Important status behavior:
+
+```text
+isValidated = true
+  Order has been pre-validated onchain.
+
+isCancelled = true
+  Treat as terminal. Do not show as fillable.
+
+After a validated order is cancelled, Seaport reports it as cancelled,
+not as still validated.
 ```
 
 The UI should also check live token state:
@@ -343,13 +461,7 @@ If not, Seaport can revert with `InexactFraction`.
 
 This matters especially for USDC because it has 6 decimals, not 18.
 
-The UI should either:
-
-```text
-snap to valid increments
-round down to the nearest valid amount
-or reject amounts that cannot be filled exactly
-```
+The UI should either snap to valid increments, round down to the nearest valid amount, or reject amounts that cannot be filled exactly.
 
 ## Cancellation and kill switches
 
@@ -357,13 +469,15 @@ There are several ways to stop fills. They are not equivalent.
 
 ### Explicit Seaport cancellation
 
-The clean normal path is:
+The normal canonical path is:
 
 ```solidity
 seaport.cancel(orderComponents);
 ```
 
 This marks the order hash as cancelled inside Seaport. Future fills revert even if balances and allowances are still present.
+
+If the order was previously validated, cancellation still makes it unfillable. The test suite asserts that a validated order cannot be filled after cancellation.
 
 ### Counter invalidation
 
@@ -374,6 +488,8 @@ seaport.incrementCounter();
 This invalidates outstanding signed orders for the offerer that used the previous counter.
 
 Treat the counter as an opaque invalidation value. Do not assume it increments by exactly `1`.
+
+The test suite covers both signed and pre-validated orders after counter invalidation.
 
 ### Expiry
 
@@ -389,7 +505,7 @@ IERC20(WETH).approve(SEAPORT, 0);
 
 This makes fills fail because Seaport cannot pull WETH.
 
-This is a useful emergency stop, but it is not true Seaport cancellation. If allowance is restored before expiry, the same signed order may become fillable again.
+This is a useful emergency stop, but it is not true Seaport cancellation. If allowance is restored before expiry, the same signed or validated order may become fillable again.
 
 ### Moving WETH away
 

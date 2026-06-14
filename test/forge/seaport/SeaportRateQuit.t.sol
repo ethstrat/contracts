@@ -94,6 +94,101 @@ contract SeaportRageQuitTest is Test {
         assertEq(IERC20(USDC).balanceOf(rageQuitter), userUsdcBefore - expectedUsdcIn, "user USDC");
     }
 
+    function testRageQuitPartialFillAfterTreasuryOnchainValidation() public {
+        uint120 fillNumerator = 1;
+        uint120 fillDenominator = 100;
+
+        uint256 expectedWethOut = _scaleAmount(TOTAL_WETH_OFFER, fillNumerator, fillDenominator);
+        uint256 expectedStratIn = _scaleAmount(TOTAL_STRAT_ASK, fillNumerator, fillDenominator);
+        uint256 expectedUsdcIn = _scaleAmount(TOTAL_USDC_ASK, fillNumerator, fillDenominator);
+
+        _fundAndApproveRageQuitter(expectedStratIn, expectedUsdcIn);
+        _assertSeaportVersion();
+
+        // This models the Safe production flow:
+        //   1. Treasury/Safe creates the order terms.
+        //   2. Treasury/Safe calls Seaport.validate() onchain.
+        //   3. Rage quitters can fill with an empty signature.
+        ISeaportMinimal.OrderParameters memory params = _treasuryCreateOrderParameters();
+
+        bytes32 orderHash = _treasuryValidateOrderOnSeaport(params);
+
+        UiOrderMetrics memory afterValidation = _getUiOrderMetrics(params);
+        assertEq(afterValidation.orderHash, orderHash, "order hash");
+        assertTrue(afterValidation.isValidated, "order should be validated");
+        assertFalse(afterValidation.isCancelled, "order should not be cancelled");
+        assertEq(afterValidation.totalFilled, 0, "validated totalFilled");
+        assertEq(afterValidation.totalSize, 0, "validated totalSize");
+
+        ISeaportMinimal.AdvancedOrder memory advancedOrder =
+            _rageQuitterCreateAdvancedOrder(params, "", fillNumerator, fillDenominator);
+
+        uint256 treasuryWethBefore = IERC20(WETH).balanceOf(treasury);
+        uint256 treasuryStratBefore = IERC20(STRAT).balanceOf(treasury);
+        uint256 treasuryUsdcBefore = IERC20(USDC).balanceOf(treasury);
+
+        uint256 userWethBefore = IERC20(WETH).balanceOf(rageQuitter);
+        uint256 userStratBefore = IERC20(STRAT).balanceOf(rageQuitter);
+        uint256 userUsdcBefore = IERC20(USDC).balanceOf(rageQuitter);
+
+        bool fulfilled = _rageQuitterFulfill(advancedOrder);
+
+        assertTrue(fulfilled, "order not fulfilled");
+
+        assertEq(IERC20(WETH).balanceOf(treasury), treasuryWethBefore - expectedWethOut, "treasury WETH");
+        assertEq(IERC20(STRAT).balanceOf(treasury), treasuryStratBefore + expectedStratIn, "treasury STRAT");
+        assertEq(IERC20(USDC).balanceOf(treasury), treasuryUsdcBefore + expectedUsdcIn, "treasury USDC");
+
+        assertEq(IERC20(WETH).balanceOf(rageQuitter), userWethBefore + expectedWethOut, "user WETH");
+        assertEq(IERC20(STRAT).balanceOf(rageQuitter), userStratBefore - expectedStratIn, "user STRAT");
+        assertEq(IERC20(USDC).balanceOf(rageQuitter), userUsdcBefore - expectedUsdcIn, "user USDC");
+    }
+
+    function testCannotFillWithEmptySignatureBeforeTreasuryOnchainValidation() public {
+        uint120 fillNumerator = 1;
+        uint120 fillDenominator = 100;
+
+        _fundAndApproveRageQuitter(
+            _scaleAmount(TOTAL_STRAT_ASK, fillNumerator, fillDenominator),
+            _scaleAmount(TOTAL_USDC_ASK, fillNumerator, fillDenominator)
+        );
+
+        ISeaportMinimal.OrderParameters memory params = _treasuryCreateOrderParameters();
+
+        UiOrderMetrics memory beforeValidation = _getUiOrderMetrics(params);
+        assertFalse(beforeValidation.isValidated, "order should not be validated");
+
+        ISeaportMinimal.AdvancedOrder memory advancedOrder =
+            _rageQuitterCreateAdvancedOrder(params, "", fillNumerator, fillDenominator);
+
+        vm.expectRevert();
+        _rageQuitterFulfill(advancedOrder);
+    }
+
+    function testUiMetricsAfterTreasuryOnchainValidationBeforeFill() public {
+        ISeaportMinimal.OrderParameters memory params = _treasuryCreateOrderParameters();
+
+        UiOrderMetrics memory beforeValidation = _getUiOrderMetrics(params);
+        assertFalse(beforeValidation.isValidated, "before validation");
+
+        bytes32 orderHash = _treasuryValidateOrderOnSeaport(params);
+
+        UiOrderMetrics memory afterValidation = _getUiOrderMetrics(params);
+
+        assertEq(afterValidation.orderHash, orderHash, "order hash");
+        assertTrue(afterValidation.isValidated, "after validation");
+        assertFalse(afterValidation.isCancelled, "after cancelled");
+        assertEq(afterValidation.totalFilled, 0, "after totalFilled");
+        assertEq(afterValidation.totalSize, 0, "after totalSize");
+
+        // Validation only proves the order is pre-approved by the offerer.
+        // It does not consume any capacity.
+        assertEq(afterValidation.filledWeth, 0, "after filled WETH");
+        assertEq(afterValidation.remainingWeth, TOTAL_WETH_OFFER, "after remaining WETH");
+        assertEq(afterValidation.remainingStrat, TOTAL_STRAT_ASK, "after remaining STRAT");
+        assertEq(afterValidation.remainingUsdc, TOTAL_USDC_ASK, "after remaining USDC");
+    }
+
     function testUiMetricsBeforeAndAfterPartialFill() public {
         uint120 fillNumerator = 1;
         uint120 fillDenominator = 100;
@@ -169,6 +264,40 @@ contract SeaportRageQuitTest is Test {
         _rageQuitterFulfill(advancedOrder);
     }
 
+    function testCannotFillValidatedOrderAfterSeaportCancel() public {
+        uint120 fillNumerator = 1;
+        uint120 fillDenominator = 100;
+
+        _fundAndApproveRageQuitter(
+            _scaleAmount(TOTAL_STRAT_ASK, fillNumerator, fillDenominator),
+            _scaleAmount(TOTAL_USDC_ASK, fillNumerator, fillDenominator)
+        );
+
+        ISeaportMinimal.OrderParameters memory params = _treasuryCreateOrderParameters();
+        bytes32 orderHash = _treasuryValidateOrderOnSeaport(params);
+
+        ISeaportMinimal.OrderComponents[] memory orders = new ISeaportMinimal.OrderComponents[](1);
+        orders[0] = seaport.toOrderComponents(params);
+
+        vm.prank(treasury);
+        bool cancelled = seaport.cancel(orders);
+
+        assertTrue(cancelled, "cancel failed");
+
+        (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize) = seaport.getOrderStatus(orderHash);
+
+        assertFalse(isValidated, "order should no longer be marked validated");
+        assertTrue(isCancelled, "order should be cancelled");
+        assertEq(totalFilled, 0, "totalFilled");
+        assertEq(totalSize, 0, "totalSize");
+
+        ISeaportMinimal.AdvancedOrder memory advancedOrder =
+            _rageQuitterCreateAdvancedOrder(params, "", fillNumerator, fillDenominator);
+
+        vm.expectRevert(abi.encodeWithSelector(ISeaportMinimal.OrderIsCancelled.selector, orderHash));
+        _rageQuitterFulfill(advancedOrder);
+    }
+
     function testCannotFillAfterCounterIncrement() public {
         uint120 fillNumerator = 1;
         uint120 fillDenominator = 100;
@@ -188,6 +317,33 @@ contract SeaportRageQuitTest is Test {
 
         assertNotEq(counterAfter, counterBefore, "counter did not change");
         assertEq(seaport.getCounter(treasury), counterAfter, "stored counter");
+
+        vm.expectRevert();
+        _rageQuitterFulfill(advancedOrder);
+    }
+
+    function testCannotFillValidatedOrderAfterCounterIncrement() public {
+        uint120 fillNumerator = 1;
+        uint120 fillDenominator = 100;
+
+        _fundAndApproveRageQuitter(
+            _scaleAmount(TOTAL_STRAT_ASK, fillNumerator, fillDenominator),
+            _scaleAmount(TOTAL_USDC_ASK, fillNumerator, fillDenominator)
+        );
+
+        ISeaportMinimal.OrderParameters memory params = _treasuryCreateOrderParameters();
+        _treasuryValidateOrderOnSeaport(params);
+
+        uint256 counterBefore = seaport.getCounter(treasury);
+
+        vm.prank(treasury);
+        uint256 counterAfter = seaport.incrementCounter();
+
+        assertNotEq(counterAfter, counterBefore, "counter did not change");
+        assertEq(seaport.getCounter(treasury), counterAfter, "stored counter");
+
+        ISeaportMinimal.AdvancedOrder memory advancedOrder =
+            _rageQuitterCreateAdvancedOrder(params, "", fillNumerator, fillDenominator);
 
         vm.expectRevert();
         _rageQuitterFulfill(advancedOrder);
@@ -317,6 +473,28 @@ contract SeaportRageQuitTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(treasuryPk, digest);
 
         return abi.encodePacked(r, s, v);
+    }
+
+    function _treasuryValidateOrderOnSeaport(ISeaportMinimal.OrderParameters memory params)
+        internal
+        returns (bytes32 orderHash)
+    {
+        assertEq(params.offerer, treasury, "treasury must be offerer");
+
+        ISeaportMinimal.Order[] memory orders = new ISeaportMinimal.Order[](1);
+        orders[0] = ISeaportMinimal.Order({parameters: params, signature: ""});
+
+        ISeaportMinimal.OrderComponents memory components = seaport.toOrderComponents(params);
+        orderHash = seaport.getOrderHash(components);
+
+        vm.prank(treasury);
+        bool validated = seaport.validate(orders);
+
+        assertTrue(validated, "validate failed");
+
+        (bool isValidated, bool isCancelled,,) = seaport.getOrderStatus(orderHash);
+        assertTrue(isValidated, "order not validated");
+        assertFalse(isCancelled, "order cancelled");
     }
 
     // -------------------------------------------------------------------------

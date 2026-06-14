@@ -103,6 +103,11 @@ interface ISeaportMinimal {
         bytes32[] criteriaProof;
     }
 
+    struct Order {
+        OrderParameters parameters;
+        bytes signature;
+    }
+
     // -------------------------------------------------------------------------
     // Views
     // -------------------------------------------------------------------------
@@ -135,4 +140,6 @@ interface ISeaportMinimal {
         bytes32 fulfillerConduitKey,
         address recipient
     ) external payable returns (bool fulfilled);
+
+    function validate(Order[] calldata orders) external returns (bool validated);
 }
