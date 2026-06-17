@@ -1,0 +1,162 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1781666423000,
+  "meta": {
+    "name": "002-rage-quit-order step 1",
+    "description": "[\"Create and verify the seaport order\"]",
+    "txBuilderVersion": "2.0.1",
+    "createdFromSafeAddress": "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D",
+    "createdFromOwnerAddress": "",
+    "checksum": "0x05f7dc7fb3aecd0cb697a65ce5f33c773110f9cae4874630a89d9b64247174cd"
+  },
+  "transactions": [
+    {
+      "to": "0x0000000000000068F116a894984e2DB1123eB395",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "name": "validate",
+        "payable": false,
+        "inputs": [
+          {
+            "internalType": "struct ISeaportMinimal.Order[]",
+            "name": "orders",
+            "type": "tuple[]",
+            "components": [
+              {
+                "name": "parameters",
+                "type": "tuple",
+                "internalType": "struct ISeaportMinimal.OrderParameters",
+                "components": [
+                  {
+                    "name": "offerer",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "zone",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "offer",
+                    "type": "tuple[]",
+                    "internalType": "struct ISeaportMinimal.OfferItem[]",
+                    "components": [
+                      {
+                        "name": "itemType",
+                        "type": "uint8",
+                        "internalType": "enum ISeaportMinimal.ItemType"
+                      },
+                      {
+                        "name": "token",
+                        "type": "address",
+                        "internalType": "address"
+                      },
+                      {
+                        "name": "identifierOrCriteria",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                      },
+                      {
+                        "name": "startAmount",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                      },
+                      {
+                        "name": "endAmount",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "consideration",
+                    "type": "tuple[]",
+                    "internalType": "struct ISeaportMinimal.ConsiderationItem[]",
+                    "components": [
+                      {
+                        "name": "itemType",
+                        "type": "uint8",
+                        "internalType": "enum ISeaportMinimal.ItemType"
+                      },
+                      {
+                        "name": "token",
+                        "type": "address",
+                        "internalType": "address"
+                      },
+                      {
+                        "name": "identifierOrCriteria",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                      },
+                      {
+                        "name": "startAmount",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                      },
+                      {
+                        "name": "endAmount",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                      },
+                      {
+                        "name": "recipient",
+                        "type": "address",
+                        "internalType": "address payable"
+                      }
+                    ]
+                  },
+                  {
+                    "name": "orderType",
+                    "type": "uint8",
+                    "internalType": "enum ISeaportMinimal.OrderType"
+                  },
+                  {
+                    "name": "startTime",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "endTime",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "zoneHash",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "salt",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  {
+                    "name": "conduitKey",
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  {
+                    "name": "totalOriginalConsiderationItems",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  }
+                ]
+              },
+              {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "contractInputsValues": {
+        "orders": "[[[\"0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D\",\"0x0000000000000000000000000000000000000000\",[[1,\"0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84\",0,\"2900000000000000000000\",\"2900000000000000000000\"]],[[1,\"0x14cF922aa1512Adfc34409b63e18D391e4a86A2f\",0,\"29000000000000000000000000\",\"29000000000000000000000000\",\"0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D\"],[1,\"0xdC035D45d973E3EC169d2276DDab16f1e407384F\",0,\"1682000000000000000000000\",\"1682000000000000000000000\",\"0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D\"]],1,1782129600,1782734400,\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"47574563918394905957391296869493442811010964458085966628347972457411695693101\",\"0x0000000000000000000000000000000000000000000000000000000000000000\",2],\"0x\"]]"
+      }
+    }
+  ]
+}

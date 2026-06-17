@@ -1,0 +1,10 @@
+{
+  "rageQuit": {
+    "stETH-offer-amount": "2900e18",
+    "STRAT-ask-amount": "29000000e18",
+    "USDS-ask-amount": "1682000e18",
+    "start-timestamp": "1782129600",
+    "end-timestamp": "1782734400",
+    "salt": "first"
+  }
+}
