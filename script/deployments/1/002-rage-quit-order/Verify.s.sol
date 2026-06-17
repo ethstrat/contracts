@@ -64,26 +64,15 @@ contract Verify is StokeOperation, StdCheats {
     function fundMultisig(Context memory ctx, Logger memory logger) internal {
         IStETH steth = IStETH(address(order.offers[0].token));
 
-        logger.info("multisig ETH balance before startActorBroadcast1:", multisig.balance);
+        logger.info("multisig ETH balance before startActorBroadcast:", multisig.balance);
         runner.startActorImpersonation(multisig, 10 * order.offers[0].amount + 1 ether);
-        logger.info("multisig ETH balance after startActorBroadcast1:", multisig.balance);
-        runner.stopActorImpersonation();
-
-        logger.info("multisig ETH balance before startActorBroadcast2:", multisig.balance);
-        runner.startActorImpersonation(multisig);
-        logger.info("multisig ETH balance after startActorBroadcast2:", multisig.balance);
+        logger.info("multisig ETH balance after startActorBroadcast:", multisig.balance);
         logger.info("multisig stETH balance:", steth.balanceOf(multisig));
         steth.submit{value: order.offers[0].amount}(address(0));
         steth.approve(address(seaport), order.offers[0].amount);
         logger.info("multisig ETH balance after stETH.submit:", multisig.balance);
         logger.info("multisig stETH balance after stETH.submit:", steth.balanceOf(multisig));
         runner.stopActorImpersonation();
-
-        // if (ctx.broadcast && ctx.rpc.anvil) {
-        //     AnvilUtils.ensureLocalBalance(multisig, order.offers[0].amount);
-        // }
-
-        // logger.info("multisig ETH balance restored", multisig.balance);
     }
 
     function fundDeployer(
