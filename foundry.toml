@@ -8,6 +8,7 @@ solc_version = "0.8.24"
 ffi = true
 fs_permissions = [
     {access = "write", path = "./tmp/"},
+    {access = "read-write", path = "./script/deployments/1"},
 ]
 
 

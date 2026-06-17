@@ -1,0 +1,20 @@
+{
+  "chains": {
+    "1": {
+      "rpc": {
+        "prod": "$MAINNET_RPC_URL",
+        "anvil": "http://127.0.0.1:8545"
+      },
+      "dir": "script/deployments/1",
+      "scriptName": "Operation.s.sol:Operation",
+      "runOutputDir": "script/deployments/1/runs",
+      "multisigOutputDir": "script/deployments/1/multisig",
+      "config": {
+        "internalAddresses": "script/deployments/1/config/internalAddresses.json",
+        "externalAddresses": "script/deployments/1/config/externalAddresses.json",
+        "deployed": "script/deployments/1/config/deploymentAddresses.json",
+        "settings": "script/deployments/1/config/settings.json"
+      }
+    }
+  }
+}
