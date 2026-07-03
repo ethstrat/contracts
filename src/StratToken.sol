@@ -7,5 +7,5 @@ import "./MintableBurnableToken.sol";
  * @title The STRAT Token
  */
 contract StratToken is MintableBurnableToken {
-    constructor(address owner) MintableBurnableToken("ETH Strategy", "STRAT", owner) {}
+    constructor(address owner, ITripwireController controller_, address guardian_) MintableBurnableToken("ETH Strategy", "STRAT", owner, controller_, guardian_) {}
 }

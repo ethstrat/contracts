@@ -8,7 +8,6 @@ import {StratEthPriceFeedConsumer} from "./lib/StratEthPriceFeedConsumer.sol";
 import {IERC20MintableBurnable, IERC20MintableBurnablePermit} from "./interfaces/IERC20.sol";
 import {IStratOption} from "./interfaces/IStratOption.sol";
 import {Permit} from "./lib/Permit.sol";
-
 /**
  * @title The STRAT ETH Long Bonds Strategy
  * @dev convertible notes on STRAT. Bonders get CDT and a StratOption.

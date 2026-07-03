@@ -2,7 +2,7 @@
 
 Core Solidity contracts for the ETH Strategy protocol.
 
-This repository contains the on-chain components for STRAT, CDT, oSTRAT options, ETH-backed bond issuance, treasury operations, staking vaults, presale redemption flows, and the ETH Strategy Perpetual Note system.
+This repository contains the on-chain components for STRAT, CDT, ETH-backed bond issuance, convertible notes, staking vaults, treasury lending, and redemption flows.
 
 ## Overview
 
@@ -10,11 +10,13 @@ ETH Strategy is a DeFi protocol built around ETH-denominated treasury strategies
 
 - `STRAT`, the protocol token.
 - `CDT`, a debt receipt token used in bond and redemption flows.
-- `oSTRAT`, ERC-721 option tokens representing STRAT conversion rights.
-- Long and short ETH bond contracts for issuing CDT and oSTRAT positions.
-- Treasury contracts for tracking and staging ETH liquidity.
-- ERC-4626 vaults for STRAT staking, ESPN notes, and ESPN LP staking.
-- Presale, vesting, and redemption helpers for early oSTRAT holders.
+- Short ETH bond contracts for issuing CDT positions.
+- `EthStrategyConvertibleNote` (ESPN) and related redemption queue flows.
+- `esETH`, an ETH-value accounting token for LST holdings.
+- ERC-4626 vaults for STRAT staking.
+- Treasury lending via `StratETHTreasuryLend`.
+- Flash loan providers (e.g. Morpho Blue) used by redemption flows.
+- Tripwire guards and controllers for emergency controls.
 - Oracle helpers for ETH/USD and STRAT/ETH pricing.
 
 ## Development
@@ -42,6 +44,29 @@ Format Solidity files:
 ```sh
 yarn lint:fix
 ```
+
+## Integration Tests
+
+Integration tests fork mainnet to test against live protocols (e.g., Sky/MakerDAO flash loans).
+
+To run integration tests (uses Tenderly mainnet fork by default):
+
+```bash
+yarn test:integration
+```
+
+To use a custom RPC:
+
+```bash
+FORK_URL=<your_mainnet_rpc_url> yarn test:integration
+```
+
+Integration tests are located in `test/integration/` and include:
+
+- **esETHIntegrationTest.sol**: Tests getETHValue with real mainnet LST tokens
+- **ESPNRedemptionQueueIntegrationTest.sol**: Tests ESPN cancellation with Sky flash loans
+
+You will find other useful commands in the [`package.json`](./package.json) file.
 
 ## Project Structure
 

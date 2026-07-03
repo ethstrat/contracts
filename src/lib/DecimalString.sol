@@ -9,7 +9,7 @@ library DecimalString {
     ///         The decimal places are not zero-padded, so the result is not always the same length.
     /// @dev    This is inspired by code in
     /// [FixedStrikeOptionTeller](https://github.com/Bond-Protocol/option-contracts/blob/b8ce2ca2bae3bd06f0e7665c3aa8d827e4d8ca2c/src/fixed-strike/FixedStrikeOptionTeller.sol#L722).
-    /// 
+    ///
     /// @param  value_            The uint256 value to convert to a string.
     /// @param  valueDecimals_    The scale factor of the value.
     /// @param  decimalPlaces_    The number of decimal places to format the value to.

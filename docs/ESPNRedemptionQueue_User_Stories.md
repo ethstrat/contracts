@@ -1,0 +1,283 @@
+# ESPN Redemption Queue User Stories
+
+## User Stories
+
+### Queueing Redemptions
+
+**US-001: Queue a redemption by transferring ESPN**
+- **As a** user holding ESPN tokens
+- **I want to** transfer my ESPN tokens to the queue to mint an NFT representing my position in the redemption queue
+- **So that** I can redeem my ESPN for USDS when my position becomes eligible
+- **Acceptance Criteria:**
+  - Must approve ESPN tokens to the contract first
+  - ESPN amount must be greater than zero
+  - ESPN tokens are transferred to the contract (held, not burned)
+  - Users do not benefit from ESPN yield while in queue (ESPN is held by contract)
+  - NFT is minted to the user
+  - Redemption data is recorded (redemptionsBefore, redemptionAmount)
+  - `totalQueued` increases (always growing, never decreases)
+  - Excess ESPN is automatically burned if contract holds more than totalQueued
+  - Event is emitted with queue details
+
+**US-002: Check redemption eligibility**
+- **As a** user holding a redemption queue NFT
+- **I want to** check if my NFT is eligible for redemption
+- **So that** I know when I can redeem for USDS
+- **Acceptance Criteria:**
+  - Can call `isEligibleForRedemption(tokenId)` to check status
+  - Returns eligibility boolean and available position
+  - Eligibility based on: redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)
+  - For active NFTs: must have sufficient USDS balance in contract
+  - For cancelled NFTs: eligible when reaching head of queue (no USDS needed)
+  - NFT must not be already redeemed
+
+**US-003: View redemption data**
+- **As a** user holding a redemption queue NFT
+- **I want to** view the redemption data for my NFT
+- **So that** I can understand my position in the queue
+- **Acceptance Criteria:**
+  - Can call `getRedemptionData(tokenId)` to view all redemption info
+  - Returns redemptionsBefore, redemptionAmount, redeemed status, cancelled status
+  - Public mapping allows direct access to redemption data
+
+### Fulfilling Redemptions
+
+**US-004: Redeem active NFT for USDS**
+- **As a** user holding an eligible redemption queue NFT
+- **I want to** redeem my NFT for USDS
+- **So that** I can exit my ESPN position and receive the underlying asset
+- **Acceptance Criteria:**
+  - Function accepts a single tokenId
+  - Must be the owner of the NFT
+  - NFT must be eligible for redemption
+  - NFT must not be already redeemed
+  - NFT must not be cancelled (use `processCancelledRedemptions()` for cancelled NFTs)
+  - Contract must have sufficient USDS balance
+  - ESPN withdrawals must be enabled
+  - Automatically performs:
+    1. Adds USDS to ESPN via `increaseAssetsPerShare()` (increases assets per share)
+    2. Withdraws the right amount of ESPN shares to get redemptionAmount USDS
+    3. Sends USDS to the user
+  - Users receive exactly their redemptionAmount (they don't benefit from yield accrued while in queue)
+  - `totalRedemptionsProcessed` increases
+  - Excess ESPN is automatically burned if contract holds more than totalQueued
+  - NFT is burned after redemption
+  - Event is emitted with redemption details
+
+**US-004b: Process cancelled NFTs (permissionless)**
+- **As a** anyone (user, protocol, or third party)
+- **I want to** process cancelled NFTs to advance the queue
+- **So that** active redemptions behind cancelled NFTs can be fulfilled with less USDS
+- **Acceptance Criteria:**
+  - Function accepts an array of cancelled tokenIds
+  - Permissionless - anyone can call this function
+  - Each NFT must be cancelled (not active)
+  - Each NFT must be eligible for processing
+  - NFT must not be already processed
+  - No USDS transfer (ESPN already returned via cancellation)
+  - `totalCancellationsProcessed` increases for each NFT
+  - NFTs are burned after processing
+  - Event is emitted with processing details
+  - Improves capital efficiency by allowing active redemptions to be fulfilled sooner
+
+**US-005: Understand queue position**
+- **As a** user in the redemption queue
+- **I want to** understand my position relative to other redemptions
+- **So that** I can estimate when my redemption will be fulfilled
+- **Acceptance Criteria:**
+  - `redemptionsBefore` shows cumulative dollar value of prior redemptions at mint time
+  - Eligibility depends on: redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)
+  - First-in-first-out (FIFO) queue based on redemptionsBefore value
+  - Cancelled NFTs stay in queue and are processed naturally when they reach the head
+
+### Cancelling Redemptions
+
+**US-006: Cancel a redemption**
+- **As a** user holding a redemption queue NFT
+- **I want to** cancel my redemption and get my ESPN back
+- **So that** I can exit the queue if I change my mind
+- **Acceptance Criteria:**
+  - Must be the owner of the NFT
+  - NFT must not be already redeemed or cancelled
+  - ESPN tokens are returned to the user based on dollar value queued (not original shares)
+  - User receives ESPN equal to redemptionAmount in dollar terms (e.g., if they queued $100, they get $100 worth of ESPN at current share price)
+  - This ensures users get back the dollar value they queued, regardless of ESPN share price changes while in queue
+  - NFT is marked as cancelled but stays in queue (not burned immediately)
+  - `totalQueued` remains unchanged (always growing)
+  - Queue ordering maintained without loops:
+      - NFTs with lower tokenIDs are not affected
+      - Cancelled NFTs naturally advance when processed via `processCancelledRedemptions()`
+      - No need to update `redemptionsBefore` for other NFTs
+  - Cancelled NFT will be processed via `processCancelledRedemptions()` when it reaches the head of the queue (no USDS transfer)
+  - Excess ESPN is automatically burned if contract holds more than totalQueued
+
+### NFT Features
+
+**US-009: Transfer redemption queue NFT**
+- **As a** user holding a redemption queue NFT
+- **I want to** transfer my NFT to another address
+- **So that** I can sell or gift my queue position
+- **Acceptance Criteria:**
+  - Standard ERC721 transfer functionality
+  - Only owner can transfer
+  - New owner can redeem or cancel the redemption
+  - NFT metadata includes queue position information
+
+**US-010: View NFT collection**
+- **As a** user or integrator
+- **I want to** view all redemption queue NFTs
+- **So that** I can track queue positions and activity
+- **Acceptance Criteria:**
+  - Standard ERC721 enumeration
+  - Can query total supply
+  - Can query owner of specific token ID
+  - Can iterate through tokens
+
+### Queue Management
+
+**US-011: View queue statistics**
+- **As a** user or protocol observer
+- **I want to** view overall queue statistics
+- **So that** I can understand queue health and activity
+- **Acceptance Criteria:**
+  - Can query `totalQueued` (cumulative dollar value queued, always growing)
+  - Can query `totalRedemptionsProcessed` (cumulative dollar value fulfilled, always growing)
+  - Can query `totalCancellationsProcessed` (cumulative dollar value cancelled, always growing)
+  - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
+  - Can calculate pending redemptions value: `totalQueued - totalRedemptionsProcessed - totalCancellationsProcessed`
+  - Can query ESPN balance held by the contract
+  - Can verify invariant: ESPN value held <= totalQueued (excess is burned automatically)
+
+**US-015: Burn excess ESPN (permissionless)**
+- **As a** anyone (user, protocol, or third party)
+- **I want to** burn excess ESPN if the contract holds more than totalQueued
+- **So that** the invariant is maintained (ESPN value held <= totalQueued)
+- **Acceptance Criteria:**
+  - Permissionless function `burnExcessESPN()` that anyone can call
+  - Calculates current dollar value of ESPN held using `previewRedeem()`
+  - If ESPN value > totalQueued, burns the excess
+  - It should be conservative and always rounds down (that is, burns less than it should). The invariant here is we shoudl always have enough ESPN if everyone in the queue was to cancel
+  - Returns amount of ESPN burned and excess dollar value
+  - Automatically called on queueRedemption, cancelRedemption, redeem, and processCancelledRedemptions
+  - Can also be called manually by anyone to maintain invariant
+  - Event is emitted when excess is burned
+
+### Protocol Management (Owner)
+
+**US-012: Sweep USDS from contract**
+- **As a** contract owner
+- **I want to** sweep excess USDS from the redemption queue contract
+- **So that** I can manage protocol funds and ensure proper operation
+- **Acceptance Criteria:**
+  - Only owner can call `sweepUSDS()`
+  - Transfers all USDS balance to sweeper address
+  - Event is emitted with sweep details
+  - Sweeper address is set at construction and immutable
+
+### Security & Safety
+
+**US-013: Reentrancy protection**
+- **As a** user interacting with the contract
+- **I want** all state-changing functions to be protected against reentrancy attacks
+- **So that** my transactions are secure and cannot be exploited
+- **Acceptance Criteria:**
+  - `nonReentrant` modifier on queueRedemption, redeem, processCancelledRedemptions, cancelRedemption, and burnExcessESPN
+  - Uses ReentrancyGuard from OpenZeppelin
+  - All external functions properly protected
+
+**US-014: Input validation**
+- **As a** user or contract owner
+- **I want** the contract to validate all inputs
+- **So that** invalid transactions are rejected with clear errors
+- **Acceptance Criteria:**
+  - Zero amount checks
+  - Zero address checks (sweeper)
+  - Owner validation for NFT operations
+  - Eligibility checks before redemption
+  - Withdrawals enabled check before redeem
+  - Clear error messages for each failure case
+
+
+**US-016: Queue ordering integrity**
+- **As a** user in the redemption queue
+- **I want** the queue to maintain proper ordering
+- **So that** redemptions are processed fairly in order
+- **Acceptance Criteria:**
+  - `redemptionsBefore` captures cumulative value at mint time (never updated)
+  - Eligibility check ensures FIFO processing: `redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)`
+  - `totalRedemptionsProcessed` tracks fulfilled active redemptions
+  - `totalCancellationsProcessed` tracks processed cancelled redemptions
+  - Cannot redeem out of order
+  - Cancelled NFTs processed naturally when reaching head of queue
+
+## Technical Notes
+
+- The contract implements ERC721 standard for NFT functionality
+- Uses OpenZeppelin's Ownable2Step for secure ownership management
+- ESPN tokens are **held** when queuing a redemption
+- Users do not benefit from ESPN yield while in queue (ESPN is held by contract)
+- Dollar backing is calculated using ERC4626 `previewRedeem()` function
+- Queue position is determined by cumulative dollar value (`redemptionsBefore`) at mint time
+- Eligibility requires: `redemptionsBefore < (totalRedemptionsProcessed + totalCancellationsProcessed + USDS balance)`
+- State variables (all always growing, never decreasing):
+  - `totalQueued`: Cumulative dollar value of all redemptions queued
+  - `totalRedemptionsProcessed`: Cumulative dollar value of fulfilled active redemptions
+  - `totalCancellationsProcessed`: Cumulative dollar value of processed cancelled redemptions
+  - Invariant: `totalRedemptionsProcessed + totalCancellationsProcessed <= totalQueued`
+- `redeem()` function:
+  - Accepts a single tokenId for active (non-cancelled) redemptions
+  - Uses `increaseAssetsPerShare()` to add USDS to ESPN (increases assets per share without minting)
+  - Uses `withdraw()` to get USDS from ESPN
+  - Users receive exactly their redemptionAmount (no yield benefit while in queue)
+- `processCancelledRedemptions()` function accepts an array of cancelled tokenIds and is permissionless
+- Cancelled NFTs stay in queue and are processed via `processCancelledRedemptions()` when they reach the head
+- Processing cancelled NFTs improves capital efficiency by reducing USDS requirements for active redemptions
+- Queue ordering maintained without loops - cancelled NFTs naturally advance when processed
+- Sweeper address is immutable and set at construction
+- NFT is burned after redemption/processing, not immediately on cancellation
+- Infinite USDS approval set in constructor for ESPN's `increaseAssetsPerShare()` function (safe because ESPN is immutable)
+
+### ESPN Holding and Yield Isolation
+
+When users queue a redemption, their ESPN tokens are transferred to the contract. This means:
+- ESPN held by the contract may accrue yield over time
+- Users in queue do **not** benefit from this yield accrual
+- On redemption, users receive exactly their `redemptionAmount` in USDS (the dollar value they queued)
+- On cancellation, users receive ESPN equal to their `redemptionAmount` in dollar terms (not the original shares)
+- Excess ESPN (from yield accrual) is automatically burned via `burnExcessESPN()` to maintain the invariant
+
+**Invariant:** `espn.previewRedeem(espnBalance) <= totalQueued`
+
+This invariant is maintained by automatically calling `burnExcessESPN()` after:
+- `queueRedemption()` - when new ESPN is added
+- `cancelRedemption()` - when ESPN is returned to user
+- `redeem()` - when ESPN is withdrawn
+- `processCancelledRedemptions()` - when queue advances
+
+### Cancellation Implementation Details
+
+When a user cancels their redemption, they receive ESPN tokens back. Since ESPN is held when queuing, cancellation is straightforward:
+
+1. Calculate how many ESPN shares equal the `redemptionAmount` in dollar terms using `previewMint()`
+2. Transfer that amount of ESPN from the contract to the user
+3. Mark the NFT as cancelled (stays in queue)
+4. Burn excess ESPN if contract holds more than totalQueued
+
+**Key points:**
+- User receives ESPN equal to dollar value queued (not original shares)
+- If ESPN share price increased while in queue, user gets fewer shares (but same dollar value)
+- If ESPN share price decreased while in queue, user gets more shares (but same dollar value)
+- No flash loans required - direct transfer from contract's ESPN balance
+- ESPN manager does not need to be set to this contract
+
+### Capital Efficiency: Processing Cancelled NFTs
+
+When redemptions are cancelled, the NFTs remain in the queue but don't require USDS to process (the ESPN was already returned to the user). However, until these cancelled NFTs are processed, they block active redemptions behind them from being fulfilled efficiently.
+
+**Example:**
+- NFT #1: redemptionsBefore = 0, amount = 100 USDS (CANCELLED)
+- NFT #2: redemptionsBefore = 100, amount = 50 USDS (ACTIVE - yours)
+
+Without processing NFT #1, you need 101+ USDS in the contract to redeem NFT #2. But if NFT #1 is processed first (burning the NFT and incrementing `totalCancellationsProcessed`), you only need 50 USDS.
+
+The `processCancelledRedemptions()` function is **permissionless**, allowing anyone to process cancelled NFTs to improve capital efficiency. This creates an economic incentive: users with active redemptions can process cancelled NFTs ahead of them to enable their own redemptions with less USDS in the contract.
