@@ -9,12 +9,12 @@ import {ITripwireController} from "./interfaces/ITripwireController.sol";
 import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 /**
- * @title Staked STRAT
- * @dev Users stake STRAT tokens and earn reward token yield (e.g. esETH) proportional to their
- *      stake. Uses rewardDebt/rewardsPerShare accounting (MasterChef-style) combined with
+ * @title Staked ESPNv3
+ * @dev Users stake ESPNv3 tokens and earn USDS yield proportional to their stake.
+ *      Uses rewardDebt/rewardsPerShare accounting (MasterChef-style) combined with
  *      Synthetix-style linear reward streaming.
  *
- *      When reward tokens are sent to this contract, syncRewards() detects the balance increase
+ *      When USDS is sent to this contract, syncRewards() detects the balance increase
  *      and begins a REWARD_DURATION (7-day) linear drip rather than distributing immediately.
  *      Any undistributed tokens from an active stream are blended into the new period. This
  *      prevents frontrunning: an attacker who stakes just before rewards arrive and exits
@@ -25,9 +25,9 @@ import {TripwireGuard} from "./lib/TripwireGuard.sol";
  *        - unstake() auto-claims pending rewards before reducing stake (no silent forfeiture).
  *        - migrateStake() preserves the sender's non-migrated proportional pending in their debt.
  *
- *      StakedSTRAT is a non-transferrable ERC20 token.
+ *      Staked ESPNv3 is a non-transferrable ERC20 token.
  */
-contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
+contract ESPNv3Staking is ERC20, ReentrancyGuard, TripwireGuard {
     using SafeERC20 for IERC20;
 
     uint256 private constant PRECISION = 1e18;
@@ -35,7 +35,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     /// @dev Duration over which each detected reward batch is linearly streamed
     uint256 public constant REWARD_DURATION = 7 days;
 
-    IERC20 public immutable stratToken;
+    IERC20 public immutable espnV3;
     IERC20 public immutable rewardToken;
 
     // -------------------------------------------------------------------------
@@ -95,17 +95,24 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_) ERC20("Staked STRAT v2", "sSTRAT-v2") TripwireGuard(controller_, guardian_) {
-        if (_stratToken == address(0)) revert();
+    /**
+     * @param _espnV3 The ESPNv3 token to stake
+     * @param _rewardToken The reward token (USDS)
+     */
+    constructor(address _espnV3, address _rewardToken, ITripwireController controller_, address guardian_)
+        ERC20("Staked ESPNv3", "sESPNv3")
+        TripwireGuard(controller_, guardian_)
+    {
+        if (_espnV3 == address(0)) revert();
         if (_rewardToken == address(0)) revert();
-        if (_stratToken == _rewardToken) revert();
-        stratToken = IERC20(_stratToken);
+        if (_espnV3 == _rewardToken) revert();
+        espnV3 = IERC20(_espnV3);
         rewardToken = IERC20(_rewardToken);
         lastUpdateTime = block.timestamp;
     }
 
     // -------------------------------------------------------------------------
-    // Transfer overrides (sSTRAT is non-transferrable)
+    // Transfer overrides (sESPNv3 is non-transferrable)
     // -------------------------------------------------------------------------
 
     function transfer(address, uint256) public pure override returns (bool) {
@@ -189,7 +196,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     // -------------------------------------------------------------------------
 
     /**
-     * @dev Stake STRAT tokens
+     * @dev Stake ESPNv3 tokens
      */
     function stake(uint256 amount) external nonReentrant whenNotTripped {
         if (amount == 0) revert ZeroAmount();
@@ -199,7 +206,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
         // Preserve existing reward debt so prior pending rewards are untouched
         uint256 currentRewardDebt = rewardDebt[msg.sender];
 
-        stratToken.safeTransferFrom(msg.sender, address(this), amount);
+        espnV3.safeTransferFrom(msg.sender, address(this), amount);
 
         staked[msg.sender] += amount;
         totalStaked += amount;
@@ -212,7 +219,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     }
 
     /**
-     * @dev Unstake STRAT tokens. Pending rewards are automatically claimed first.
+     * @dev Unstake ESPNv3 tokens. Pending rewards are automatically claimed first.
      */
     function unstake(uint256 amount) external nonReentrant whenNotTripped {
         if (amount == 0) revert ZeroAmount();
@@ -233,12 +240,12 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
         rewardDebt[msg.sender] = (staked[msg.sender] * rewardsPerShare) / PRECISION;
 
         _burn(msg.sender, amount);
-        stratToken.safeTransfer(msg.sender, amount);
+        espnV3.safeTransfer(msg.sender, amount);
         emit Unstaked(msg.sender, amount);
     }
 
     /**
-     * @dev Claim pending reward tokens
+     * @dev Claim pending USDS rewards
      */
     function claim() external nonReentrant whenNotTripped {
         syncRewards();
