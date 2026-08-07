@@ -18,24 +18,15 @@
 
 ## Roles & Permissions
 
-**US-000: Owner can update the premium control factor (PCF)**
+**US-000: Owner can update the bond control factor (BCF)**
 - **As a** protocol operator (`owner`)
-- **I want** to update `pcf`
+- **I want** to update `bcf`
 - **So that** conversion entitlement calculations can be tuned over time
 - **Acceptance Criteria:**
-  - Only `owner` can call `setPCF(newVal)`
-  - Emits `OwnerChangedPCF(oldVal, newVal)`
-  - `pcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the premium term
-
-**US-000a: Owner can update the GAV control factor (GCF)**
-- **As a** protocol operator (`owner`)
-- **I want** to update `gcf`
-- **So that** conversion entitlement calculations can scale the gross asset value independently
-- **Acceptance Criteria:**
-  - Only `owner` can call `setGCF(newVal)`
-  - Emits `OwnerChangedGCF(oldVal, newVal)`
-  - `gcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the GAV term
-  - `gcf` is initialized to `1 * SCALE` in the constructor (no scaling by default)
+  - Only `owner` can call `setBCF(newVal)`
+  - Emits `OwnerChangedBCF(oldVal, newVal)`
+  - `bcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the premium term
+  - `bcf` is initialized to `1 * SCALE` in the constructor (no scaling by default)
 
 **US-001: Owner can set a tokenURI renderer**
 - **As a** protocol operator (`owner`)
@@ -259,14 +250,14 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
     - ETH/USD oracle price (`_getEthUsdPrice()`)
     - System balances (`esETHToken.balanceOf(unencumberedHoldings)` and `esETHToken.balanceOf(encumberedHoldings)`)
     - Token supplies (`stratToken.totalSupply()`, `cdtToken.totalSupply()`)
-    - `pcf` (Premium Control Factor) - scales the premium term
-    - `gcf` (GAV Control Factor) - scales the gross asset value (GAV) term
-  - **STRAT pricing formula**: 
-    - `numeratorUsd = (gav * gcf / SCALE) + premiumUsd`
+    - `bcf` (Bond Control Factor) - scales the premium term
+  - **STRAT pricing formula** (based on NAV, not GAV):
+    - `gav = totalEth * ethPriceUSD / ORACLE_SCALE`
+    - `navUSD = gav > cdtTotalSupply ? gav - cdtTotalSupply : 0` (net of outstanding CDT debt, floored at 0)
+    - `premiumUsd = (bcf * adjustedCdtSupply) / SCALE`
+    - `numeratorUsd = navUSD + premiumUsd`
     - `stratConversionRate = numeratorUsd * SCALE / stratTotalSupply`
     - `stratAmount = settlementUsd * SCALE / stratConversionRate`
-    - Where `gav = totalEth * ethPriceUSD / ORACLE_SCALE`
-    - And `premiumUsd = (pcf * adjustedCdtSupply) / SCALE`
   - **ETH pricing formula** (based on NAV per STRAT):
     - `debtInEth = cdtTotalSupply * ORACLE_SCALE / ethPriceUSD`
     - If `debtInEth > totalEth` (protocol underwater): `ethAmount = 0`
@@ -297,37 +288,26 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 
 ---
 
-## Control Factors (GCF and PCF)
+## Control Factor (BCF)
 
-**US-501: GCF scales the perceived value of the treasury's gross asset value**
-- **As a** protocol operator
-- **I want** to scale the GAV independently from the actual ETH holdings
-- **So that** pricing can be adjusted for risk, growth expectations, or market conditions
-- **Acceptance Criteria:**
-  - `gcf` (GAV Control Factor) multiplies the treasury's GAV in the conversion pricing formula
-  - `gcf = 1 * SCALE` (default): GAV used as-is
-  - `gcf > 1 * SCALE`: GAV is scaled up → higher price per token → fewer tokens per USD bonded
-  - `gcf < 1 * SCALE`: GAV is scaled down → lower price per token → more tokens per USD bonded
-  - `gcf = 0`: Only premium term affects pricing (GAV term becomes zero)
-
-**US-502: PCF scales the premium component of the pricing**
+**US-502: BCF scales the premium component of the pricing**
 - **As a** protocol operator
 - **I want** to scale the premium term independently from the CDT supply
 - **So that** the cost/value of conversion rights can be adjusted
 - **Acceptance Criteria:**
-  - `pcf` (Premium Control Factor) multiplies the adjusted CDT supply in the premium calculation
-  - `pcf = 1 * SCALE` (default): Premium calculated directly from adjusted CDT supply
-  - `pcf > 1 * SCALE`: Premium is scaled up → higher price per token → fewer tokens per USD bonded
-  - `pcf < 1 * SCALE`: Premium is scaled down → lower price per token → more tokens per USD bonded
+  - `bcf` (Bond Control Factor) multiplies the adjusted CDT supply in the premium calculation
+  - `bcf = 1 * SCALE` (default): Premium calculated directly from adjusted CDT supply
+  - `bcf > 1 * SCALE`: Premium is scaled up → higher price per token → fewer tokens per USD bonded
+  - `bcf < 1 * SCALE`: Premium is scaled down → lower price per token → more tokens per USD bonded
+  - `bcf = 0`: Only the NAV term affects pricing (premium term becomes zero)
 
-**US-503: GCF and PCF effects are mathematically predictable**
+**US-503: BCF effects are mathematically predictable**
 - **As a** protocol operator / auditor
-- **I want** the pricing effects of GCF and PCF to be well-defined
+- **I want** the pricing effects of BCF to be well-defined
 - **So that** I can reason about the impact of parameter changes
 - **Acceptance Criteria:**
-  - Doubling `gcf` from 1 to 2 has the same effect on numerator as doubling the ETH in the treasury (when premium term is small relative to GAV term)
-  - Doubling `pcf` from 1 to 2 has a similar effect as doubling the CDT supply
-  - Both factors affect the numerator in the conversion rate formula: `rate = numeratorUsd / tokenSupply`
+  - Doubling `bcf` from 1 to 2 has a similar effect as doubling the CDT supply's contribution to the premium
+  - The factor affects the numerator in the conversion rate formula: `rate = numeratorUsd / tokenSupply`, where `numeratorUsd = navUSD + premiumUsd`
   - Higher numerator → higher rate → fewer tokens received per USD
   - Lower numerator → lower rate → more tokens received per USD
 
@@ -336,7 +316,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 ## Notes on Spec vs. Implementation-in-progress
 
 - The contract currently defines an error `EthTransferFailed`, but the current spec flow in `EthStrategyConvertibleNote.sol` uses `esETHToken.wrapAndMint(...)` instead of raw ETH forwarding; `EthTransferFailed` is not used by the current function bodies.
-- This doc intentionally reflects **the behaviors that exist in the current function bodies**: PCF setter + renderer management + bond/convert/redeem mechanics.
+- This doc intentionally reflects **the behaviors that exist in the current function bodies**: BCF setter + renderer management + bond/convert/redeem mechanics.
 
 ---
 
@@ -369,9 +349,8 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 
 ### Global State (Affects All New Bonds)
 
-- **Control Factors** (both scaled by `SCALE = 1e18`):
-  - `pcf` (Premium Control Factor): Scales the premium term in conversion pricing
-  - `gcf` (GAV Control Factor): Scales the gross asset value term in conversion pricing
+- **Control Factor** (scaled by `SCALE = 1e18`):
+  - `bcf` (Bond Control Factor): Scales the premium term in conversion pricing
 - **Token Addresses**:
   - `cdtToken`: The debt token minted on bonding
   - `stratToken`: The token that can be minted on conversion
