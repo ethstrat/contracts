@@ -817,6 +817,64 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertLt(stratFloorHigh, stratFloorLow, "A higher floor should give fewer STRAT per USD");
     }
 
+    // ========= ETH Conversion Bounded By Deposit =========
+
+    /// @notice A note can never carry the right to convert out more ETH than was deposited: the stored ETH
+    ///         entitlement is capped at msg.value at bond time, across a range of bond sizes.
+    function testEthEntitlementNeverExceedsDeposit() public {
+        uint256[3] memory amounts = [uint256(0.5 ether), 1 ether, 5 ether];
+        for (uint256 i = 0; i < amounts.length; i++) {
+            (uint256 tokenId,,,) = _bond(user, amounts[i], 0, 0, block.timestamp);
+            assertLe(bonds.conversionEntitlementEth(tokenId), amounts[i], "ETH entitlement must not exceed deposit");
+        }
+    }
+
+    /// @notice With bcf = 0 and no debt the numerator is exactly NAV, so the raw ETH entitlement equals the
+    ///         deposit. The stored entitlement equals the full deposit and the whole deposit backs the ETH
+    ///         conversion right (unencumbered holdings receive nothing — the zero-value wrapAndMint is skipped).
+    function testEthEntitlementEqualsDepositWhenNumeratorIsPureNav() public {
+        vm.prank(owner);
+        bonds.setBCF(0);
+
+        uint256 ethAmount = 1 ether;
+        uint256 unencBefore = esETHToken.balanceOf(unencumberedHoldings);
+        uint256 encBefore = esETHToken.balanceOf(encumberedHoldings);
+
+        (uint256 tokenId,,,) = _bond(user, ethAmount, 0, 0, block.timestamp);
+
+        assertEq(bonds.conversionEntitlementEth(tokenId), ethAmount, "entitlement should equal the full deposit");
+        assertEq(esETHToken.balanceOf(encumberedHoldings) - encBefore, ethAmount, "all deposit backs the ETH right");
+        assertEq(esETHToken.balanceOf(unencumberedHoldings), unencBefore, "unencumbered receives nothing");
+
+        // Converting to ETH after timelock pays out exactly the deposit — never more.
+        _warpPastTimelock(tokenId);
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+        uint256 userEthBefore = esETHToken.balanceOf(user);
+        vm.prank(user);
+        bonds.convert(tokenId, true);
+        assertEq(esETHToken.balanceOf(user) - userEthBefore, ethAmount, "ETH out must not exceed ETH in");
+    }
+
+    /// @notice The stored ETH entitlement is exactly min(rawEntitlement, deposit): the cap binds whenever the
+    ///         raw (pricing-formula) entitlement would meet or exceed the deposited ETH.
+    function testEthEntitlementIsClampedToDeposit() public {
+        // Establish debt, then drop the premium term (bcf = 0) so the numerator is just NAV.
+        _bond(other, 10 ether, 0, 0, block.timestamp);
+        vm.prank(owner);
+        bonds.setBCF(0);
+
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
+        (, uint256 rawEth) = bonds.conversionEntitlements(settlementUsd);
+
+        (uint256 tokenId,,,) = _bond(user, ethAmount, 0, 0, block.timestamp);
+
+        uint256 expected = rawEth > ethAmount ? ethAmount : rawEth;
+        assertEq(bonds.conversionEntitlementEth(tokenId), expected, "stored entitlement should be min(raw, deposit)");
+        assertLe(bonds.conversionEntitlementEth(tokenId), ethAmount, "never more than deposited");
+    }
+
     // ========= NAV-Based ETH Conversion Tests =========
 
     /// @notice Core invariant: ethAmount = stratAmount × (navETH / stratTotalSupply)

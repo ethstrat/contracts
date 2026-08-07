@@ -74,9 +74,10 @@
     - `expiry[tokenId]`
     - `timelock[tokenId]`
   - The contract mints `CDT` to `bonder` equal to `settlementEntitlementUsd[tokenId]`
+  - The ETH conversion entitlement is capped at the deposit: `conversionAmountEth = min(conversionAmountEth, msg.value)`, so a note can never carry the right to convert out more ETH than was put in
   - ETH flow uses esETH minting and splits the bond ETH into:
-    - **Encumbered** portion: `esETHToken.wrapAndMint{value: conversionAmountEth}(encumberedHoldings)`
-    - **Unencumbered** remainder: `esETHToken.wrapAndMint{value: msg.value - conversionAmountEth}(unencumberedHoldings)`
+    - **Encumbered** portion: `esETHToken.wrapAndMint{value: conversionAmountEth}(encumberedHoldings)` (skipped if `conversionAmountEth == 0`)
+    - **Unencumbered** remainder: `esETHToken.wrapAndMint{value: msg.value - conversionAmountEth}(unencumberedHoldings)` (skipped if the remainder is `0`, e.g. when the whole deposit backs the ETH right)
   - Emits `LongBond(bonder, tokenId, strike, notionalUnderlyingAmount, notionalUSDAmount, ethAmount, expiry, timelock)`
     - Where “strike / notional” values correspond to the stored per-token values computed above
 
@@ -286,6 +287,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - This ensures bonders receive their pro-rata share of **unencumbered** ETH backing
   - If protocol is underwater (`debtInEth > totalEth`), then `ethAmount = 0` (no ETH conversion rights, only STRAT)
   - This protects existing creditors from dilution and prevents claiming non-existent backing
+  - At bond time the ETH entitlement stored on the note is additionally capped at the deposited ETH (`min(conversionAmountEth, msg.value)`), so conversion can never return more ETH than was put in
 
 **US-500b: Bonding continues even when protocol is underwater**
 - **As a** protocol operator / bonder

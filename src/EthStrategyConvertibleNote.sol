@@ -213,6 +213,12 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 settlementAmountUsd_ = msg.value * ethPriceUSD / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
         (uint256 conversionAmountStrat_, uint256 conversionAmountEth_) = conversionEntitlements(settlementAmountUsd_);
 
+        // The ETH conversion right is a covered call backed by the ETH actually deposited: cap the ETH
+        // entitlement at msg.value so a holder can never convert out more ETH than they put in.
+        if (conversionAmountEth_ > msg.value) {
+            conversionAmountEth_ = msg.value;
+        }
+
         // Check that the notional underlying amount is greater than the minimum
         if (conversionAmountStrat_ < minConversionAmountStrat) {
             revert InsufficientOutput(minConversionAmountStrat, conversionAmountStrat_);
@@ -248,8 +254,12 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             esETHToken.wrapAndMint{value: conversionAmountEth_}(encumberedHoldings);
         }
 
-        // send the remainder of the ETH to the unencumbered holdings
-        esETHToken.wrapAndMint{value: msg.value - conversionAmountEth_}(unencumberedHoldings);
+        // send the remainder of the ETH to the unencumbered holdings (skip if the entire deposit backs
+        // the ETH conversion right, since wrapAndMint reverts on a zero value)
+        uint256 unencumberedAmount_ = msg.value - conversionAmountEth_;
+        if (unencumberedAmount_ > 0) {
+            esETHToken.wrapAndMint{value: unencumberedAmount_}(unencumberedHoldings);
+        }
 
         emit LongBond(
             bonder,
