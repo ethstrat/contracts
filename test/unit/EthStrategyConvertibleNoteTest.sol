@@ -246,6 +246,87 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertEq(esETHToken.balanceOf(unencumberedHoldings) - unencBefore, ethAmount - entitlementEth);
     }
 
+    // ========= Debt Ceiling =========
+
+    function testOnlyOwnerCanSetMaxDebt() public {
+        // Disabled by default.
+        assertEq(bonds.maxDebt(), type(uint256).max, "maxDebt should default to disabled (max uint256)");
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        bonds.setMaxDebt(1_000_000e18);
+
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit EthStrategyConvertibleNote.OwnerChangedMaxDebt(type(uint256).max, 1_000_000e18);
+        bonds.setMaxDebt(1_000_000e18);
+        assertEq(bonds.maxDebt(), 1_000_000e18);
+    }
+
+    function testBondRevertsWhenExceedingDebtCeiling() public {
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18; // 3000e18 of new CDT debt
+
+        // Ceiling one wei of debt below what this bond would mint.
+        vm.prank(owner);
+        bonds.setMaxDebt(settlementUsd - 1);
+
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.DebtCeilingExceeded.selector, settlementUsd, settlementUsd - 1
+            )
+        );
+        bonds.bond{value: ethAmount}(user, 0, 0, block.timestamp);
+    }
+
+    function testBondSucceedsUpToDebtCeilingThenReverts() public {
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
+
+        // Ceiling exactly allows a single bond (newTotalSupply == maxDebt is permitted).
+        vm.prank(owner);
+        bonds.setMaxDebt(settlementUsd);
+
+        (uint256 tokenId,,,) = _bond(user, ethAmount, 0, 0, block.timestamp);
+        assertEq(bonds.ownerOf(tokenId), user);
+        assertEq(cdtToken.totalSupply(), settlementUsd, "supply should sit exactly at the ceiling");
+
+        // A second bond would push total supply above the ceiling.
+        vm.prank(other);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.DebtCeilingExceeded.selector, settlementUsd * 2, settlementUsd
+            )
+        );
+        bonds.bond{value: ethAmount}(other, 0, 0, block.timestamp);
+    }
+
+    function testDebtCeilingCountsPreExistingSupply() public {
+        // Pre-existing CDT debt (minted outside bonding) counts toward the ceiling.
+        vm.prank(owner);
+        cdtToken.manageMinter(owner, true);
+        vm.prank(owner);
+        cdtToken.mint(user, 10_000e18);
+
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
+
+        // Ceiling leaves room for less than the new bond's debt.
+        vm.prank(owner);
+        bonds.setMaxDebt(10_000e18 + settlementUsd - 1);
+
+        vm.prank(other);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.DebtCeilingExceeded.selector,
+                10_000e18 + settlementUsd,
+                10_000e18 + settlementUsd - 1
+            )
+        );
+        bonds.bond{value: ethAmount}(other, 0, 0, block.timestamp);
+    }
+
     // ========= Conversion =========
 
     function testConvertRevertsDuringTimelock() public {

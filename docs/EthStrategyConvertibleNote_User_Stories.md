@@ -38,6 +38,17 @@
   - `navFloorPrice` (USD notional, scale `1e18`) is used in `conversionEntitlements(...)`: bonding prices off `max(navUSD, navFloorPrice)`
   - `navFloorPrice` is `0` by default (disabled — the floor never lifts the price)
 
+**US-000b: Owner can set the debt ceiling**
+- **As a** protocol operator (`owner`)
+- **I want** to cap the total CDT debt that bonding can create
+- **So that** the protocol cannot take on debt beyond a chosen limit
+- **Acceptance Criteria:**
+  - Only `owner` can call `setMaxDebt(newVal)`
+  - Emits `OwnerChangedMaxDebt(oldVal, newVal)`
+  - `maxDebt` (CDT total supply, scale `1e18`) bounds bonding: a `bond(...)` reverts with `DebtCeilingExceeded(newTotalSupply, maxDebt)` if `cdtToken.totalSupply() + settlementEntitlementUsd > maxDebt`
+  - `maxDebt` is `type(uint256).max` by default (disabled — no ceiling)
+  - Pre-existing CDT supply counts toward the ceiling
+
 **US-001: Owner can set a tokenURI renderer**
 - **As a** protocol operator (`owner`)
 - **I want** to set `tokenURIRenderer`
@@ -60,6 +71,7 @@
     - `msg.value == 0` (`NoEthSent`)
     - `bonder == address(0)` (`ZeroAddress`)
     - `deadline < block.timestamp` (`TransactionStale(deadline)`)
+    - minting the new debt would breach the ceiling: `cdtToken.totalSupply() + settlementEntitlementUsd > maxDebt` (`DebtCeilingExceeded(newTotalSupply, maxDebt)`)
   - The contract computes:
     - `settlementEntitlementUsd = msg.value * ethPriceUSD / ORACLE_SCALE`
     - `(conversionAmountStrat, conversionAmountEth) = conversionEntitlements(settlementEntitlementUsd)`
@@ -341,7 +353,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 - **I want** predictable revert reasons
 - **So that** I can build reliable UX
 - **Acceptance Criteria:**
-  - Bonding: `NoEthSent`, `ZeroAddress`, `TransactionStale`, `InsufficientOutput`, `InvalidTimelockOrExpiry`
+  - Bonding: `NoEthSent`, `ZeroAddress`, `TransactionStale`, `DebtCeilingExceeded`, `InsufficientOutput`, `InvalidTimelockOrExpiry`
   - Conversion: `TimelockActive`, `OptionExpired`, `NotOwnerOrApproved`, `InvalidExerciseAmount`
   - Redemption: `TimelockActive`, `OptionUnexpired`, `NotOwnerOrApproved`, `InsufficientOutput`
   - Release Encumbrance: `OptionUnexpired`, `EncumbranceAlreadyReleased`
@@ -365,6 +377,9 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 
 - **Control Factor** (scaled by `SCALE = 1e18`):
   - `bcf` (Bond Control Factor): Scales the premium term in conversion pricing
+- **Pricing / Risk Parameters**:
+  - `navFloorPrice`: Lower bound on the NAV term used to price new bonds (`0` disables it)
+  - `maxDebt`: Debt ceiling — maximum CDT total supply bonding may create (`type(uint256).max` disables it)
 - **Token Addresses**:
   - `cdtToken`: The debt token minted on bonding
   - `stratToken`: The token that can be minted on conversion

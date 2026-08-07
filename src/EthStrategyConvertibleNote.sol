@@ -34,6 +34,10 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     ///         floor. Default 0 (disabled — the floor never lifts the price).
     uint256 public navFloorPrice;
 
+    /// @notice Admin-set debt ceiling: the maximum CDT total supply bonding may create. A bond reverts if it
+    ///         would push `cdtToken.totalSupply()` above this value. Default type(uint256).max (disabled).
+    uint256 public maxDebt;
+
     address public tokenURIRenderer;
 
     /// @notice The amount of CDT required to exercise/settle the note (remaining if partially exercised)
@@ -69,6 +73,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
 
     event OwnerChangedBCF(uint256 oldVal, uint256 newVal);
     event OwnerChangedNavFloorPrice(uint256 oldVal, uint256 newVal);
+    event OwnerChangedMaxDebt(uint256 oldVal, uint256 newVal);
     event RendererUpdated(address indexed renderer);
     event EncumbranceReleased(uint256 indexed tokenId, uint256 ethAmount);
 
@@ -109,6 +114,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
     error InvalidExerciseAmount(uint256 amount, uint256 remainingStrike);
     error EncumbranceAlreadyReleased(uint256 tokenId);
+    error DebtCeilingExceeded(uint256 newTotalSupply, uint256 maxDebt);
 
     /**
      * @param _cdtToken The CDT token
@@ -142,6 +148,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         encumberedHoldings = _encumberedHoldings;
 
         bcf = 1 * SCALE;
+        maxDebt = type(uint256).max; // debt ceiling disabled by default
         _tokenIdCounter = 1;
     }
 
@@ -164,6 +171,17 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     function setNavFloorPrice(uint256 newVal) external onlyOwner {
         emit OwnerChangedNavFloorPrice(navFloorPrice, newVal);
         navFloorPrice = newVal;
+    }
+
+    /**
+     * @notice Updates the debt ceiling (maximum CDT total supply that bonding may create).
+     * @dev    Only the contract owner can call this function. Bonding reverts if it would push
+     *         `cdtToken.totalSupply()` above this value. Set to type(uint256).max to disable.
+     * @param newVal The new debt ceiling (CDT total supply, scale: 1e18).
+     */
+    function setMaxDebt(uint256 newVal) external onlyOwner {
+        emit OwnerChangedMaxDebt(maxDebt, newVal);
+        maxDebt = newVal;
     }
 
     /**
@@ -211,6 +229,14 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // settlement notional in USD
         uint256 ethPriceUSD = _getEthUsdPrice();
         uint256 settlementAmountUsd_ = msg.value * ethPriceUSD / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
+
+        // Enforce the debt ceiling: bonding mints `settlementAmountUsd_` CDT, so reject any bond that would
+        // push total CDT supply above the admin-set maximum.
+        uint256 newTotalSupply_ = cdtToken.totalSupply() + settlementAmountUsd_;
+        if (newTotalSupply_ > maxDebt) {
+            revert DebtCeilingExceeded(newTotalSupply_, maxDebt);
+        }
+
         (uint256 conversionAmountStrat_, uint256 conversionAmountEth_) = conversionEntitlements(settlementAmountUsd_);
 
         // The ETH conversion right is a covered call backed by the ETH actually deposited: cap the ETH
