@@ -28,6 +28,12 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     address immutable encumberedHoldings; // Address that holds encumbered ETH (backs open unexercised options)
 
     uint256 public bcf; // Bond Control Factor (scale: SCALE)
+
+    /// @notice Admin-set NAV floor price (USD notional, scale: 1e18). Bonding prices off max(nav, navFloorPrice),
+    ///         so this is a price floor: when live NAV drops below the floor, bonds are priced as if NAV were the
+    ///         floor. Default 0 (disabled — the floor never lifts the price).
+    uint256 public navFloorPrice;
+
     address public tokenURIRenderer;
 
     /// @notice The amount of CDT required to exercise/settle the note (remaining if partially exercised)
@@ -62,6 +68,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     uint256 public constant SCALE = 1e18;
 
     event OwnerChangedBCF(uint256 oldVal, uint256 newVal);
+    event OwnerChangedNavFloorPrice(uint256 oldVal, uint256 newVal);
     event RendererUpdated(address indexed renderer);
     event EncumbranceReleased(uint256 indexed tokenId, uint256 ethAmount);
 
@@ -146,6 +153,17 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     function setBCF(uint256 newVal) external onlyOwner {
         emit OwnerChangedBCF(bcf, newVal);
         bcf = newVal;
+    }
+
+    /**
+     * @notice Updates the NAV floor price used when pricing new bonds.
+     * @dev    Only the contract owner can call this function. Bonding prices off max(nav, navFloorPrice),
+     *         so a higher floor keeps bonds from being sold too cheaply when live NAV falls. Set to 0 to disable.
+     * @param newVal The new NAV floor price (USD notional, scale: 1e18).
+     */
+    function setNavFloorPrice(uint256 newVal) external onlyOwner {
+        emit OwnerChangedNavFloorPrice(navFloorPrice, newVal);
+        navFloorPrice = newVal;
     }
 
     /**
@@ -476,9 +494,13 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 gavUSD = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
         uint256 navUSD = gavUSD > cdtSupply ? gavUSD - cdtSupply : 0; // Scale: 1e18 (USD)
 
+        // Apply the admin-set NAV floor price: bonding prices off the greater of live NAV and the floor,
+        // so bonds are never sold as if NAV were below the floor (navFloorPrice == 0 disables this).
+        uint256 navForPricing = navUSD > navFloorPrice ? navUSD : navFloorPrice;
+
         // Premium term is USD-denominated; bcf is scaled by SCALE.
         uint256 premiumUsd = (bcf * adjustedCdtSupply) / SCALE;
-        uint256 numeratorUsd = navUSD + premiumUsd; // Scale: 1e18 (USD)
+        uint256 numeratorUsd = navForPricing + premiumUsd; // Scale: 1e18 (USD)
 
         // If there is nothing to price against (underwater NAV and no premium), there is no entitlement.
         if (numeratorUsd == 0) {

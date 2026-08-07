@@ -28,6 +28,16 @@
   - `bcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the premium term
   - `bcf` is initialized to `1 * SCALE` in the constructor (no scaling by default)
 
+**US-000a: Owner can update the NAV floor price**
+- **As a** protocol operator (`owner`)
+- **I want** to update `navFloorPrice`
+- **So that** new bonds are never priced as if NAV were below a chosen floor
+- **Acceptance Criteria:**
+  - Only `owner` can call `setNavFloorPrice(newVal)`
+  - Emits `OwnerChangedNavFloorPrice(oldVal, newVal)`
+  - `navFloorPrice` (USD notional, scale `1e18`) is used in `conversionEntitlements(...)`: bonding prices off `max(navUSD, navFloorPrice)`
+  - `navFloorPrice` is `0` by default (disabled — the floor never lifts the price)
+
 **US-001: Owner can set a tokenURI renderer**
 - **As a** protocol operator (`owner`)
 - **I want** to set `tokenURIRenderer`
@@ -251,11 +261,13 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
     - System balances (`esETHToken.balanceOf(unencumberedHoldings)` and `esETHToken.balanceOf(encumberedHoldings)`)
     - Token supplies (`stratToken.totalSupply()`, `cdtToken.totalSupply()`)
     - `bcf` (Bond Control Factor) - scales the premium term
+    - `navFloorPrice` (NAV floor price) - lower bound on the NAV term used for pricing
   - **STRAT pricing formula** (based on NAV, not GAV):
     - `gav = totalEth * ethPriceUSD / ORACLE_SCALE`
     - `navUSD = gav > cdtTotalSupply ? gav - cdtTotalSupply : 0` (net of outstanding CDT debt, floored at 0)
+    - `navForPricing = max(navUSD, navFloorPrice)` (admin-set NAV floor price; `0` disables it)
     - `premiumUsd = (bcf * adjustedCdtSupply) / SCALE`
-    - `numeratorUsd = navUSD + premiumUsd`
+    - `numeratorUsd = navForPricing + premiumUsd`
     - `stratConversionRate = numeratorUsd * SCALE / stratTotalSupply`
     - `stratAmount = settlementUsd * SCALE / stratConversionRate`
   - **ETH pricing formula** (based on NAV per STRAT):

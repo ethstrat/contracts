@@ -754,6 +754,69 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertGt(ethZeroBCF, 0, "BCF=0 should still give valid ETH entitlement (from NAV term)");
     }
 
+    // ========= NAV Floor Price Tests =========
+
+    function testOnlyOwnerCanSetNavFloorPrice() public {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        bonds.setNavFloorPrice(1e18);
+
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit EthStrategyConvertibleNote.OwnerChangedNavFloorPrice(0, 500_000e18);
+        bonds.setNavFloorPrice(500_000e18);
+        assertEq(bonds.navFloorPrice(), 500_000e18);
+    }
+
+    /// @notice The floor defaults to 0 (disabled), and a floor below live NAV does not change pricing:
+    ///         bonding prices off max(nav, navFloorPrice).
+    function testNavFloorPriceBelowNavHasNoEffect() public {
+        assertEq(bonds.navFloorPrice(), 0, "NAV floor price should default to 0 (disabled)");
+
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+        (uint256 stratBaseline, uint256 ethBaseline) = bonds.conversionEntitlements(settlementUsd);
+
+        // Live NAV here is ~600k USD (200 ETH * $3000). A floor well below that must not move pricing.
+        vm.prank(owner);
+        bonds.setNavFloorPrice(100_000e18);
+
+        (uint256 stratLowFloor, uint256 ethLowFloor) = bonds.conversionEntitlements(settlementUsd);
+        assertEq(stratLowFloor, stratBaseline, "Floor below NAV should not change STRAT pricing");
+        assertEq(ethLowFloor, ethBaseline, "Floor below NAV should not change ETH pricing");
+    }
+
+    /// @notice A floor above live NAV lifts the pricing NAV to the floor, making bonds more expensive
+    ///         (fewer STRAT / less ETH per USD) — bonds are never sold as if NAV were below the floor.
+    function testNavFloorPriceAboveNavLiftsPricing() public {
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+        (uint256 stratBaseline, uint256 ethBaseline) = bonds.conversionEntitlements(settlementUsd);
+
+        // Live NAV is ~600k USD; set the floor to 2x that so pricing uses the floor.
+        vm.prank(owner);
+        bonds.setNavFloorPrice(1_200_000e18);
+
+        (uint256 stratFloored, uint256 ethFloored) = bonds.conversionEntitlements(settlementUsd);
+
+        assertLt(stratFloored, stratBaseline, "Floor above NAV should give fewer STRAT per USD");
+        assertLt(ethFloored, ethBaseline, "Floor above NAV should give less ETH per USD");
+    }
+
+    /// @notice The floor only ever raises the pricing NAV (it is a floor, not a cap): raising the floor
+    ///         monotonically reduces the STRAT entitlement for a fixed notional.
+    function testNavFloorPriceIsMonotonic() public {
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+
+        vm.prank(owner);
+        bonds.setNavFloorPrice(1_000_000e18);
+        (uint256 stratFloorLow,) = bonds.conversionEntitlements(settlementUsd);
+
+        vm.prank(owner);
+        bonds.setNavFloorPrice(2_000_000e18);
+        (uint256 stratFloorHigh,) = bonds.conversionEntitlements(settlementUsd);
+
+        assertLt(stratFloorHigh, stratFloorLow, "A higher floor should give fewer STRAT per USD");
+    }
+
     // ========= NAV-Based ETH Conversion Tests =========
 
     /// @notice Core invariant: ethAmount = stratAmount × (navETH / stratTotalSupply)
