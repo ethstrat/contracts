@@ -77,7 +77,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     event RendererUpdated(address indexed renderer);
     event EncumbranceReleased(uint256 indexed tokenId, uint256 ethAmount);
 
-    event LongBond(
+    event Bond(
         address indexed bonder,
         uint256 indexed tokenId,
         uint256 strike,
@@ -287,7 +287,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             esETHToken.wrapAndMint{value: unencumberedAmount_}(unencumberedHoldings);
         }
 
-        emit LongBond(
+        emit Bond(
             bonder,
             tokenId,
             settlementAmountUsd_, // strike / CDT owed
@@ -327,8 +327,8 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // Retrieve the owner of the option token.
         address optionOwner = ownerOf(tokenId);
 
-        // Check that the sender is either the owner
-        // TODO: should we extend for NFT approvals? Unsure if the complexity/attack surface is worth it
+        // Check that the sender is the owner. Explicitly haven't enabled NFT approvals 
+        // as the increased complexity/attack surface is not worth it
         if (msg.sender != optionOwner) {
             revert NotOwnerOrApproved(msg.sender, tokenId);
         }
