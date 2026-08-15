@@ -538,11 +538,6 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 premiumUsd = (bcf * adjustedCdtSupply) / SCALE;
         uint256 numeratorUsd = navForPricing + premiumUsd; // Scale: 1e18 (USD)
 
-        // If there is nothing to price against (underwater NAV and no premium), there is no entitlement.
-        if (numeratorUsd == 0) {
-            return (0, 0);
-        }
-
         // USD-per-unit rates (scaled by 1e18), used to compute amounts from USD notionals.
         uint256 stratConversionRate = (numeratorUsd * SCALE) / stratTotalSupply; // USD per STRAT (1e18)
         stratAmount = settlementEntitlementUsd_ * SCALE / stratConversionRate;
