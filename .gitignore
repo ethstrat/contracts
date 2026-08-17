@@ -25,3 +25,4 @@ emv-*-certora*
 .DS_Store
 
 tmp/
+.obsidian
