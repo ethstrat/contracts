@@ -18,24 +18,36 @@
 
 ## Roles & Permissions
 
-**US-000: Owner can update the premium control factor (PCF)**
+**US-000: Owner can update the bond control factor (BCF)**
 - **As a** protocol operator (`owner`)
-- **I want** to update `pcf`
+- **I want** to update `bcf`
 - **So that** conversion entitlement calculations can be tuned over time
 - **Acceptance Criteria:**
-  - Only `owner` can call `setPCF(newVal)`
-  - Emits `OwnerChangedPCF(oldVal, newVal)`
-  - `pcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the premium term
+  - Only `owner` can call `setBCF(newVal)`
+  - Emits `OwnerChangedBCF(oldVal, newVal)`
+  - `bcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the premium term
+  - `bcf` is initialized to `1 * SCALE` in the constructor (no scaling by default)
 
-**US-000a: Owner can update the GAV control factor (GCF)**
+**US-000a: Owner can update the NAV floor price**
 - **As a** protocol operator (`owner`)
-- **I want** to update `gcf`
-- **So that** conversion entitlement calculations can scale the gross asset value independently
+- **I want** to update `navFloorPrice`
+- **So that** new bonds are never priced as if NAV were below a chosen floor
 - **Acceptance Criteria:**
-  - Only `owner` can call `setGCF(newVal)`
-  - Emits `OwnerChangedGCF(oldVal, newVal)`
-  - `gcf` is used in `conversionEntitlements(settlementEntitlementUsd)` to scale the GAV term
-  - `gcf` is initialized to `1 * SCALE` in the constructor (no scaling by default)
+  - Only `owner` can call `setNavFloorPrice(newVal)`
+  - Emits `OwnerChangedNavFloorPrice(oldVal, newVal)`
+  - `navFloorPrice` (USD notional, scale `1e18`) is used in `conversionEntitlements(...)`: bonding prices off `max(navUSD, navFloorPrice)`
+  - `navFloorPrice` is `0` by default (disabled — the floor never lifts the price)
+
+**US-000b: Owner can set the debt ceiling**
+- **As a** protocol operator (`owner`)
+- **I want** to cap the total CDT debt that bonding can create
+- **So that** the protocol cannot take on debt beyond a chosen limit
+- **Acceptance Criteria:**
+  - Only `owner` can call `setMaxDebt(newVal)`
+  - Emits `OwnerChangedMaxDebt(oldVal, newVal)`
+  - `maxDebt` (CDT total supply, scale `1e18`) bounds bonding: a `bond(...)` reverts with `DebtCeilingExceeded(newTotalSupply, maxDebt)` if `cdtToken.totalSupply() + settlementEntitlementUsd > maxDebt`
+  - `maxDebt` is `type(uint256).max` by default (disabled — no ceiling)
+  - Pre-existing CDT supply counts toward the ceiling
 
 **US-001: Owner can set a tokenURI renderer**
 - **As a** protocol operator (`owner`)
@@ -59,6 +71,7 @@
     - `msg.value == 0` (`NoEthSent`)
     - `bonder == address(0)` (`ZeroAddress`)
     - `deadline < block.timestamp` (`TransactionStale(deadline)`)
+    - minting the new debt would breach the ceiling: `cdtToken.totalSupply() + settlementEntitlementUsd > maxDebt` (`DebtCeilingExceeded(newTotalSupply, maxDebt)`)
   - The contract computes:
     - `settlementEntitlementUsd = msg.value * ethPriceUSD / ORACLE_SCALE`
     - `(conversionAmountStrat, conversionAmountEth) = conversionEntitlements(settlementEntitlementUsd)`
@@ -73,9 +86,10 @@
     - `expiry[tokenId]`
     - `timelock[tokenId]`
   - The contract mints `CDT` to `bonder` equal to `settlementEntitlementUsd[tokenId]`
+  - The ETH conversion entitlement is capped at the deposit: `conversionAmountEth = min(conversionAmountEth, msg.value)`, so a note can never carry the right to convert out more ETH than was put in
   - ETH flow uses esETH minting and splits the bond ETH into:
-    - **Encumbered** portion: `esETHToken.wrapAndMint{value: conversionAmountEth}(encumberedHoldings)`
-    - **Unencumbered** remainder: `esETHToken.wrapAndMint{value: msg.value - conversionAmountEth}(unencumberedHoldings)`
+    - **Encumbered** portion: `esETHToken.wrapAndMint{value: conversionAmountEth}(encumberedHoldings)` (skipped if `conversionAmountEth == 0`)
+    - **Unencumbered** remainder: `esETHToken.wrapAndMint{value: msg.value - conversionAmountEth}(unencumberedHoldings)` (skipped if the remainder is `0`, e.g. when the whole deposit backs the ETH right)
   - Emits `LongBond(bonder, tokenId, strike, notionalUnderlyingAmount, notionalUSDAmount, ethAmount, expiry, timelock)`
     - Where “strike / notional” values correspond to the stored per-token values computed above
 
@@ -259,14 +273,16 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
     - ETH/USD oracle price (`_getEthUsdPrice()`)
     - System balances (`esETHToken.balanceOf(unencumberedHoldings)` and `esETHToken.balanceOf(encumberedHoldings)`)
     - Token supplies (`stratToken.totalSupply()`, `cdtToken.totalSupply()`)
-    - `pcf` (Premium Control Factor) - scales the premium term
-    - `gcf` (GAV Control Factor) - scales the gross asset value (GAV) term
-  - **STRAT pricing formula**: 
-    - `numeratorUsd = (gav * gcf / SCALE) + premiumUsd`
+    - `bcf` (Bond Control Factor) - scales the premium term
+    - `navFloorPrice` (NAV floor price) - lower bound on the NAV term used for pricing
+  - **STRAT pricing formula** (based on NAV, not GAV):
+    - `gav = totalEth * ethPriceUSD / ORACLE_SCALE`
+    - `navUSD = gav > cdtTotalSupply ? gav - cdtTotalSupply : 0` (net of outstanding CDT debt, floored at 0)
+    - `navForPricing = max(navUSD, navFloorPrice)` (admin-set NAV floor price; `0` disables it)
+    - `premiumUsd = (bcf * adjustedCdtSupply) / SCALE`
+    - `numeratorUsd = navForPricing + premiumUsd`
     - `stratConversionRate = numeratorUsd * SCALE / stratTotalSupply`
     - `stratAmount = settlementUsd * SCALE / stratConversionRate`
-    - Where `gav = totalEth * ethPriceUSD / ORACLE_SCALE`
-    - And `premiumUsd = (pcf * adjustedCdtSupply) / SCALE`
   - **ETH pricing formula** (based on NAV per STRAT):
     - `debtInEth = cdtTotalSupply * ORACLE_SCALE / ethPriceUSD`
     - If `debtInEth > totalEth` (protocol underwater): `ethAmount = 0`
@@ -283,6 +299,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
   - This ensures bonders receive their pro-rata share of **unencumbered** ETH backing
   - If protocol is underwater (`debtInEth > totalEth`), then `ethAmount = 0` (no ETH conversion rights, only STRAT)
   - This protects existing creditors from dilution and prevents claiming non-existent backing
+  - At bond time the ETH entitlement stored on the note is additionally capped at the deposited ETH (`min(conversionAmountEth, msg.value)`), so conversion can never return more ETH than was put in
 
 **US-500b: Bonding continues even when protocol is underwater**
 - **As a** protocol operator / bonder
@@ -297,37 +314,26 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 
 ---
 
-## Control Factors (GCF and PCF)
+## Control Factor (BCF)
 
-**US-501: GCF scales the perceived value of the treasury's gross asset value**
-- **As a** protocol operator
-- **I want** to scale the GAV independently from the actual ETH holdings
-- **So that** pricing can be adjusted for risk, growth expectations, or market conditions
-- **Acceptance Criteria:**
-  - `gcf` (GAV Control Factor) multiplies the treasury's GAV in the conversion pricing formula
-  - `gcf = 1 * SCALE` (default): GAV used as-is
-  - `gcf > 1 * SCALE`: GAV is scaled up → higher price per token → fewer tokens per USD bonded
-  - `gcf < 1 * SCALE`: GAV is scaled down → lower price per token → more tokens per USD bonded
-  - `gcf = 0`: Only premium term affects pricing (GAV term becomes zero)
-
-**US-502: PCF scales the premium component of the pricing**
+**US-502: BCF scales the premium component of the pricing**
 - **As a** protocol operator
 - **I want** to scale the premium term independently from the CDT supply
 - **So that** the cost/value of conversion rights can be adjusted
 - **Acceptance Criteria:**
-  - `pcf` (Premium Control Factor) multiplies the adjusted CDT supply in the premium calculation
-  - `pcf = 1 * SCALE` (default): Premium calculated directly from adjusted CDT supply
-  - `pcf > 1 * SCALE`: Premium is scaled up → higher price per token → fewer tokens per USD bonded
-  - `pcf < 1 * SCALE`: Premium is scaled down → lower price per token → more tokens per USD bonded
+  - `bcf` (Bond Control Factor) multiplies the adjusted CDT supply in the premium calculation
+  - `bcf = 1 * SCALE` (default): Premium calculated directly from adjusted CDT supply
+  - `bcf > 1 * SCALE`: Premium is scaled up → higher price per token → fewer tokens per USD bonded
+  - `bcf < 1 * SCALE`: Premium is scaled down → lower price per token → more tokens per USD bonded
+  - `bcf = 0`: Only the NAV term affects pricing (premium term becomes zero)
 
-**US-503: GCF and PCF effects are mathematically predictable**
+**US-503: BCF effects are mathematically predictable**
 - **As a** protocol operator / auditor
-- **I want** the pricing effects of GCF and PCF to be well-defined
+- **I want** the pricing effects of BCF to be well-defined
 - **So that** I can reason about the impact of parameter changes
 - **Acceptance Criteria:**
-  - Doubling `gcf` from 1 to 2 has the same effect on numerator as doubling the ETH in the treasury (when premium term is small relative to GAV term)
-  - Doubling `pcf` from 1 to 2 has a similar effect as doubling the CDT supply
-  - Both factors affect the numerator in the conversion rate formula: `rate = numeratorUsd / tokenSupply`
+  - Doubling `bcf` from 1 to 2 has a similar effect as doubling the CDT supply's contribution to the premium
+  - The factor affects the numerator in the conversion rate formula: `rate = numeratorUsd / tokenSupply`, where `numeratorUsd = navUSD + premiumUsd`
   - Higher numerator → higher rate → fewer tokens received per USD
   - Lower numerator → lower rate → more tokens received per USD
 
@@ -336,7 +342,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 ## Notes on Spec vs. Implementation-in-progress
 
 - The contract currently defines an error `EthTransferFailed`, but the current spec flow in `EthStrategyConvertibleNote.sol` uses `esETHToken.wrapAndMint(...)` instead of raw ETH forwarding; `EthTransferFailed` is not used by the current function bodies.
-- This doc intentionally reflects **the behaviors that exist in the current function bodies**: PCF setter + renderer management + bond/convert/redeem mechanics.
+- This doc intentionally reflects **the behaviors that exist in the current function bodies**: BCF setter + renderer management + bond/convert/redeem mechanics.
 
 ---
 
@@ -347,7 +353,7 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 - **I want** predictable revert reasons
 - **So that** I can build reliable UX
 - **Acceptance Criteria:**
-  - Bonding: `NoEthSent`, `ZeroAddress`, `TransactionStale`, `InsufficientOutput`, `InvalidTimelockOrExpiry`
+  - Bonding: `NoEthSent`, `ZeroAddress`, `TransactionStale`, `DebtCeilingExceeded`, `InsufficientOutput`, `InvalidTimelockOrExpiry`
   - Conversion: `TimelockActive`, `OptionExpired`, `NotOwnerOrApproved`, `InvalidExerciseAmount`
   - Redemption: `TimelockActive`, `OptionUnexpired`, `NotOwnerOrApproved`, `InsufficientOutput`
   - Release Encumbrance: `OptionUnexpired`, `EncumbranceAlreadyReleased`
@@ -369,9 +375,11 @@ Conversion supports **partial settlement** against the same `tokenId`: balances 
 
 ### Global State (Affects All New Bonds)
 
-- **Control Factors** (both scaled by `SCALE = 1e18`):
-  - `pcf` (Premium Control Factor): Scales the premium term in conversion pricing
-  - `gcf` (GAV Control Factor): Scales the gross asset value term in conversion pricing
+- **Control Factor** (scaled by `SCALE = 1e18`):
+  - `bcf` (Bond Control Factor): Scales the premium term in conversion pricing
+- **Pricing / Risk Parameters**:
+  - `navFloorPrice`: Lower bound on the NAV term used to price new bonds (`0` disables it)
+  - `maxDebt`: Debt ceiling — maximum CDT total supply bonding may create (`type(uint256).max` disables it)
 - **Token Addresses**:
   - `cdtToken`: The debt token minted on bonding
   - `stratToken`: The token that can be minted on conversion

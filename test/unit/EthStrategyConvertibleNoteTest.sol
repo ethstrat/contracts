@@ -161,14 +161,14 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
     // ========= Admin =========
 
-    function testOnlyOwnerCanSetPCF() public {
+    function testOnlyOwnerCanSetBCF() public {
         vm.prank(user);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        bonds.setPCF(5);
+        bonds.setBCF(5);
 
         vm.prank(owner);
-        bonds.setPCF(5);
-        assertEq(bonds.pcf(), 5);
+        bonds.setBCF(5);
+        assertEq(bonds.bcf(), 5);
     }
 
     function testOnlyOwnerCanManageRenderer() public {
@@ -244,6 +244,87 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         // esETH minted to holdings during bond: encumbered gets entitlementEth, unencumbered gets remainder
         assertEq(esETHToken.balanceOf(encumberedHoldings) - encBefore, entitlementEth);
         assertEq(esETHToken.balanceOf(unencumberedHoldings) - unencBefore, ethAmount - entitlementEth);
+    }
+
+    // ========= Debt Ceiling =========
+
+    function testOnlyOwnerCanSetMaxDebt() public {
+        // Disabled by default.
+        assertEq(bonds.maxDebt(), type(uint256).max, "maxDebt should default to disabled (max uint256)");
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        bonds.setMaxDebt(1_000_000e18);
+
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit EthStrategyConvertibleNote.OwnerChangedMaxDebt(type(uint256).max, 1_000_000e18);
+        bonds.setMaxDebt(1_000_000e18);
+        assertEq(bonds.maxDebt(), 1_000_000e18);
+    }
+
+    function testBondRevertsWhenExceedingDebtCeiling() public {
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18; // 3000e18 of new CDT debt
+
+        // Ceiling one wei of debt below what this bond would mint.
+        vm.prank(owner);
+        bonds.setMaxDebt(settlementUsd - 1);
+
+        vm.prank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.DebtCeilingExceeded.selector, settlementUsd, settlementUsd - 1
+            )
+        );
+        bonds.bond{value: ethAmount}(user, 0, 0, block.timestamp);
+    }
+
+    function testBondSucceedsUpToDebtCeilingThenReverts() public {
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
+
+        // Ceiling exactly allows a single bond (newTotalSupply == maxDebt is permitted).
+        vm.prank(owner);
+        bonds.setMaxDebt(settlementUsd);
+
+        (uint256 tokenId,,,) = _bond(user, ethAmount, 0, 0, block.timestamp);
+        assertEq(bonds.ownerOf(tokenId), user);
+        assertEq(cdtToken.totalSupply(), settlementUsd, "supply should sit exactly at the ceiling");
+
+        // A second bond would push total supply above the ceiling.
+        vm.prank(other);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.DebtCeilingExceeded.selector, settlementUsd * 2, settlementUsd
+            )
+        );
+        bonds.bond{value: ethAmount}(other, 0, 0, block.timestamp);
+    }
+
+    function testDebtCeilingCountsPreExistingSupply() public {
+        // Pre-existing CDT debt (minted outside bonding) counts toward the ceiling.
+        vm.prank(owner);
+        cdtToken.manageMinter(owner, true);
+        vm.prank(owner);
+        cdtToken.mint(user, 10_000e18);
+
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
+
+        // Ceiling leaves room for less than the new bond's debt.
+        vm.prank(owner);
+        bonds.setMaxDebt(10_000e18 + settlementUsd - 1);
+
+        vm.prank(other);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EthStrategyConvertibleNote.DebtCeilingExceeded.selector,
+                10_000e18 + settlementUsd,
+                10_000e18 + settlementUsd - 1
+            )
+        );
+        bonds.bond{value: ethAmount}(other, 0, 0, block.timestamp);
     }
 
     // ========= Conversion =========
@@ -557,9 +638,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         bonds.releaseEncumbrance(tokenId);
 
         vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(EthStrategyConvertibleNote.EncumbranceAlreadyReleased.selector, tokenId)
-        );
+        vm.expectRevert(abi.encodeWithSelector(EthStrategyConvertibleNote.EncumbranceAlreadyReleased.selector, tokenId));
         bonds.releaseEncumbrance(tokenId);
     }
 
@@ -574,8 +653,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
     }
 
     function testRedeemSkipsEncumbranceTransferIfAlreadyReleased() public {
-        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) =
-            _bond(user, 1 ether, 0, 0, block.timestamp);
+        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) = _bond(user, 1 ether, 0, 0, block.timestamp);
         _warpPastExpiry(tokenId);
 
         // Owner releases encumbrance beforehand
@@ -603,8 +681,7 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
     }
 
     function testRedeemWithoutPriorReleaseStillMovesEncumbranceInline() public {
-        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) =
-            _bond(user, 1 ether, 0, 0, block.timestamp);
+        (uint256 tokenId, uint256 settlementUsd,, uint256 entitlementEth) = _bond(user, 1 ether, 0, 0, block.timestamp);
         _warpPastExpiry(tokenId);
 
         uint256 encBefore = esETHToken.balanceOf(encumberedHoldings);
@@ -624,55 +701,55 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         assertEq(esETHToken.balanceOf(unencumberedHoldings), unencBefore + entitlementEth - expectedEth);
     }
 
-    // ========= GCF and PCF Tests =========
+    // ========= BCF and NAV Pricing Tests =========
 
-    function testOnlyOwnerCanSetGCF() public {
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        bonds.setGCF(5);
-
-        vm.prank(owner);
-        bonds.setGCF(5);
-        assertEq(bonds.gcf(), 5);
-    }
-
-    /// @notice Test invariant: GCF of 2*SCALE with X ETH should give same STRAT pricing as 2X ETH with gcf=1
-    /// (but different ETH pricing due to denominator difference)
-    function testGCFInvariant_DoublingGCFEqualsDoublingETH() public {
+    /// @notice NAV-based pricing: raising NAV (donating ETH to the treasury without minting matching
+    ///         debt) makes each STRAT more expensive, so a fixed USD notional buys fewer STRAT.
+    /// @dev    ETH moves the other way: the premium is a fixed haircut on the numerator, so a larger NAV
+    ///         dilutes it and the ETH conversion right settles closer to par (1:1) — hence more ETH.
+    function testNAVBasedPricing_HigherNavMeansFewerStrat() public {
         uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
 
-        // Scenario 1: System with current ETH, gcf=1
-        uint256 currentEth = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
-        (uint256 stratBaseline,) = bonds.conversionEntitlements(settlementUsd);
+        (uint256 stratBaseline, uint256 ethBaseline) = bonds.conversionEntitlements(settlementUsd);
 
-        // Scenario 2: System with 2x ETH, gcf=1
+        // Donate ETH straight into the treasury (raises NAV without adding CDT debt).
+        uint256 currentEth = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
         vm.deal(owner, currentEth);
         vm.prank(owner);
         esETHToken.wrapAndMint{value: currentEth}(unencumberedHoldings);
 
-        (uint256 stratDoubleEth,) = bonds.conversionEntitlements(settlementUsd);
+        (uint256 stratHigherNav, uint256 ethHigherNav) = bonds.conversionEntitlements(settlementUsd);
 
-        // Scenario 3: System with original ETH, gcf=2
-        vm.prank(unencumberedHoldings);
-        esETHToken.transfer(address(0xDEAD), currentEth);
-
-        vm.prank(owner);
-        bonds.setGCF(2e18);
-
-        (uint256 stratDoubleGcf,) = bonds.conversionEntitlements(settlementUsd);
-
-        // The STRAT amount should be identical for scenarios 2 and 3
-        // because: numerator = gav*gcf + premium, and gav*2*1 = gav*1*2
-        assertEq(stratDoubleGcf, stratDoubleEth, "GCF=2 should give same STRAT entitlement as 2x ETH");
-
-        // All scenarios should give different amounts (baseline has less ETH, thus more favorable pricing)
-        assertGt(stratBaseline, stratDoubleEth, "More ETH means lower STRAT entitlement per USD");
-        assertGt(stratBaseline, stratDoubleGcf, "Higher GCF means lower STRAT entitlement per USD");
+        assertLt(stratHigherNav, stratBaseline, "Higher NAV should give fewer STRAT per USD");
+        assertGt(ethHigherNav, ethBaseline, "Higher NAV dilutes the premium haircut, so ETH settles closer to par");
     }
 
-    /// @notice Test invariant: PCF of 2*SCALE should have similar effect as doubling CDT supply
-    function testPCFInvariant_DoublingPCFSimilarToDoublingCDT() public {
-        // Get current CDT supply (should be near 0 initially)
+    /// @notice Pricing is off NAV (net of debt), not GAV. With bcf = 0 the premium term drops out, leaving
+    ///         numerator = NAV, so minting CDT debt (which lowers NAV without touching GAV) makes a fixed
+    ///         USD notional buy MORE STRAT. Under GAV-based pricing this would not change at all.
+    function testNAVBasedPricing_DebtSubtractedFromNumerator() public {
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+
+        // Isolate the NAV term by removing the premium contribution.
+        vm.prank(owner);
+        bonds.setBCF(0);
+
+        (uint256 stratBaseline,) = bonds.conversionEntitlements(settlementUsd);
+
+        // Mint CDT debt without adding ETH: GAV unchanged, NAV falls.
+        vm.prank(owner);
+        cdtToken.manageMinter(owner, true);
+        vm.prank(owner);
+        cdtToken.mint(user, 100_000 * 1e18);
+
+        (uint256 stratMoreDebt,) = bonds.conversionEntitlements(settlementUsd);
+
+        assertGt(stratMoreDebt, stratBaseline, "Lower NAV (more debt) should give more STRAT per USD");
+    }
+
+    /// @notice Invariant: BCF of 2*SCALE should have a similar effect to doubling CDT supply
+    ///         (both grow the premium term of the numerator).
+    function testBCFInvariant_DoublingBCFSimilarToDoublingCDT() public {
         uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
 
         // Scenario 1: Bond once to establish baseline CDT supply
@@ -687,157 +764,196 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
 
         (uint256 stratWithDoubleCDT,) = bonds.conversionEntitlements(settlementUsd);
 
-        // Scenario 3: Reset to baseline by having the user burn their CDT, then set pcf = 2*SCALE
+        // Scenario 3: Reset to baseline by having the user burn their CDT, then set bcf = 2*SCALE
         uint256 userCdtBalance = cdtToken.balanceOf(user);
         vm.prank(user);
         cdtToken.burn(userCdtBalance);
 
         vm.prank(owner);
-        bonds.setPCF(2e18);
+        bonds.setBCF(2e18);
 
-        (uint256 stratWithDoublePCF,) = bonds.conversionEntitlements(settlementUsd);
+        (uint256 stratWithDoubleBCF,) = bonds.conversionEntitlements(settlementUsd);
 
-        // Doubling PCF should have similar effect to doubling CDT (both increase premium term)
+        // Doubling BCF should have similar effect to doubling CDT (both increase premium term)
         // Both should decrease entitlements compared to baseline
         assertLt(stratWithDoubleCDT, stratBaseline, "2x CDT should give less STRAT than baseline");
-        assertLt(stratWithDoublePCF, stratBaseline, "PCF=2 should give less STRAT than baseline");
+        assertLt(stratWithDoubleBCF, stratBaseline, "BCF=2 should give less STRAT than baseline");
 
         // The effects should be approximately similar
         assertApproxEqRel(
-            stratWithDoublePCF,
+            stratWithDoubleBCF,
             stratWithDoubleCDT,
             0.15e18,
-            "PCF=2 should give similar STRAT entitlement as 2x CDT (within 15%)"
+            "BCF=2 should give similar STRAT entitlement as 2x CDT (within 15%)"
         );
     }
 
-    /// @notice Test that changing GCF affects pricing for new bonds as expected
-    function testGCFChangesAffectNewBondPricing() public {
+    /// @notice Test that changing BCF affects pricing for new bonds as expected
+    function testBCFChangesAffectNewBondPricing() public {
         uint256 ethAmount = 1 ether;
         uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
 
-        // Get conversion entitlements with default gcf = 1*SCALE
+        // Get conversion entitlements with default bcf = 1*SCALE
         (uint256 stratDefault, uint256 ethDefault) = bonds.conversionEntitlements(settlementUsd);
 
-        // Set gcf = 0.5*SCALE (50% of GAV)
+        // Set bcf = 0.5*SCALE
         vm.prank(owner);
-        bonds.setGCF(0.5e18);
+        bonds.setBCF(0.5e18);
         (uint256 stratHalf, uint256 ethHalf) = bonds.conversionEntitlements(settlementUsd);
 
-        // Set gcf = 3*SCALE (300% of GAV)
+        // Set bcf = 3*SCALE
         vm.prank(owner);
-        bonds.setGCF(3e18);
+        bonds.setBCF(3e18);
         (uint256 stratTriple, uint256 ethTriple) = bonds.conversionEntitlements(settlementUsd);
 
-        // Lower GCF means lower numerator (gav*gcf is smaller), lower conversion rate, MORE tokens per USD
-        assertGt(stratHalf, stratDefault, "GCF=0.5 should give more STRAT than GCF=1 (lower price per token)");
-        assertGt(ethHalf, ethDefault, "GCF=0.5 should give more ETH than GCF=1 (lower price per token)");
+        // Lower BCF should give higher entitlements (lower premium, lower numerator)
+        assertGt(stratHalf, stratDefault, "BCF=0.5 should give more STRAT than BCF=1");
+        assertGt(ethHalf, ethDefault, "BCF=0.5 should give more ETH than BCF=1");
 
-        // Higher GCF means higher numerator (gav*gcf is larger), higher conversion rate, LESS tokens per USD
-        assertLt(stratTriple, stratDefault, "GCF=3 should give less STRAT than GCF=1 (higher price per token)");
-        assertLt(ethTriple, ethDefault, "GCF=3 should give less ETH than GCF=1 (higher price per token)");
+        // Higher BCF should give lower entitlements (higher premium, higher numerator)
+        assertLt(stratTriple, stratDefault, "BCF=3 should give less STRAT than BCF=1");
+        assertLt(ethTriple, ethDefault, "BCF=3 should give less ETH than BCF=1");
     }
 
-    /// @notice Test that changing PCF affects pricing for new bonds as expected
-    function testPCFChangesAffectNewBondPricing() public {
-        uint256 ethAmount = 1 ether;
-        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
-
-        // Get conversion entitlements with default pcf = 1*SCALE
-        (uint256 stratDefault, uint256 ethDefault) = bonds.conversionEntitlements(settlementUsd);
-
-        // Set pcf = 0.5*SCALE
-        vm.prank(owner);
-        bonds.setPCF(0.5e18);
-        (uint256 stratHalf, uint256 ethHalf) = bonds.conversionEntitlements(settlementUsd);
-
-        // Set pcf = 3*SCALE
-        vm.prank(owner);
-        bonds.setPCF(3e18);
-        (uint256 stratTriple, uint256 ethTriple) = bonds.conversionEntitlements(settlementUsd);
-
-        // Lower PCF should give higher entitlements (lower premium, lower numerator)
-        assertGt(stratHalf, stratDefault, "PCF=0.5 should give more STRAT than PCF=1");
-        assertGt(ethHalf, ethDefault, "PCF=0.5 should give more ETH than PCF=1");
-
-        // Higher PCF should give lower entitlements (higher premium, higher numerator)
-        assertLt(stratTriple, stratDefault, "PCF=3 should give less STRAT than PCF=1");
-        assertLt(ethTriple, ethDefault, "PCF=3 should give less ETH than PCF=1");
-    }
-
-    /// @notice Test combined effect of GCF and PCF changes
-    function testCombinedGCFAndPCFEffects() public {
-        uint256 ethAmount = 1 ether;
-        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
-
-        // Baseline with gcf=1, pcf=1
-        (uint256 stratBaseline,) = bonds.conversionEntitlements(settlementUsd);
-
-        // Double gcf, halve pcf
-        // - Double gcf increases numerator (from gav term), decreasing entitlements
-        // - Halve pcf decreases numerator (from premium term), increasing entitlements
-        // Net effect depends on relative sizes of gav and premium
-        vm.prank(owner);
-        bonds.setGCF(2e18);
-        vm.prank(owner);
-        bonds.setPCF(0.5e18);
-        (uint256 stratScenario1, uint256 ethScenario1) = bonds.conversionEntitlements(settlementUsd);
-
-        // Halve gcf, double pcf
-        // - Halve gcf decreases numerator (from gav term), increasing entitlements
-        // - Double pcf increases numerator (from premium term), decreasing entitlements
-        vm.prank(owner);
-        bonds.setGCF(0.5e18);
-        vm.prank(owner);
-        bonds.setPCF(2e18);
-        (uint256 stratScenario2, uint256 ethScenario2) = bonds.conversionEntitlements(settlementUsd);
-
-        // The two scenarios should have opposite effects on entitlements
-        // Since GAV >> premium typically, scenario1 should give LESS, scenario2 should give MORE
-        assertLt(stratScenario1, stratBaseline, "GCF=2,PCF=0.5 should give less STRAT (GAV dominates)");
-        assertGt(stratScenario2, stratBaseline, "GCF=0.5,PCF=2 should give more STRAT (GAV dominates)");
-
-        assertGt(stratScenario2, stratScenario1, "Halved GCF scenario should beat doubled GCF scenario");
-        assertGt(ethScenario2, ethScenario1, "Halved GCF scenario should beat doubled GCF scenario");
-    }
-
-    /// @notice Test that GCF=0 results in maximal entitlements (only premium term in numerator)
-    function testGCFZeroGivesMaximalEntitlements() public {
-        uint256 ethAmount = 1 ether;
-        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
-
-        (uint256 stratNormal,) = bonds.conversionEntitlements(settlementUsd);
-
-        vm.prank(owner);
-        bonds.setGCF(0);
-        (uint256 stratZeroGCF,) = bonds.conversionEntitlements(settlementUsd);
-
-        // With GCF=0, numerator is just premiumUsd (much smaller than gav*1 + premium)
-        // Lower numerator means lower price per token, so MORE tokens per USD
-        assertGt(stratZeroGCF, stratNormal, "GCF=0 should give more STRAT than GCF=1 (only premium in numerator)");
-        assertGt(stratZeroGCF, 0, "GCF=0 should give some STRAT (from premium term)");
-    }
-
-    /// @notice Test extreme values don't break the contract
-    function testExtremeGCFAndPCFValues() public {
+    /// @notice Test extreme BCF values don't break the contract
+    function testExtremeBCFValues() public {
         uint256 ethAmount = 0.1 ether;
         uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
 
-        // Very large GCF
+        // Very large BCF
         vm.prank(owner);
-        bonds.setGCF(1000e18);
-        (uint256 stratLargeGCF, uint256 ethLargeGCF) = bonds.conversionEntitlements(settlementUsd);
-        assertGt(stratLargeGCF, 0, "Large GCF should still give valid STRAT entitlement");
-        assertGt(ethLargeGCF, 0, "Large GCF should still give valid ETH entitlement");
+        bonds.setBCF(1000e18);
+        (uint256 stratLargeBCF, uint256 ethLargeBCF) = bonds.conversionEntitlements(settlementUsd);
+        assertGt(stratLargeBCF, 0, "Large BCF should still give valid STRAT entitlement");
+        assertGt(ethLargeBCF, 0, "Large BCF should still give valid ETH entitlement");
 
-        // Very large PCF
+        // BCF = 0 leaves only the NAV term in the numerator
         vm.prank(owner);
-        bonds.setGCF(1e18); // Reset GCF
+        bonds.setBCF(0);
+        (uint256 stratZeroBCF, uint256 ethZeroBCF) = bonds.conversionEntitlements(settlementUsd);
+        assertGt(stratZeroBCF, 0, "BCF=0 should still give valid STRAT entitlement (from NAV term)");
+        assertGt(ethZeroBCF, 0, "BCF=0 should still give valid ETH entitlement (from NAV term)");
+    }
+
+    // ========= NAV Floor Price Tests =========
+
+    function testOnlyOwnerCanSetNavFloorPrice() public {
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        bonds.setNavFloorPrice(1e18);
+
         vm.prank(owner);
-        bonds.setPCF(1000e18);
-        (uint256 stratLargePCF, uint256 ethLargePCF) = bonds.conversionEntitlements(settlementUsd);
-        assertGt(stratLargePCF, 0, "Large PCF should still give valid STRAT entitlement");
-        assertGt(ethLargePCF, 0, "Large PCF should still give valid ETH entitlement");
+        vm.expectEmit(false, false, false, true);
+        emit EthStrategyConvertibleNote.OwnerChangedNavFloorPrice(0, 500_000e18);
+        bonds.setNavFloorPrice(500_000e18);
+        assertEq(bonds.navFloorPrice(), 500_000e18);
+    }
+
+    /// @notice The floor defaults to 0 (disabled), and a floor below live NAV does not change pricing:
+    ///         bonding prices off max(nav, navFloorPrice).
+    function testNavFloorPriceBelowNavHasNoEffect() public {
+        assertEq(bonds.navFloorPrice(), 0, "NAV floor price should default to 0 (disabled)");
+
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+        (uint256 stratBaseline, uint256 ethBaseline) = bonds.conversionEntitlements(settlementUsd);
+
+        // Live NAV here is ~600k USD (200 ETH * $3000). A floor well below that must not move pricing.
+        vm.prank(owner);
+        bonds.setNavFloorPrice(100_000e18);
+
+        (uint256 stratLowFloor, uint256 ethLowFloor) = bonds.conversionEntitlements(settlementUsd);
+        assertEq(stratLowFloor, stratBaseline, "Floor below NAV should not change STRAT pricing");
+        assertEq(ethLowFloor, ethBaseline, "Floor below NAV should not change ETH pricing");
+    }
+
+    /// @notice A floor above live NAV lifts the pricing NAV to the floor, making bonds more expensive
+    ///         (fewer STRAT / less ETH per USD) — bonds are never sold as if NAV were below the floor.
+    function testNavFloorPriceAboveNavLiftsPricing() public {
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+        (uint256 stratBaseline, uint256 ethBaseline) = bonds.conversionEntitlements(settlementUsd);
+
+        // Live NAV is ~600k USD; set the floor to 2x that so pricing uses the floor.
+        vm.prank(owner);
+        bonds.setNavFloorPrice(1_200_000e18);
+
+        (uint256 stratFloored, uint256 ethFloored) = bonds.conversionEntitlements(settlementUsd);
+
+        assertLt(stratFloored, stratBaseline, "Floor above NAV should give fewer STRAT per USD");
+        assertLt(ethFloored, ethBaseline, "Floor above NAV should give less ETH per USD");
+    }
+
+    /// @notice The floor only ever raises the pricing NAV (it is a floor, not a cap): raising the floor
+    ///         monotonically reduces the STRAT entitlement for a fixed notional.
+    function testNavFloorPriceIsMonotonic() public {
+        uint256 settlementUsd = (1 ether * ETH_USD_PRICE) / 1e18;
+
+        vm.prank(owner);
+        bonds.setNavFloorPrice(1_000_000e18);
+        (uint256 stratFloorLow,) = bonds.conversionEntitlements(settlementUsd);
+
+        vm.prank(owner);
+        bonds.setNavFloorPrice(2_000_000e18);
+        (uint256 stratFloorHigh,) = bonds.conversionEntitlements(settlementUsd);
+
+        assertLt(stratFloorHigh, stratFloorLow, "A higher floor should give fewer STRAT per USD");
+    }
+
+    // ========= ETH Conversion Bounded By Deposit =========
+
+    /// @notice A note can never carry the right to convert out more ETH than was deposited: the stored ETH
+    ///         entitlement is capped at msg.value at bond time, across a range of bond sizes.
+    function testEthEntitlementNeverExceedsDeposit() public {
+        uint256[3] memory amounts = [uint256(0.5 ether), 1 ether, 5 ether];
+        for (uint256 i = 0; i < amounts.length; i++) {
+            (uint256 tokenId,,,) = _bond(user, amounts[i], 0, 0, block.timestamp);
+            assertLe(bonds.conversionEntitlementEth(tokenId), amounts[i], "ETH entitlement must not exceed deposit");
+        }
+    }
+
+    /// @notice With bcf = 0 and no debt the numerator is exactly NAV, so the raw ETH entitlement equals the
+    ///         deposit. The stored entitlement equals the full deposit and the whole deposit backs the ETH
+    ///         conversion right (unencumbered holdings receive nothing — the zero-value wrapAndMint is skipped).
+    function testEthEntitlementEqualsDepositWhenNumeratorIsPureNav() public {
+        vm.prank(owner);
+        bonds.setBCF(0);
+
+        uint256 ethAmount = 1 ether;
+        uint256 unencBefore = esETHToken.balanceOf(unencumberedHoldings);
+        uint256 encBefore = esETHToken.balanceOf(encumberedHoldings);
+
+        (uint256 tokenId,,,) = _bond(user, ethAmount, 0, 0, block.timestamp);
+
+        assertEq(bonds.conversionEntitlementEth(tokenId), ethAmount, "entitlement should equal the full deposit");
+        assertEq(esETHToken.balanceOf(encumberedHoldings) - encBefore, ethAmount, "all deposit backs the ETH right");
+        assertEq(esETHToken.balanceOf(unencumberedHoldings), unencBefore, "unencumbered receives nothing");
+
+        // Converting to ETH after timelock pays out exactly the deposit — never more.
+        _warpPastTimelock(tokenId);
+        vm.prank(user);
+        cdtToken.approve(address(bonds), type(uint256).max);
+        uint256 userEthBefore = esETHToken.balanceOf(user);
+        vm.prank(user);
+        bonds.convert(tokenId, true);
+        assertEq(esETHToken.balanceOf(user) - userEthBefore, ethAmount, "ETH out must not exceed ETH in");
+    }
+
+    /// @notice The stored ETH entitlement is exactly min(rawEntitlement, deposit): the cap binds whenever the
+    ///         raw (pricing-formula) entitlement would meet or exceed the deposited ETH.
+    function testEthEntitlementIsClampedToDeposit() public {
+        // Establish debt, then drop the premium term (bcf = 0) so the numerator is just NAV.
+        _bond(other, 10 ether, 0, 0, block.timestamp);
+        vm.prank(owner);
+        bonds.setBCF(0);
+
+        uint256 ethAmount = 1 ether;
+        uint256 settlementUsd = (ethAmount * ETH_USD_PRICE) / 1e18;
+        (, uint256 rawEth) = bonds.conversionEntitlements(settlementUsd);
+
+        (uint256 tokenId,,,) = _bond(user, ethAmount, 0, 0, block.timestamp);
+
+        uint256 expected = rawEth > ethAmount ? ethAmount : rawEth;
+        assertEq(bonds.conversionEntitlementEth(tokenId), expected, "stored entitlement should be min(raw, deposit)");
+        assertLe(bonds.conversionEntitlementEth(tokenId), ethAmount, "never more than deposited");
     }
 
     // ========= NAV-Based ETH Conversion Tests =========
@@ -1015,8 +1131,9 @@ contract EthStrategyConvertibleNoteTest is Test, EthUsdPriceOracleProvider, Perm
         // Measure new STRAT entitlement
         (uint256 stratAmount2,) = bonds.conversionEntitlements(settlementUsd);
 
-        // STRAT uses numeratorUsd / stratTotalSupply, where numeratorUsd depends on GAV (not NAV)
-        // So STRAT entitlement should be relatively stable (changes only due to premium/supply changes)
+        // STRAT uses numeratorUsd / stratTotalSupply, where numeratorUsd = NAV + premium. Bonding adds ETH
+        // and an equal amount of CDT debt, so NAV is preserved; with bcf = 1 the premium's growth exactly
+        // offsets the debt's NAV reduction, leaving the STRAT entitlement relatively stable.
         assertApproxEqRel(stratAmount2, stratAmount1, 0.1e18, "STRAT entitlement should be relatively stable");
     }
 

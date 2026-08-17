@@ -27,8 +27,17 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     address immutable unencumberedHoldings; // Address that holds unencumbered ETH
     address immutable encumberedHoldings; // Address that holds encumbered ETH (backs open unexercised options)
 
-    uint256 public pcf; // Premium Control Factor (scale: SCALE)
-    uint256 public gcf; // GAV Control Factor (scale: SCALE)
+    uint256 public bcf; // Bond Control Factor (scale: SCALE)
+
+    /// @notice Admin-set NAV floor price (USD notional, scale: 1e18). Bonding prices off max(nav, navFloorPrice),
+    ///         so this is a price floor: when live NAV drops below the floor, bonds are priced as if NAV were the
+    ///         floor. Default 0 (disabled — the floor never lifts the price).
+    uint256 public navFloorPrice;
+
+    /// @notice Admin-set debt ceiling: the maximum CDT total supply bonding may create. A bond reverts if it
+    ///         would push `cdtToken.totalSupply()` above this value. Default type(uint256).max (disabled).
+    uint256 public maxDebt;
+
     address public tokenURIRenderer;
 
     /// @notice The amount of CDT required to exercise/settle the note (remaining if partially exercised)
@@ -62,12 +71,13 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
 
     uint256 public constant SCALE = 1e18;
 
-    event OwnerChangedPCF(uint256 oldVal, uint256 newVal);
-    event OwnerChangedGCF(uint256 oldVal, uint256 newVal);
+    event OwnerChangedBCF(uint256 oldVal, uint256 newVal);
+    event OwnerChangedNavFloorPrice(uint256 oldVal, uint256 newVal);
+    event OwnerChangedMaxDebt(uint256 oldVal, uint256 newVal);
     event RendererUpdated(address indexed renderer);
     event EncumbranceReleased(uint256 indexed tokenId, uint256 ethAmount);
 
-    event LongBond(
+    event Bond(
         address indexed bonder,
         uint256 indexed tokenId,
         uint256 strike,
@@ -104,6 +114,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     error InvalidTimelockOrExpiry(uint256 timelock, uint256 expiry);
     error InvalidExerciseAmount(uint256 amount, uint256 remainingStrike);
     error EncumbranceAlreadyReleased(uint256 tokenId);
+    error DebtCeilingExceeded(uint256 newTotalSupply, uint256 maxDebt);
 
     /**
      * @param _cdtToken The CDT token
@@ -124,36 +135,53 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         address owner,
         ITripwireController controller_,
         address guardian_
-    ) ERC721("ETH Strategy Convertible Note", "esCN") Ownable(owner) EthUsdPriceFeedConsumer(_ethUsdOracle) TripwireGuard(controller_, guardian_) {
+    )
+        ERC721("ETH Strategy Convertible Note", "esCN")
+        Ownable(owner)
+        EthUsdPriceFeedConsumer(_ethUsdOracle)
+        TripwireGuard(controller_, guardian_)
+    {
         cdtToken = IERC20MintableBurnablePermit(_cdtToken);
         stratToken = IERC20MintableBurnable(_stratToken);
         esETHToken = esETH(_esETHToken);
         unencumberedHoldings = _unencumberedHoldings;
         encumberedHoldings = _encumberedHoldings;
 
-        pcf = 1 * SCALE;
-        gcf = 1 * SCALE;
+        bcf = 1 * SCALE;
+        maxDebt = type(uint256).max; // debt ceiling disabled by default
         _tokenIdCounter = 1;
     }
 
     /**
-     * @notice Updates the premium control factor (PCF)
+     * @notice Updates the bond control factor (BCF)
      * @dev Only the contract owner can call this function.
-     * @param newVal The new PCF value to be set.
+     * @param newVal The new BCF value to be set.
      */
-    function setPCF(uint256 newVal) external onlyOwner {
-        emit OwnerChangedPCF(pcf, newVal);
-        pcf = newVal;
+    function setBCF(uint256 newVal) external onlyOwner {
+        emit OwnerChangedBCF(bcf, newVal);
+        bcf = newVal;
     }
 
     /**
-     * @notice Updates the GAV control factor (GCF)
-     * @dev Only the contract owner can call this function.
-     * @param newVal The new GCF value to be set.
+     * @notice Updates the NAV floor price used when pricing new bonds.
+     * @dev    Only the contract owner can call this function. Bonding prices off max(nav, navFloorPrice),
+     *         so a higher floor keeps bonds from being sold too cheaply when live NAV falls. Set to 0 to disable.
+     * @param newVal The new NAV floor price (USD notional, scale: 1e18).
      */
-    function setGCF(uint256 newVal) external onlyOwner {
-        emit OwnerChangedGCF(gcf, newVal);
-        gcf = newVal;
+    function setNavFloorPrice(uint256 newVal) external onlyOwner {
+        emit OwnerChangedNavFloorPrice(navFloorPrice, newVal);
+        navFloorPrice = newVal;
+    }
+
+    /**
+     * @notice Updates the debt ceiling (maximum CDT total supply that bonding may create).
+     * @dev    Only the contract owner can call this function. Bonding reverts if it would push
+     *         `cdtToken.totalSupply()` above this value. Set to type(uint256).max to disable.
+     * @param newVal The new debt ceiling (CDT total supply, scale: 1e18).
+     */
+    function setMaxDebt(uint256 newVal) external onlyOwner {
+        emit OwnerChangedMaxDebt(maxDebt, newVal);
+        maxDebt = newVal;
     }
 
     /**
@@ -201,7 +229,21 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // settlement notional in USD
         uint256 ethPriceUSD = _getEthUsdPrice();
         uint256 settlementAmountUsd_ = msg.value * ethPriceUSD / _ETH_USD_ORACLE_SCALE; // Scale: 18 decimals
+
+        // Enforce the debt ceiling: bonding mints `settlementAmountUsd_` CDT, so reject any bond that would
+        // push total CDT supply above the admin-set maximum.
+        uint256 newTotalSupply_ = cdtToken.totalSupply() + settlementAmountUsd_;
+        if (newTotalSupply_ > maxDebt) {
+            revert DebtCeilingExceeded(newTotalSupply_, maxDebt);
+        }
+
         (uint256 conversionAmountStrat_, uint256 conversionAmountEth_) = conversionEntitlements(settlementAmountUsd_);
+
+        // The ETH conversion right is a covered call backed by the ETH actually deposited: cap the ETH
+        // entitlement at msg.value so a holder can never convert out more ETH than they put in.
+        if (conversionAmountEth_ > msg.value) {
+            conversionAmountEth_ = msg.value;
+        }
 
         // Check that the notional underlying amount is greater than the minimum
         if (conversionAmountStrat_ < minConversionAmountStrat) {
@@ -238,10 +280,14 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
             esETHToken.wrapAndMint{value: conversionAmountEth_}(encumberedHoldings);
         }
 
-        // send the remainder of the ETH to the unencumbered holdings
-        esETHToken.wrapAndMint{value: msg.value - conversionAmountEth_}(unencumberedHoldings);
+        // send the remainder of the ETH to the unencumbered holdings (skip if the entire deposit backs
+        // the ETH conversion right, since wrapAndMint reverts on a zero value)
+        uint256 unencumberedAmount_ = msg.value - conversionAmountEth_;
+        if (unencumberedAmount_ > 0) {
+            esETHToken.wrapAndMint{value: unencumberedAmount_}(unencumberedHoldings);
+        }
 
-        emit LongBond(
+        emit Bond(
             bonder,
             tokenId,
             settlementAmountUsd_, // strike / CDT owed
@@ -281,8 +327,8 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // Retrieve the owner of the option token.
         address optionOwner = ownerOf(tokenId);
 
-        // Check that the sender is either the owner
-        // TODO: should we extend for NFT approvals? Unsure if the complexity/attack surface is worth it
+        // Check that the sender is the owner. Explicitly haven't enabled NFT approvals 
+        // as the increased complexity/attack surface is not worth it
         if (msg.sender != optionOwner) {
             revert NotOwnerOrApproved(msg.sender, tokenId);
         }
@@ -348,7 +394,10 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
      * @notice Fully converts a note to STRAT, using an ERC-2612 permit.
      * @dev Kept for backwards-compatibility with earlier integrations/tests.
      */
-    function convertWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval) external whenNotTripped {
+    function convertWithPermit(uint256 tokenId, Permit.IPermitApproval memory cdtPermitApproval)
+        external
+        whenNotTripped
+    {
         convertPartialWithPermit(tokenId, amountOwedCdt[tokenId], false, cdtPermitApproval);
     }
 
@@ -385,10 +434,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         uint256 tokenId,
         uint256 minEthOut,
         Permit.IPermitApproval memory cdtPermitApproval
-    )
-        public
-        whenNotTripped
-    {
+    ) public whenNotTripped {
         // Redundant with the expiry check below (bonding enforces expiry > timelock, so redeem only runs after
         // timelock has passed). Intentionally retained: same ordering as convert, explicit TimelockActive reverts,
         // and readable completeness at the cost of a small amount of gas.
@@ -469,26 +515,34 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
     {
         uint256 ethPriceUSD = _getEthUsdPrice();
         uint256 totalEth = esETHToken.balanceOf(unencumberedHoldings) + esETHToken.balanceOf(encumberedHoldings);
-        uint256 gavUSD = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
 
         uint256 stratTotalSupply = stratToken.totalSupply();
-        uint256 adjustedCdtSupply = cdtToken.totalSupply() + (settlementEntitlementUsd_ / 2);
+        uint256 cdtSupply = cdtToken.totalSupply();
+        uint256 adjustedCdtSupply = cdtSupply + (settlementEntitlementUsd_ / 2);
 
         // Avoid division by zero; bonding will fail its min-output checks if this returns 0.
         if (stratTotalSupply == 0 || totalEth == 0) {
             return (0, 0);
         }
 
-        // Premium term is USD-denominated; pcf is scaled by SCALE.
-        uint256 premiumUsd = (pcf * adjustedCdtSupply) / SCALE;
-        // Apply GCF to GAV; gcf is scaled by SCALE.
-        uint256 numeratorUsd = (gavUSD * gcf / SCALE) + premiumUsd; // Scale: 1e18 (USD)
+        // Net Asset Value: gross treasury value (all esETH at the oracle price) minus outstanding CDT
+        // debt (each CDT is $1 of notional). Bonding prices off NAV, not GAV. Clamp to 0 if underwater.
+        uint256 gavUSD = totalEth * ethPriceUSD / _ETH_USD_ORACLE_SCALE;
+        uint256 navUSD = gavUSD > cdtSupply ? gavUSD - cdtSupply : 0; // Scale: 1e18 (USD)
+
+        // Apply the admin-set NAV floor price: bonding prices off the greater of live NAV and the floor,
+        // so bonds are never sold as if NAV were below the floor (navFloorPrice == 0 disables this).
+        uint256 navForPricing = navUSD > navFloorPrice ? navUSD : navFloorPrice;
+
+        // Premium term is USD-denominated; bcf is scaled by SCALE.
+        uint256 premiumUsd = (bcf * adjustedCdtSupply) / SCALE;
+        uint256 numeratorUsd = navForPricing + premiumUsd; // Scale: 1e18 (USD)
 
         // USD-per-unit rates (scaled by 1e18), used to compute amounts from USD notionals.
         uint256 stratConversionRate = (numeratorUsd * SCALE) / stratTotalSupply; // USD per STRAT (1e18)
         stratAmount = settlementEntitlementUsd_ * SCALE / stratConversionRate;
 
-        uint256 debtInEth = cdtToken.totalSupply() * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
+        uint256 debtInEth = cdtSupply * _ETH_USD_ORACLE_SCALE / ethPriceUSD;
         if (debtInEth >= totalEth) {
             ethAmount = 0;
         } else {
