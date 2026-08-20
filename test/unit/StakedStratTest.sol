@@ -490,9 +490,7 @@ contract StakedStratTest is Test {
 
         assertEq(stakedStrat.staked(user1), STAKE_AMOUNT_1 - migrateAmount);
         assertEq(stakedStrat.staked(user2), STAKE_AMOUNT_2 + migrateAmount);
-        assertApproxEqRel(
-            rewardToken.balanceOf(user2) - balance2Before, pending2Before + expectedFromUser1, 1e15
-        );
+        assertApproxEqRel(rewardToken.balanceOf(user2) - balance2Before, pending2Before + expectedFromUser1, 1e15);
     }
 
     // ============ Integration Tests ============
@@ -699,9 +697,7 @@ contract StakedStratTest is Test {
 
         // All rewards distributed by the new period end
         vm.warp(stakedStrat.periodFinish());
-        assertApproxEqRel(
-            stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1 + REWARD_AMOUNT_2, 2e15
-        );
+        assertApproxEqRel(stakedStrat.getPendingRewards(user1), REWARD_AMOUNT_1 + REWARD_AMOUNT_2, 2e15);
     }
 
     function test_Streaming_NewStakeAnchoredToCurrent() public {

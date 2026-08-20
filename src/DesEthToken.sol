@@ -7,5 +7,7 @@ import "./MintableBurnableToken.sol";
  * @title ETH Strategy deployed ETH receipt token
  */
 contract DesEthToken is MintableBurnableToken {
-    constructor(address owner, ITripwireController controller_, address guardian_) MintableBurnableToken("ETH Strategy Deployed ETH", "desETH", owner, controller_, guardian_) {}
+    constructor(address owner, ITripwireController controller_, address guardian_)
+        MintableBurnableToken("ETH Strategy Deployed ETH", "desETH", owner, controller_, guardian_)
+    {}
 }

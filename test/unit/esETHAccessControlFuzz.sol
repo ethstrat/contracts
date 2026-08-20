@@ -296,9 +296,7 @@ contract esETHAccessControlFuzz is esETHClosedConfigBase {
         assertEq(IERC20(token).balanceOf(receiver), receiverBefore);
     }
 
-    function testFuzz_closedConfig_attackerHoldingAllEsETHCannotExtract(uint8 tokenIdx, uint256 tokenAmount)
-        public
-    {
+    function testFuzz_closedConfig_attackerHoldingAllEsETHCannotExtract(uint8 tokenIdx, uint256 tokenAmount) public {
         tokenAmount = bound(tokenAmount, 1, 5 ether);
         address token = tokens[tokenIdx % tokens.length];
 

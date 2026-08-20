@@ -15,12 +15,13 @@ contract MintableBurnableToken is ERC20Permit, Ownable2Step, TripwireGuard {
 
     error MinterUnauthorizedAccount(address account);
 
-    constructor(string memory name, string memory symbol, address owner, ITripwireController controller_, address guardian_)
-        ERC20(name, symbol)
-        ERC20Permit(name)
-        Ownable(owner)
-        TripwireGuard(controller_, guardian_)
-    {}
+    constructor(
+        string memory name,
+        string memory symbol,
+        address owner,
+        ITripwireController controller_,
+        address guardian_
+    ) ERC20(name, symbol) ERC20Permit(name) Ownable(owner) TripwireGuard(controller_, guardian_) {}
 
     /**
      * @dev Allows only the owner to manage who can mint tokens.
