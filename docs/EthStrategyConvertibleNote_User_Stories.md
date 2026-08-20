@@ -90,7 +90,7 @@
   - ETH flow uses esETH minting and splits the bond ETH into:
     - **Encumbered** portion: `esETHToken.wrapAndMint{value: conversionAmountEth}(encumberedHoldings)` (skipped if `conversionAmountEth == 0`)
     - **Unencumbered** remainder: `esETHToken.wrapAndMint{value: msg.value - conversionAmountEth}(unencumberedHoldings)` (skipped if the remainder is `0`, e.g. when the whole deposit backs the ETH right)
-  - Emits `LongBond(bonder, tokenId, strike, notionalUnderlyingAmount, notionalUSDAmount, ethAmount, expiry, timelock)`
+  - Emits `Bond(bonder, tokenId, strike, notionalUnderlyingAmount, notionalUSDAmount, ethAmount, expiry, timelock)`
     - Where “strike / notional” values correspond to the stored per-token values computed above
 
 **US-101: Bonding uses fixed timelock and expiry**
