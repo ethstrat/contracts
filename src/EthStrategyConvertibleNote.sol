@@ -327,7 +327,7 @@ contract EthStrategyConvertibleNote is ERC721, Ownable2Step, EthUsdPriceFeedCons
         // Retrieve the owner of the option token.
         address optionOwner = ownerOf(tokenId);
 
-        // Check that the sender is the owner. Explicitly haven't enabled NFT approvals 
+        // Check that the sender is the owner. Explicitly haven't enabled NFT approvals
         // as the increased complexity/attack surface is not worth it
         if (msg.sender != optionOwner) {
             revert NotOwnerOrApproved(msg.sender, tokenId);

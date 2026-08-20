@@ -95,7 +95,10 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     // Constructor
     // -------------------------------------------------------------------------
 
-    constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_) ERC20("Staked STRAT v2", "sSTRAT-v2") TripwireGuard(controller_, guardian_) {
+    constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_)
+        ERC20("Staked STRAT v2", "sSTRAT-v2")
+        TripwireGuard(controller_, guardian_)
+    {
         if (_stratToken == address(0)) revert();
         if (_rewardToken == address(0)) revert();
         if (_stratToken == _rewardToken) revert();
@@ -273,8 +276,8 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
 
         // Update sender — preserve non-migrated pending via incremental debt adjustment
         staked[msg.sender] -= amountToMigrate;
-        rewardDebt[msg.sender] = (staked[msg.sender] * rewardsPerShare) / PRECISION
-            - (totalPendingRewards - rewardsToMigrate);
+        rewardDebt[msg.sender] =
+            (staked[msg.sender] * rewardsPerShare) / PRECISION - (totalPendingRewards - rewardsToMigrate);
 
         // Pay out any existing pending rewards for the recipient before updating their state
         uint256 recipientPendingRewards = 0;

@@ -43,7 +43,15 @@ contract StratETHTreasuryLendTest is Test {
 
         // 10% APR
         lend = new StratETHTreasuryLend(
-            address(cdt), address(strat), address(esEth), unencumberedHoldings, encumberedHoldings, 0.1e18, owner, ctrl, owner
+            address(cdt),
+            address(strat),
+            address(esEth),
+            unencumberedHoldings,
+            encumberedHoldings,
+            0.1e18,
+            owner,
+            ctrl,
+            owner
         );
 
         // Allow owner + lend to mint STRAT/CDT (lend needs this to return collateral on repay/roll).
@@ -117,8 +125,14 @@ contract StratETHTreasuryLendTest is Test {
         uint256 stratIn = 100 ether;
         uint256 cdtIn = 60 ether;
 
-        (uint256 coveredStrat, uint256 coveredCdt, uint256 ethBacking, uint256 borrowAmount, uint256 maxTermInterest, uint256 delinquentFee) =
-            lend.previewBorrow(stratIn, cdtIn);
+        (
+            uint256 coveredStrat,
+            uint256 coveredCdt,
+            uint256 ethBacking,
+            uint256 borrowAmount,
+            uint256 maxTermInterest,
+            uint256 delinquentFee
+        ) = lend.previewBorrow(stratIn, cdtIn);
 
         assertEq(coveredStrat, 60 ether);
         assertEq(coveredCdt, 60 ether);
@@ -457,11 +471,7 @@ contract StratETHTreasuryLendTest is Test {
         assertGt(ethPerStratAfter, ethPerStratBefore);
 
         // Increase must equal delinquentFee / stratSupply (scaled by 1e18), within 1 wei.
-        assertApproxEqAbs(
-            ethPerStratAfter - ethPerStratBefore,
-            p.delinquentFee * 1e18 / stratSupply,
-            1
-        );
+        assertApproxEqAbs(ethPerStratAfter - ethPerStratBefore, p.delinquentFee * 1e18 / stratSupply, 1);
     }
 
     function test_US400_401_Liquidation_Rules() public {

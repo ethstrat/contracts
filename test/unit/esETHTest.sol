@@ -602,7 +602,10 @@ contract esETHTest is Test {
         vm.prank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")), user1, esETHAmount, esETHAmount + 2
+                bytes4(keccak256("ERC20InsufficientBalance(address,uint256,uint256)")),
+                user1,
+                esETHAmount,
+                esETHAmount + 2
             )
         );
         esETHContract.redeem(address(weth), redeemAmount, user1);
@@ -738,7 +741,7 @@ contract esETHTest is Test {
         esETHContract.mint(address(weETH), MINT_AMOUNT, user1);
 
         // Simulate weETH yield accrual by increasing conversion rate.
-        weETH.setRate(1.10e18);
+        weETH.setRate(1.1e18);
 
         address[] memory tokens = new address[](1);
         tokens[0] = address(weETH);

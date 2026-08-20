@@ -216,7 +216,14 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721, TripwireGuard {
     function previewBorrow(uint256 maxStratIn, uint256 maxCdtIn)
         public
         view
-        returns (uint256 stratIn, uint256 cdtIn, uint256 ethBacking, uint256 borrowAmount, uint256 maxTermInterest, uint256 delinquentFee)
+        returns (
+            uint256 stratIn,
+            uint256 cdtIn,
+            uint256 ethBacking,
+            uint256 borrowAmount,
+            uint256 maxTermInterest,
+            uint256 delinquentFee
+        )
     {
         cdtIn = maxStratIn * cdtToken.totalSupply() / stratToken.totalSupply();
         if (cdtIn > maxCdtIn) {
@@ -250,15 +257,20 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721, TripwireGuard {
     // ======== Core flows ========
     /// @notice Borrow by supplying up to `stratIn` and `cdtIn` as collateral. Only the covered portion is pulled
     /// (US-100).
-    function borrow(uint256 maxStratIn, uint256 maxCdtIn, uint256 minBorrowAmount, uint256 deadline) external whenNotTripped {
+    function borrow(uint256 maxStratIn, uint256 maxCdtIn, uint256 minBorrowAmount, uint256 deadline)
+        external
+        whenNotTripped
+    {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (maxStratIn == 0 && maxCdtIn == 0) revert ZeroAmount();
-        (uint256 stratIn
-        , uint256 cdtIn
-        , uint256 ethBacking
-        , uint256 borrowAmount
-        , uint256 maxTermInterest
-        , uint256 delinquentFee) = previewBorrow(maxStratIn, maxCdtIn);
+        (
+            uint256 stratIn,
+            uint256 cdtIn,
+            uint256 ethBacking,
+            uint256 borrowAmount,
+            uint256 maxTermInterest,
+            uint256 delinquentFee
+        ) = previewBorrow(maxStratIn, maxCdtIn);
 
         if (borrowAmount < minBorrowAmount) revert InsufficientOutput(minBorrowAmount, borrowAmount);
 
@@ -333,7 +345,13 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721, TripwireGuard {
     }
 
     /// @notice Roll a position: settle interest to date, adjust collateral and principal, reset term (US-300/301/302).
-    function roll(uint256 tokenId, uint256 maxNewStratIn, uint256 maxNewCdtIn, uint256 minNewBorrowAmount, uint256 deadline) external whenNotTripped {
+    function roll(
+        uint256 tokenId,
+        uint256 maxNewStratIn,
+        uint256 maxNewCdtIn,
+        uint256 minNewBorrowAmount,
+        uint256 deadline
+    ) external whenNotTripped {
         if (deadline < block.timestamp) revert TransactionStale(deadline);
         if (maxNewStratIn == 0 && maxNewCdtIn == 0) revert ZeroAmount();
 
@@ -345,12 +363,14 @@ contract StratETHTreasuryLend is Ownable2Step, ERC721, TripwireGuard {
 
         uint256 interest = accruedInterest(tokenId);
 
-        (uint256 newStratIn
-        , uint256 newCdtIn
-        , uint256 newEthBacking
-        , uint256 newBorrowAmount
-        , uint256 newMaxTermInterest
-        , uint256 newDiliquentFee) = previewBorrow(maxNewStratIn, maxNewCdtIn);
+        (
+            uint256 newStratIn,
+            uint256 newCdtIn,
+            uint256 newEthBacking,
+            uint256 newBorrowAmount,
+            uint256 newMaxTermInterest,
+            uint256 newDiliquentFee
+        ) = previewBorrow(maxNewStratIn, maxNewCdtIn);
         if (newBorrowAmount < minNewBorrowAmount) revert InsufficientOutput(minNewBorrowAmount, newBorrowAmount);
 
         uint256 oldStratIn = p.stratCollateral;

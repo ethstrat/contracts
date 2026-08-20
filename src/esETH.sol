@@ -21,7 +21,6 @@ interface ILegacyVaultTypes {
     function getEthValue(uint256 _rethAmount) external view returns (uint256);
 }
 
-
 interface IWeETH {
     function getEETHByWeETH(uint256 weETHAmount) external view returns (uint256);
 }
@@ -117,7 +116,11 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
      * @param controller_ Tripwire controller passed to `TripwireGuard`
      * @param guardian_ Tripwire guardian passed to `TripwireGuard`
      */
-    constructor(address _owner, address _weth, ITripwireController controller_, address guardian_) ERC20("ETH Strategy ETH", "esETH") Ownable(_owner) TripwireGuard(controller_, guardian_) {
+    constructor(address _owner, address _weth, ITripwireController controller_, address guardian_)
+        ERC20("ETH Strategy ETH", "esETH")
+        Ownable(_owner)
+        TripwireGuard(controller_, guardian_)
+    {
         if (_weth == address(0)) revert ZeroAddress();
         WETH = _weth;
         yieldReceiver = _owner;
@@ -219,7 +222,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
         if (contractBalance < tokenAmount) revert InsufficientBalance(token);
 
         // Burn esETH and update totalMinted
-        // NOTE: esETHAmount includes +1 wei, but totalMinted only tracks the base value. 
+        // NOTE: esETHAmount includes +1 wei, but totalMinted only tracks the base value.
         //       We subtract 1 wei from esETHAmount so everything reconciles. If these accumulate
         //       over time, it will be harvested out
         config.totalMinted -= esETHAmount - 1;
@@ -236,20 +239,14 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
      * @param isMintable Whether this token can be used to mint esETH
      * @param isRedeemable Whether this token can be redeemed for esETH
      */
-    function setTokenConfig(address token, TokenType tokenType, bool isMintable, bool isRedeemable)
-        external
-        onlyOwner
-    {
+    function setTokenConfig(address token, TokenType tokenType, bool isMintable, bool isRedeemable) external onlyOwner {
         if (token == address(0)) {
             revert ZeroAddress();
         }
 
         uint256 totalMinted = tokenConfigs[token].totalMinted;
         tokenConfigs[token] = TokenConfig({
-            tokenType: tokenType,
-            isMintable: isMintable,
-            isRedeemable: isRedeemable,
-            totalMinted: totalMinted
+            tokenType: tokenType, isMintable: isMintable, isRedeemable: isRedeemable, totalMinted: totalMinted
         });
 
         emit TokenConfigUpdated(token, tokenType, isMintable, isRedeemable);
@@ -272,7 +269,7 @@ contract esETH is ERC20, Ownable2Step, ReentrancyGuard, TripwireGuard {
 
     /**
      * @dev Convert `amount` of `token` to an ETH-equivalent amount using `tokenType`.
-     *      `ERC20` is treated as 1:1; 
+     *      `ERC20` is treated as 1:1;
      *      `ERC4626` uses `convertToAssets`;
      *      other variants call the respective LST view helpers.
      */

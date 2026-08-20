@@ -200,10 +200,7 @@ contract TripwireController is ITripwireController {
     // ========================================================================
 
     /// @inheritdoc ITripwireController
-    function addOperator(address guardedContract, address operator)
-        external
-        onlyGuardian(guardedContract)
-    {
+    function addOperator(address guardedContract, address operator) external onlyGuardian(guardedContract) {
         if (operator == address(0)) revert ZeroAddress();
         if (_operators[guardedContract][operator]) revert AlreadyOperator(operator, guardedContract);
         _operators[guardedContract][operator] = true;
@@ -211,10 +208,7 @@ contract TripwireController is ITripwireController {
     }
 
     /// @inheritdoc ITripwireController
-    function removeOperator(address guardedContract, address operator)
-        external
-        onlyGuardian(guardedContract)
-    {
+    function removeOperator(address guardedContract, address operator) external onlyGuardian(guardedContract) {
         if (!_operators[guardedContract][operator]) revert NotOperator(operator, guardedContract);
         _operators[guardedContract][operator] = false;
         emit OperatorRemoved(guardedContract, operator, msg.sender);
@@ -225,10 +219,7 @@ contract TripwireController is ITripwireController {
     // ========================================================================
 
     /// @inheritdoc ITripwireController
-    function proposeGuardian(address guardedContract, address newGuardian)
-        external
-        onlyGuardian(guardedContract)
-    {
+    function proposeGuardian(address guardedContract, address newGuardian) external onlyGuardian(guardedContract) {
         if (newGuardian == address(0)) revert ZeroAddress();
         if (newGuardian == msg.sender) revert SameGuardian(guardedContract);
 
@@ -242,10 +233,7 @@ contract TripwireController is ITripwireController {
     }
 
     /// @inheritdoc ITripwireController
-    function cancelGuardianshipProposal(address guardedContract)
-        external
-        onlyGuardian(guardedContract)
-    {
+    function cancelGuardianshipProposal(address guardedContract) external onlyGuardian(guardedContract) {
         address pending = _pendingGuardians[guardedContract];
         if (pending == address(0)) revert NoPendingGuardian(guardedContract);
         delete _pendingGuardians[guardedContract];
