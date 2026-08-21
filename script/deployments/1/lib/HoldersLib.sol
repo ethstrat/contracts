@@ -8,9 +8,6 @@ import {Vm} from "forge-std/Vm.sol";
 library HoldersLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    // Field order matches JSON-key alphabetical order (address, balance, excluded, isContract) —
-    // `vm.parseJson`'s abi.decode emits fields in that order regardless of declaration intent.
-    // Declaring the two bools in the other order silently swaps them on decode.
     struct Holder {
         address addr;
         string balance;
@@ -30,10 +27,37 @@ library HoldersLib {
         snapshot.snapshotBlock = vm.parseJsonUint(json, ".snapshotBlock");
         snapshot.totalSupply = vm.parseJsonUint(json, ".totalSupply");
 
-        // balance is decoded as `string` (not `uint256`) — the snapshot writes amounts as quoted
-        // decimal strings, and `vm.parseJson` ABI-encodes a JSON string as `string`. A `uint256`
-        // field here reverts on decode.
-        Holder[] memory holders = abi.decode(vm.parseJson(json, ".holders"), (Holder[]));
+        // `.holders` is NOT decoded as `Holder[]` in one `abi.decode` — `vm.parseJson`'s untyped
+        // type inference guesses each `balance` value's ABI type from its own magnitude: a quoted
+        // decimal string that fits in `int64` (<= ~9.22e18, i.e. any balance under ~9.22 tokens at
+        // 18 decimals) decodes as `string`, but a larger one decodes as `uint256`. A real holder
+        // set mixes both, so the "array" forge hands back has a different tuple shape per element
+        // and no single Solidity struct can `abi.decode` it (confirmed empirically against forge
+        // 1.7.1: verbatim single-value repro in git history of this file's PR).
+        //
+        // `address`/`bool` fields never hit this ambiguity (a `0x...` string and a JSON bool are
+        // unambiguous), so those are still decoded as whole arrays. `balance` is read per-holder
+        // via `parseJsonString`, which requests the value as a string explicitly and bypasses the
+        // magnitude-based guess entirely.
+        address[] memory addrs = abi.decode(vm.parseJson(json, ".holders[*].address"), (address[]));
+        bool[] memory excludedFlags = abi.decode(vm.parseJson(json, ".holders[*].excluded"), (bool[]));
+        bool[] memory isContractFlags = abi.decode(vm.parseJson(json, ".holders[*].isContract"), (bool[]));
+
+        uint256 total = addrs.length;
+        require(
+            excludedFlags.length == total && isContractFlags.length == total,
+            "HoldersLib: holder field array length mismatch"
+        );
+
+        Holder[] memory holders = new Holder[](total);
+        for (uint256 i = 0; i < total; i++) {
+            holders[i] = Holder({
+                addr: addrs[i],
+                balance: vm.parseJsonString(json, string.concat(".holders[", vm.toString(i), "].balance")),
+                excluded: excludedFlags[i],
+                isContract: isContractFlags[i]
+            });
+        }
         snapshot.holders = holders;
 
         uint256 fileNameBlock = _blockFromFileName(path);
