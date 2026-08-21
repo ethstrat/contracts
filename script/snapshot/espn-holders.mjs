@@ -17,9 +17,14 @@
 // (script/deployments/1/config/espn-holders-<block>.json) — it is never
 // written to settings.json. Both Track A and Track B must be run against the
 // same snapshot block.
+//
+// SETTINGS_PATH and the output path are resolved relative to the repo root (this file's
+// own location), not the operator's cwd — safe to run from anywhere in the repo.
 
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_ESPN_ADDRESS = "0xb250C9E0F7bE4cfF13F94374C993aC445A1385fE";
 const DEFAULT_SETTINGS_PATH = "script/deployments/1/config/settings.json";
@@ -31,8 +36,27 @@ const LOG_CHUNK_SIZE = 10000;
 const RPC_BATCH_SIZE = 50;
 const REORG_CONFIRMATIONS = 64;
 
+// This file lives at script/snapshot/espn-holders.mjs, so its own directory's
+// grandparent is the repo root. Anchoring here means SETTINGS_PATH and the output path
+// resolve correctly regardless of the operator's cwd when they run `yarn snapshot:espn`.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function repoPath(p) {
+  return isAbsolute(p) ? p : resolve(REPO_ROOT, p);
+}
+
 function toHex(n) {
   return "0x" + BigInt(n).toString(16);
+}
+
+// eth_call/eth_getCode return "0x" when there is no code/state at that address at that
+// block (commonly: snapshotBlock is before the contract's deploy block, or the address is
+// wrong) — BigInt("0x") throws an opaque SyntaxError, so name the likely cause instead.
+function hexToBigInt(hex, context) {
+  if (hex === "0x") {
+    throw new Error(`empty return data for ${context} — wrong address, or block is before contract deployment?`);
+  }
+  return BigInt(hex);
 }
 
 function sleep(ms) {
@@ -53,17 +77,22 @@ async function withRetry(fn) {
   }
 }
 
-async function rpcRequest(rpcUrl, method, params) {
-  return withRetry(async () => {
-    const res = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    });
-    const json = await res.json();
-    if (json.error) throw new Error(`RPC error ${json.error.code}: ${json.error.message}`);
-    return json.result;
+async function rpcRequestOnce(rpcUrl, method, params) {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
+  if (!res.ok) throw new Error(`RPC HTTP ${res.status} ${res.statusText}: ${(await res.text()).slice(0, 200)}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`RPC error ${json.error.code}: ${json.error.message}`);
+  return json.result;
+}
+
+// retry=false lets a caller (fetchLogsRange) fold this into its own halving retry loop
+// instead of burning 3 backoff attempts here on an error that halving fixes immediately.
+async function rpcRequest(rpcUrl, method, params, { retry = true } = {}) {
+  return retry ? withRetry(() => rpcRequestOnce(rpcUrl, method, params)) : rpcRequestOnce(rpcUrl, method, params);
 }
 
 async function rpcBatch(rpcUrl, requests) {
@@ -73,18 +102,25 @@ async function rpcBatch(rpcUrl, requests) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(requests.map((r) => ({ jsonrpc: "2.0", id: r.id, method: r.method, params: r.params }))),
     });
+    if (!res.ok) throw new Error(`RPC HTTP ${res.status} ${res.statusText}: ${(await res.text()).slice(0, 200)}`);
     const json = await res.json();
-    return parseBatchResponse(json);
+    return parseBatchResponse(json, requests.length);
   });
 }
 
-// Reorders a raw JSON-RPC batch response array (which may arrive out of
-// order) into results indexed 0..n-1 by request id. Throws on any error entry.
-function parseBatchResponse(jsonArray) {
+// Reorders a raw JSON-RPC batch response array (which may arrive out of order) into
+// results indexed 0..n-1 by request id. Throws on any error entry, and on a response that
+// is shorter than the request (some providers silently truncate a batch instead of
+// erroring): checking jsonArray.length against itself can never catch that, so the
+// expected count comes from the caller's request list instead.
+function parseBatchResponse(jsonArray, expectedCount) {
   if (!Array.isArray(jsonArray)) throw new Error(`expected batch array response, got: ${JSON.stringify(jsonArray)}`);
+  if (jsonArray.length !== expectedCount) {
+    throw new Error(`batch response size mismatch: sent ${expectedCount} requests, got ${jsonArray.length} results`);
+  }
   const byId = new Map(jsonArray.map((entry) => [entry.id, entry]));
   const results = [];
-  for (let id = 0; id < jsonArray.length; id++) {
+  for (let id = 0; id < expectedCount; id++) {
     const entry = byId.get(id);
     if (!entry) throw new Error(`missing batch response for id ${id}`);
     if (entry.error) throw new Error(`RPC error ${entry.error.code}: ${entry.error.message}`);
@@ -121,19 +157,26 @@ function isRangeOrSizeError(err) {
   return /range|limit|too many|too large|exceed|10,?000|block count/.test(msg);
 }
 
+// Retry is deliberately NOT nested here: rpcRequest is called with retry:false so a
+// range/size error halves immediately instead of first burning 3 backoff attempts inside
+// rpcRequest that a halve was always going to make moot. The 3-attempt backoff below is
+// for genuinely transient errors only. Halves are fetched sequentially, not via
+// Promise.all — doubling concurrency is the wrong response to a provider that just
+// signalled it is overloaded.
 async function fetchLogsRange(rpcUrl, address, fromBlock, toBlock) {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await rpcRequest(rpcUrl, "eth_getLogs", [
-        { address, topics: [TRANSFER_TOPIC], fromBlock: toHex(fromBlock), toBlock: toHex(toBlock) },
-      ]);
+      return await rpcRequest(
+        rpcUrl,
+        "eth_getLogs",
+        [{ address, topics: [TRANSFER_TOPIC], fromBlock: toHex(fromBlock), toBlock: toHex(toBlock) }],
+        { retry: false },
+      );
     } catch (err) {
       if (isRangeOrSizeError(err) && toBlock > fromBlock) {
         const [a, b] = halveChunk({ from: fromBlock, to: toBlock });
-        const [logsA, logsB] = await Promise.all([
-          fetchLogsRange(rpcUrl, address, a.from, a.to),
-          fetchLogsRange(rpcUrl, address, b.from, b.to),
-        ]);
+        const logsA = await fetchLogsRange(rpcUrl, address, a.from, a.to);
+        const logsB = await fetchLogsRange(rpcUrl, address, b.from, b.to);
         return logsA.concat(logsB);
       }
       if (attempt >= 2) throw err;
@@ -148,6 +191,14 @@ async function discoverAddresses(rpcUrl, espnAddress, fromBlock, toBlock) {
     const end = Math.min(start + LOG_CHUNK_SIZE - 1, toBlock);
     const logs = await fetchLogsRange(rpcUrl, espnAddress, start, end);
     for (const log of logs) {
+      // A Transfer-topic0 log should always carry 3 topics (topic0 + 2 indexed
+      // addresses); fail loud and name the tx rather than crash on `undefined.slice`
+      // minutes into a scan, or silently drop a log that might carry a real balance.
+      if (log.topics.length < 3) {
+        throw new Error(
+          `log with unexpected topic count (${log.topics.length}, expected 3) in tx ${log.transactionHash}`,
+        );
+      }
       const from = topicToAddress(log.topics[1]);
       const to = topicToAddress(log.topics[2]);
       if (from !== ZERO_ADDRESS) addresses.add(from);
@@ -170,7 +221,7 @@ async function fetchBalances(rpcUrl, espnAddress, addresses, blockNumber) {
       params: [{ to: espnAddress, data: "0x70a08231" + addr.slice(2).padStart(64, "0") }, blockHex],
     }));
     const results = await rpcBatch(rpcUrl, requests);
-    results.forEach((res, idx) => balances.set(batch[idx], BigInt(res)));
+    results.forEach((res, idx) => balances.set(batch[idx], hexToBigInt(res, `balanceOf(${batch[idx]})`)));
   }
   return balances;
 }
@@ -205,14 +256,28 @@ async function main() {
   const head = Number(BigInt(await rpcRequest(rpcUrl, "eth_blockNumber", [])));
 
   let snapshotBlock;
+  let resolvedFromFinalizedTag = false;
   if (process.env.SNAPSHOT_BLOCK) {
     snapshotBlock = Number(process.env.SNAPSHOT_BLOCK);
+    if (!Number.isInteger(snapshotBlock) || snapshotBlock < ESPN_DEPLOY_BLOCK) {
+      console.error(
+        `SNAPSHOT_BLOCK must be an integer >= ESPN_DEPLOY_BLOCK (${ESPN_DEPLOY_BLOCK}), got: "${process.env.SNAPSHOT_BLOCK}"`,
+      );
+      process.exit(1);
+    }
   } else {
     const finalized = await rpcRequest(rpcUrl, "eth_getBlockByNumber", ["finalized", false]);
     snapshotBlock = Number(BigInt(finalized.number));
+    resolvedFromFinalizedTag = true;
   }
 
-  if (head - snapshotBlock < REORG_CONFIRMATIONS) {
+  // The `finalized` tag is a strictly stronger guarantee than N confirmations — it names a
+  // block Ethereum's finality gadget has already made irreversible, and by construction
+  // sits close to (sometimes just under) the 64-block/2-epoch mark. Applying the
+  // confirmation-count check to it as well is self-defeating: it can fail the script's own
+  // default invocation on a block that can never reorg. The count check exists to protect
+  // an operator-supplied SNAPSHOT_BLOCK, which carries no such guarantee.
+  if (!resolvedFromFinalizedTag && head - snapshotBlock < REORG_CONFIRMATIONS) {
     console.error(
       `snapshotBlock ${snapshotBlock} is only ${head - snapshotBlock} blocks behind head ${head}; ` +
         `need >= ${REORG_CONFIRMATIONS} (set SNAPSHOT_BLOCK to an older block)`,
@@ -229,7 +294,10 @@ async function main() {
   const balances = await fetchBalances(rpcUrl, espnAddress, addresses, snapshotBlock);
 
   // 4. Invariant: sum(balances) === totalSupply() at snapshotBlock. Hard fail on mismatch.
-  const totalSupply = BigInt(await rpcRequest(rpcUrl, "eth_call", [{ to: espnAddress, data: "0x18160ddd" }, toHex(snapshotBlock)]));
+  const totalSupply = hexToBigInt(
+    await rpcRequest(rpcUrl, "eth_call", [{ to: espnAddress, data: "0x18160ddd" }, toHex(snapshotBlock)]),
+    "ESPN.totalSupply()",
+  );
   const sum = sumBalances(balances);
   if (sum !== totalSupply) {
     console.error(`INVARIANT FAILED: sum(balances)=${sum} != totalSupply=${totalSupply} at block ${snapshotBlock}`);
@@ -242,7 +310,7 @@ async function main() {
   }
 
   // 6. Flags. Exclude nothing by default.
-  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  const settings = JSON.parse(readFileSync(repoPath(settingsPath), "utf8"));
   const excludedAddresses = new Set((settings.espnv3?.excludedAddresses ?? []).map((a) => a.toLowerCase()));
   const isContract = await fetchIsContract(rpcUrl, Array.from(balances.keys()), snapshotBlock);
 
@@ -257,11 +325,14 @@ async function main() {
     .sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
 
   const output = { snapshotBlock, totalSupply: totalSupply.toString(), holders };
-  const outPath = `script/deployments/1/config/espn-holders-${snapshotBlock}.json`;
+  const outPath = repoPath(`script/deployments/1/config/espn-holders-${snapshotBlock}.json`);
   writeFileSync(outPath, JSON.stringify(output, null, 2) + "\n");
 
   // 8. Summary to stderr (reference figures, not written to the file).
-  const totalAssets = BigInt(await rpcRequest(rpcUrl, "eth_call", [{ to: espnAddress, data: "0x01e1d114" }, toHex(snapshotBlock)]));
+  const totalAssets = hexToBigInt(
+    await rpcRequest(rpcUrl, "eth_call", [{ to: espnAddress, data: "0x01e1d114" }, toHex(snapshotBlock)]),
+    "ESPN.totalAssets()",
+  );
   const navPerEspn = totalSupply === 0n ? 0n : (totalAssets * 10n ** 18n) / totalSupply;
   const contractCount = holders.filter((h) => h.isContract).length;
   const excludedCount = holders.filter((h) => h.excluded).length;
@@ -293,16 +364,22 @@ function selftest() {
   ]);
   assert.throws(() => halveChunk({ from: 5, to: 5 }));
 
-  // parseBatchResponse: out-of-order results reordered by id; throws on error entry.
+  // parseBatchResponse: out-of-order results reordered by id; throws on error entry; throws
+  // on a truncated response (fewer entries than requested) rather than silently returning
+  // a short array.
   assert.deepEqual(
-    parseBatchResponse([
-      { id: 1, result: "0x2" },
-      { id: 0, result: "0x1" },
-    ]),
+    parseBatchResponse(
+      [
+        { id: 1, result: "0x2" },
+        { id: 0, result: "0x1" },
+      ],
+      2,
+    ),
     ["0x1", "0x2"],
   );
-  assert.throws(() => parseBatchResponse([{ id: 0, error: { code: -32000, message: "boom" } }]));
-  assert.throws(() => parseBatchResponse({ not: "an array" }));
+  assert.throws(() => parseBatchResponse([{ id: 0, error: { code: -32000, message: "boom" } }], 1));
+  assert.throws(() => parseBatchResponse({ not: "an array" }, 1));
+  assert.throws(() => parseBatchResponse([{ id: 0, result: "0x1" }], 2));
 
   // sumBalances: Map and plain object.
   assert.equal(
