@@ -94,16 +94,21 @@ contract ScriptLibsTest is Test {
     }
 
     function test_SafeBatchLib_write_roundTrips() public {
-        address safe = 0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D;
+        // Dummy safe + non-production operation name so this never collides with the real
+        // Task 4/5 output path (script/deployments/1/multisig/003-espn-redemption/001-...json,
+        // the redemption treasury's real approve+validate batch) and can't be mistaken for it.
+        address safe = 0x1111111111111111111111111111111111111111;
         address spender = 0x0000000000000068F116a894984e2DB1123eB395;
         uint256 amount = 700_000e18;
 
         SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](1);
         txs[0] = SafeBatchLib.Tx({to: spender, data: abi.encodeCall(IERC20.approve, (spender, amount))});
 
-        SafeBatchLib.write(safe, "003-espn-redemption", 1, "test batch", "test description", txs);
+        string memory operation = "999-test-fixture";
+        SafeBatchLib.write(safe, operation, 1, "test batch", "test description", txs);
 
-        string memory path = "script/deployments/1/multisig/003-espn-redemption/001-0x0cbe9bDD-multisig.json";
+        string memory dir = string.concat("script/deployments/1/multisig/", operation);
+        string memory path = string.concat(dir, "/001-0x11111111-multisig.json");
         string memory json = vm.readFile(path);
 
         assertEq(vm.parseJsonAddress(json, ".transactions[0].to"), spender);
@@ -112,5 +117,8 @@ contract ScriptLibsTest is Test {
             vm.toString(abi.encodeCall(IERC20.approve, (spender, amount)))
         );
         assertEq(vm.parseJsonAddress(json, ".meta.createdFromSafeAddress"), safe);
+
+        // Leave no test artifact behind in the committed multisig output tree.
+        vm.removeDir(dir, true);
     }
 }
