@@ -17,7 +17,9 @@ The spec was written against an assumption about `main` that does not hold. Veri
 | "`externalAddresses.json` already has `.opensea.seaport`… **extend** the existing file" | `script/` does not exist on HEAD at all. The config layer was added in `1f05843` and removed with the stoke work. | **Create** the four config files. Seed them from the recoverable prior content (reproduced verbatim in Task 1) so nothing is lost, then add the ESPNv3 keys. |
 | "`deploymentAddresses.json` already has STRAT / convertible-note / cdt / esETH" | Same — recoverable only via `git show 1f05843:…`. | Same: recreate with the historical content plus the three new placeholder keys. |
 | `test/forge/seaport/**` prior art | Not on HEAD (removed). Recoverable via `git show 95ff244:…`. | Read it for reference; revive only `ISeaportMinimal.sol`. |
-| Submodules initialized | `git submodule status` shows `-` (uninitialized) for all three: `lib/forge-std`, `lib/halmos-cheatcodes`, `lib/openzeppelin-contracts`. `forge build` fails before anything else. | Step 1. |
+| Submodules initialized | `.gitmodules` lists **five** entries; only **three** gitlinks exist in the tree (`lib/Locked_VestingTokenPlans` and `lib/openzeppelin-v4` are orphan `.gitmodules` entries with no index entry). Of the three real ones, `lib/halmos-cheatcodes` and `lib/openzeppelin-contracts` are uninitialised (`-`); `lib/forge-std` is at `999be66`. `forge build` fails before anything else. | Step 1. |
+| Spec's directory layout has no `lib/` and its unit-test section lists only the two token tests | The plan adds `script/deployments/1/lib/{ConfigLib,HoldersLib,SafeBatchLib}.sol`, `test/unit/ScriptLibsTest.sol` and `test/unit/BuildOrderLibTest.sol`. | **Deliberate deviation.** Without stoke's config/context layer every script re-implements JSON reading; without the two test files the first execution of that code is inside a slow fork script. Recorded here so it is not mistaken for spec compliance. |
+| Spec's parameter table names the grid `FILL_GRID` | The JSON key is `fillGrid` (camelCase, matching every other settings key). | Same value, two spellings. The run-book (Step 29) quotes **`fillGrid`** for the JSON key and `denominator` for the holder-facing number; `FILL_GRID` appears only as the Solidity constant name. |
 
 **Folder numbering.** The plan uses `003-espn-redemption` and `004-stry-migration`, per the spec. `001`/`002` were consumed by the deleted stoke work; the numbering continues the historical sequence rather than reusing retired numbers.
 
@@ -27,23 +29,30 @@ The spec was written against an assumption about `main` that does not hold. Veri
 
 ```
 Task 1 (prereqs + config + shared script libs)   ← blocking, land first
-      ├── Task 2 (tokens + unit tests)           ┐
-      ├── Task 3 (snapshot script)               ├─ independent of each other
-      ├── Task 4 (Track A scripts)  ← needs 1,2  │
-      └── Task 5 (Track B scripts)  ← needs 1,2  ┘
-Task 6 (operator run-book)          ← needs 4,5 for the numbers it documents
+      ├── Task 2 (tokens + unit tests)           ← needs 1a only
+      ├── Task 3 (snapshot script + real snapshot JSON)  ← needs 1a only
+      ├── Task 4 (Track A scripts)  ← needs 1, 2, 3
+      └── Task 5 (Track B scripts)  ← needs 1, 2, 3
+Task 6 (operator run-book)          ← needs 4, 5 for the numbers it documents
 ```
 
-Tasks 2 and 3 can run fully in parallel with each other. Tasks 4 and 5 can run in parallel with each other once 1 and 2 have landed (they share no files; both only *import* Task 1's libs).
+**Tasks 4 and 5 depend on Task 3, not just on 1 and 2.** Both Verify scripts need the *real committed* holders JSON — addresses that genuinely hold ESPN on a fork; a hand-written fixture cannot fulfil a Seaport order (Step 22 picks its sample holders from that file at runtime, and both Verify runs pin the fork to its `snapshotBlock`).
+
+**Task 1 is internally split**, without being two tasks: **1a = Steps 1-7 + 12** (submodules, `foundry.toml`, `remappings.txt`, the two test deletions, the four config files, `package.json`) is purely mechanical and unblocks Tasks 2 and 3 the moment it lands; **1b = Steps 8-11** (the three Solidity libraries and their test) is only needed by Tasks 4 and 5. An implementer should commit 1a first so 2 and 3 can start against it. Not split into separate tasks because 1b's `ScriptLibsTest` verifies config files 1a creates — one task, one reviewer, one file scope.
+
+Tasks 2 and 3 run fully in parallel with each other. Tasks 4 and 5 run in parallel with each other once 1, 2 and 3 have landed: their static file lists are disjoint, and both only *import* Task 1's libs.
+
+**One runtime write is shared and must not be made concurrent:** Task 4's `Distribute.s.sol` writes `.espn-redemption-token` and Task 5's writes `.stry` / `.staked-stry` into the same `script/deployments/1/config/deploymentAddresses.json` via `ConfigLib.writeDeployedAddress`. Two rules keep that safe: (1) `writeDeployedAddress` lives **outside** the `internal` function `Verify.s.sol` calls, so `yarn verify:*` never dirties the committed file; (2) the two `Distribute` scripts are only ever *broadcast* serially, per the run-book's global sequence.
 
 ---
 
 ## Task 1: Repo prerequisites, shared JSON config, shared script libraries
 
-Nothing else in this plan compiles or runs until this task lands. It also owns every edit to `foundry.toml` and `package.json` for the whole project, so no later task touches those files.
+Nothing else in this plan compiles or runs until this task lands. It also owns every edit to `foundry.toml`, `remappings.txt` and `package.json` for the whole project, so no later task touches those files.
 
 **Files:**
 - `foundry.toml` (edit)
+- `remappings.txt` (edit)
 - `package.json` (edit)
 - `test/integration/ESPNRedemptionQueueIntegrationTest.sol` (delete)
 - `test/integration/MorphoBlueFlashLoanProviderIntegrationTest.sol` (delete)
@@ -62,20 +71,35 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Run `git submodule update --init --recursive` (equivalently `forge install`). Then confirm `forge build` succeeds and `yarn test` passes **before** changing anything. If the baseline is already red, stop and report — do not fold a pre-existing failure into this task.
 
-  Do not commit submodule pointer changes beyond what initialization requires; `.gitmodules` and the recorded SHAs are already correct.
+  State of the checkout, verified — do **not** repeat the earlier draft's claim that ".gitmodules and the recorded SHAs are already correct":
 
-- [ ] **Step 2: Grant filesystem permissions in `foundry.toml`**
+  - `.gitmodules` lists **five** submodules; the index carries **three** gitlinks. `lib/Locked_VestingTokenPlans` and `lib/openzeppelin-v4` are orphan `.gitmodules` entries with no corresponding tree entry. `git submodule update --init --recursive` iterates the *index*, so it initialises exactly the three real ones and the orphans are harmless.
+  - Of the three, `lib/forge-std` is present at `999be66` (v1.9.5-3); `lib/halmos-cheatcodes` and `lib/openzeppelin-contracts` show `-`.
 
-  Current value grants write-only on `./tmp/` and therefore **no read access to anything**, so every `vm.readFile` in this project reverts. Replace:
+  Leave the orphan entries alone (removing them is unrelated churn); do not commit submodule pointer changes beyond what initialization requires.
+
+  Confirmed at this forge-std pin, so no later step needs to re-check them: `abstract contract Script is ScriptBase, StdChains, StdCheatsSafe, StdUtils` — it does **not** inherit `StdCheats`, so `contract Verify is Script, StdCheats, StdAssertions` linearizes cleanly (Steps 22 and 28). `vm.parseUint`, `vm.parseJsonUint`, `vm.parseJsonAddressArray` (empty array → length 0), `vm.snapshotState` and `vm.revertToState` all exist.
+
+- [ ] **Step 2: Grant filesystem permissions in `foundry.toml` and add the `src/` remapping**
+
+  Current `fs_permissions` grants write-only on `./tmp/` and therefore **no read access to anything**, so every `vm.readFile` in this project reverts. `./tmp/` must be `read-write`, not `write` — Step 11's `HoldersLib` test writes a fixture there and reads it back, and a `write`-only grant makes that test revert. Replace:
 
   ```toml
   fs_permissions = [
-      {access = "write", path = "./tmp/"},
+      {access = "read-write", path = "./tmp/"},
       {access = "read-write", path = "./script/deployments/"},
   ]
   ```
 
   Leave `solc_version = "0.8.24"`, `via-ir = true`, `optimizer_runs`, `ffi = true`, `test = "test/unit"` and the `[profile.integration]` block untouched.
+
+  **Also append to `remappings.txt`:**
+
+  ```
+  src/=src/
+  ```
+
+  Verified: `forge remappings` currently emits only `forge-std/=` and `openzeppelin-contracts/=`. Without this line the nine scripts under `script/deployments/1/00X-…/` can only reach `EspnRedemptionToken`, `StryToken`, `StakedStrat` and `EthStrategyPerpetualNote` through four-level relative paths. One line here, `import {StryToken} from "src/StryToken.sol";` everywhere else.
 
   Note for later tasks: `via-ir = true` makes the large `Verify.s.sol` scripts slow to compile. That is expected, not a bug.
 
@@ -158,7 +182,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
 - [ ] **Step 7: Create `script/deployments/1/config/settings.json`**
 
-  **The unit convention is mandatory and is the single easiest thing to get wrong in this project.** The prior art's `"2900e18"` worked only because stoke shipped a custom parser; `vm.parseJsonUint` cannot parse `e18` notation. Therefore:
+  **The unit convention is mandatory.** Its justification is *not* the one an earlier draft gave: on the forge version pinned here `vm.parseJsonUint` was verified to parse both `"34795546682818036103184"` and `"2900e18"` correctly, so there is no "`parseJsonUint`-vs-`parseUint` trap" to catch and no reason to route wei amounts through `parseJsonString` + `parseUint`. The real reasons to quote amounts and timestamps as decimal strings are: a 22-digit **unquoted** JSON number is silently mangled by every JSON consumer that uses IEEE-754 doubles — including `JSON.parse` in Task 3's `.mjs` writer and `jq` — and `e18` notation is unreadable to those same consumers. Therefore:
 
   - Every **token amount** and every **timestamp** is a **plain decimal string** — no `e18`, no underscores.
   - Every **ratio / count / price / grid** is an **unscaled JSON number**.
@@ -172,8 +196,8 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
       "fillGrid": 1000000000,
       "basisPriceUsd": 100,
       "expectedSeaportCounter": 0,
-      "orderStartTime": "1787000000",
-      "orderEndTime": "1787604800",
+      "orderStartTime": "1798761600",
+      "orderEndTime": "1799366400",
       "orderSalt": "espnv3-redemption-1",
       "finalYieldAmount": "0",
       "excludedAddresses": []
@@ -186,7 +210,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
   - `targetRedemptionUsd` = 700,000 USDS. **This, not the 5:1 ratio, is the binding cap** (ratio capacity ≈ 775,731 USDS; ≈ 704,396 excluding the treasury's own 9.2%), so redemption is first-come-first-served. Assumption 9: raise to `"775731000000000000000000"` if the founder wants the ratio to be the true cap. No code changes either way.
   - `basisPriceUsd` is `100` **dollars, unscaled — not a wad**. Writing `100e18` (or `"100000000000000000000"`) mints 1e18× too little STRY.
   - `fillGrid` = `1000000000` (1e9). See Task 4 Step 18 for why this exists.
-  - `orderStartTime` / `orderEndTime` are placeholders and **will be stale by the time anyone broadcasts**. `BuildOrder.s.sol` hard-reverts if `orderStartTime <= block.timestamp`, which is the intended forcing function.
+  - `orderStartTime` = `1798761600` = **2027-01-01T00:00:00Z**, `orderEndTime` = `1799366400` = **2027-01-08T00:00:00Z** (a 7-day window). An earlier draft shipped `1787000000` / `1787604800`, which is **2026-08-17 → 2026-08-24** — i.e. a window that had already opened four days before this plan was written and would make `BuildOrder.s.sol`'s `block.timestamp < startTime` pre-condition revert on the very first run, taking `yarn verify:redemption` (a Definition-of-Done item) with it. The committed values must always be **in the future at commit time**; the operator resets them to the real window before broadcast. `BuildOrder.s.sol` hard-reverts if `orderStartTime <= block.timestamp`, which is the intended forcing function — and Step 22 item 1 warps the fork **unconditionally** to just before `startTime`, in either direction, so a stale committed value never breaks `yarn verify:redemption`.
   - `finalYieldAmount` is `"0"` pending a founder decision — it is a *policy* sum, not NAV-derived, which is why it is correctly in JSON. It leaves the treasury and lands at `ESPN.manager()` (`0x823EfFFA08f946233D2a502a1B073C5E16Fea16b`, a third-party contract), so it must be budgeted (Assumption 3).
   - `excludedAddresses` is `[]` — **the airdrops exclude nothing by default**. Assumption 5 (LP pairs, the treasury, ESPN itself) is a founder decision.
   - `snapshotBlock` is deliberately **absent**. It lives only in the holders JSON filename and body (Task 3 Step 14).
@@ -204,52 +228,70 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
   - `configRoot()` → `"script/deployments/1/config/"`.
   - `readJson(string memory fileName)` → `vm.readFile(string.concat(configRoot(), fileName))`.
   - `addr(string memory fileName, string memory key)` → `vm.parseJsonAddress(readJson(fileName), key)`.
-  - `weiAmount(string memory fileName, string memory key)` → **`vm.parseUint(vm.parseJsonString(json, key))`**. This is the load-bearing one: the value is a quoted decimal string, so `vm.parseJsonUint` is the wrong call and will revert or misparse. Use `parseJsonString` then `parseUint`.
-  - `number(string memory fileName, string memory key)` → `vm.parseJsonUint(json, key)`, for the unscaled JSON numbers (`redemptionRatio`, `fillGrid`, `basisPriceUsd`, `expectedSeaportCounter`).
+  - `num(string memory fileName, string memory key)` → `vm.parseJsonUint(readJson(fileName), key)`. **One function, not two.** An earlier draft split this into `weiAmount` (via `parseJsonString` + `parseUint`) and `number` (via `parseJsonUint`) on the belief that `parseJsonUint` cannot read a quoted decimal string. That is false at this forge pin — verified: `vm.parseJsonUint` parses `"34795546682818036103184"` and even `"2900e18"` correctly. One accessor covers both the quoted wei amounts and the unscaled numbers.
   - `str(string memory fileName, string memory key)` → `vm.parseJsonString(json, key)`.
-  - `addrArray(string memory fileName, string memory key)` → `vm.parseJsonAddressArray(json, key)`, for `excludedAddresses`. Must tolerate an empty array.
-  - `writeDeployedAddress(string memory key, address value)` → `vm.writeJson(vm.toString(value), string.concat(configRoot(), "deploymentAddresses.json"), key)`.
+  - `addrArray(string memory fileName, string memory key)` → `vm.parseJsonAddressArray(json, key)`, for `excludedAddresses`. Must tolerate an empty array (verified: empty JSON array → `length == 0`, no revert).
+  - `writeDeployedAddress(string memory key, address value)` → `vm.writeJson(vm.toString(value), string.concat(configRoot(), "deploymentAddresses.json"), key)`. **Callers must keep this out of any `internal` function a `Verify.s.sol` invokes** — see Steps 19, 22, 25 and 28. A fork run that writes a throwaway address into the committed config is a silent corruption.
 
-  Convenience one-liners the scripts will each otherwise repeat — add these three and no more: `seaport()`, `usds()`, `espn()` reading from `externalAddresses.json`, and `treasury()` reading `.protocol.multisigs.redemption` from `internalAddresses.json`.
+  That is the whole surface. **No `seaport()` / `usds()` / `espn()` / `treasury()` wrappers** — an earlier draft added four zero-logic aliases over `addr(file, key)` in a library the same step declares should carry "nothing speculative". Scripts call `ConfigLib.addr("externalAddresses.json", ".eth-strategy.espn")` and friends directly; the key strings are self-documenting and appear in the file they name.
 
 - [ ] **Step 9: Write `script/deployments/1/lib/HoldersLib.sol`**
 
   Reads the snapshot artifact produced by Task 3 and hands the distribute scripts arrays they can pass straight to `mintBatch`.
 
+  **Use exactly this shape — it was verified against the pinned forge, and the obvious alternatives were verified to fail:**
+
   ```solidity
-  struct Holder { address addr; uint256 balance; bool isContract; bool excluded; }
-  struct Snapshot { uint256 snapshotBlock; uint256 totalSupply; uint256 navPerEspn; Holder[] holders; }
+  struct Holder { address addr; string balance; bool excluded; bool isContract; }
+
+  struct Snapshot { uint256 snapshotBlock; uint256 totalSupply; Holder[] holders; }
   ```
 
-  - `load(string memory path)` → reads the file, `vm.parseJson` into the struct, and **asserts the `snapshotBlock` in the body matches the number embedded in the filename** (spec: single source of truth). Extract the filename block by string-slicing between `"espn-holders-"` and `".json"`; `require` on mismatch with a message naming both values.
+  - `load(string memory path)` → read the file, then:
+    - `snapshotBlock` and `totalSupply` via `ConfigLib`-style `vm.parseJsonUint(json, ".snapshotBlock")` / `".totalSupply"` — **not** as part of a whole-document struct decode.
+    - holders via **`abi.decode(vm.parseJson(json, ".holders"), (Holder[]))`**, then `vm.parseUint(h.balance)` per entry to get the `uint256`.
+    - **assert the `snapshotBlock` in the body matches the number embedded in the filename** (spec: single source of truth). Extract the filename block by string-slicing between `"espn-holders-"` and `".json"`; `require` on mismatch with a message naming both values.
   - `included(Snapshot memory)` → `(address[] memory addrs, uint256[] memory balances, uint256 includedCount, uint256 excludedCount)`, filtering out `excluded == true`. `isContract` is **informational only** — it does not filter.
   - `sum(uint256[] memory)` → `uint256`.
 
-  Field-ordering warning for the implementer: `vm.parseJson`'s ABI-decode path matches JSON object keys to struct fields **alphabetically**, not in declaration order. Either name the struct fields so alphabetical order matches, or decode field-by-field with `vm.parseJsonAddress`/`vm.parseJsonUint` on indexed paths (`.holders[0].address`, …). Whichever route is taken, the `ScriptLibsTest` in Step 11 must prove it round-trips a real fixture correctly — do not assume it works.
+  Three decoding facts, all verified, that the struct above exists to satisfy — an implementer who "simplifies" any of them gets a revert or, worse, silently wrong data:
+
+  1. **`balance` must be declared `string`, not `uint256`.** The snapshot writes amounts as quoted decimal strings (Step 7's convention, Step 15's output), and `vm.parseJson` ABI-encodes a JSON string as `string`. `abi.decode(..., (Holder[]))` with a `uint256 balance` field **reverts**. Convert with `vm.parseUint` after decoding.
+  2. **Field order must match JSON-key alphabetical order, not declaration intent.** `vm.parseJson` emits fields in alphabetical key order: `address`, `balance`, `excluded`, `isContract`. The struct above matches. Declaring `bool isContract; bool excluded;` instead returns the two flags **swapped, with no error** — a holder set silently mis-flagged. This is why the struct is `excluded` before `isContract` even though that reads backwards.
+  3. **Decode the `.holders` array, do not decode the whole document, and do not use wildcards.** `abi.decode(vm.parseJson(json), (Snapshot))` on the full document fails for the same string/uint reason plus key ordering. Array-path cheatcodes are not an escape hatch either: wildcard paths such as `.holders[*].balance` were verified to fail with "must return exactly one JSON value". The `Holder[]` decode is also the **only** way to learn the holder count — the JSON has no length key.
+
+  Step 11's `ScriptLibsTest` must prove this round-trips a real fixture. Do not assume it works.
 
 - [ ] **Step 10: Write `script/deployments/1/lib/SafeBatchLib.sol`**
 
   Neither `BuildOrder.s.sol`, `Cancel.s.sol` nor `StopEspnYield.s.sol` can broadcast — the sender is a Safe. Each emits a **Safe Transaction Builder JSON** batch instead. One shared writer, three call sites.
 
-  Shape, matching the prior art (`git show 6484357:script/deployments/1/multisig/002-rage-quit-order/001-0x0cbe9bDD-multisig.json` for the exact reference):
+  **Use the raw-calldata transaction form. Do not reproduce the ABI-descriptor form.** This is the single largest scope reduction in the plan and it is not optional.
+
+  The prior art (`git show 6484357:script/deployments/1/multisig/002-rage-quit-order/001-0x0cbe9bDD-multisig.json`, worth opening once) encodes `Seaport.validate` as a ~1,990-character nested `contractMethod.inputs` ABI descriptor plus an ~800-character escaped-JSON `contractInputsValues` blob — a `tuple[]` of `OrderParameters` containing two nested dynamic arrays. Those were generated by **stoke's ABI introspection**, which is gone. An earlier draft pushed reproducing them onto every caller as hand-written `inputsJson` / `valuesJson` strings and compressed it into one sub-bullet of Step 20.
+
+  The Transaction Builder also accepts transactions specified as raw calldata: `"data": "0x…"` with `"contractMethod": null` and `"contractInputsValues": null`. That deletes the entire nested-ABI problem, needs nothing beyond the `ISeaportMinimal` interface Step 17 already copies, and produces the identical on-chain call.
+
+  API:
+
+  - `struct Tx { address to; bytes data; }` — callers build `data` with `abi.encodeCall`, e.g. `abi.encodeCall(ISeaportMinimal.validate, (orders))`, `abi.encodeCall(IERC20.approve, (seaport, usdsOffer))`, `abi.encodeCall(ISeaportMinimal.cancel, (components))`, `abi.encodeCall(IEspn.increaseAssetsPerShare, (finalYieldAmount))`. No ABI introspection anywhere, in the library or in the callers.
+  - `write(address safe, string memory operation, uint256 index, string memory name, string memory description, Tx[] memory txs)` → builds the document with `string.concat` (`vm.toString(tx.data)` for the hex) and writes it to `script/deployments/1/multisig/<operation>/<index padded to 3>-<first 10 chars of safe>-multisig.json`.
+
+  Emitted shape — **match the reference file key-for-key**, including the two keys an earlier draft dropped (`"data"` inside each transaction, `"createdFromOwnerAddress"` in `meta`). The importer is picky and matching it is free:
 
   ```json
   { "version": "1.0", "chainId": "1", "createdAt": 0,
     "meta": { "name": "...", "description": "...", "txBuilderVersion": "2.0.1",
-              "createdFromSafeAddress": "0x0cbe...", "checksum": null },
-    "transactions": [ { "to": "0x...", "value": "0",
-                        "contractMethod": { "inputs": [...], "name": "approve", "payable": false },
-                        "contractInputsValues": { "spender": "0x...", "value": "..." } } ] }
+              "createdFromSafeAddress": "0x0cbe...", "createdFromOwnerAddress": "", "checksum": null },
+    "transactions": [ { "to": "0x...", "value": "0", "data": "0x095ea7b3...",
+                        "contractMethod": null, "contractInputsValues": null } ] }
   ```
-
-  API:
-
-  - `struct Tx { address to; string methodName; string inputsJson; string valuesJson; }` — `inputsJson` and `valuesJson` are pre-built JSON fragments supplied by the caller, so the library does no ABI introspection.
-  - `write(address safe, string memory operation, uint256 index, string memory name, string memory description, Tx[] memory txs)` → builds the document with `string.concat` and writes it to `script/deployments/1/multisig/<operation>/<index padded to 3>-<first 10 chars of safe>-multisig.json`.
 
   **Emit `"checksum": null`.** The spec is explicit: the Transaction Builder accepts an absent/null checksum and the operator re-derives it on import. Do not attempt to reproduce Safe's checksum algorithm; do not block on it.
 
   `createdAt` may be `block.timestamp * 1000`. It is cosmetic.
+
+  Note for Steps 20, 21 and 24: the prior-art batch contains **one** transaction, not two. This plan's batches are 2-transaction batches for reasons of its own (approve-then-act, cancel-then-revoke) — there is no precedent to copy for that shape, so do not describe it as "matching the prior art".
 
 - [ ] **Step 11: Write `test/unit/ScriptLibsTest.sol` and verify Task 1**
 
@@ -257,12 +299,12 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Cover exactly:
 
-  1. `ConfigLib.seaport()`, `.usds()`, `.espn()`, `.treasury()` return the four confirmed addresses from Step 4/5.
-  2. `ConfigLib.weiAmount("settings.json", ".espnv3.targetRedemptionUsd") == 700_000e18`. This is the test that catches the `parseJsonUint`-vs-`parseUint` trap.
-  3. `ConfigLib.number("settings.json", ".espnv3.basisPriceUsd") == 100` and `.fillGrid == 1_000_000_000`.
+  1. `ConfigLib.addr` returns the four confirmed addresses from Steps 4/5: Seaport, USDS, ESPN (from `externalAddresses.json`) and `.protocol.multisigs.redemption` (from `internalAddresses.json`).
+  2. `ConfigLib.num("settings.json", ".espnv3.targetRedemptionUsd") == 700_000e18` — a quoted 24-digit decimal string read through `parseJsonUint`.
+  3. `ConfigLib.num("settings.json", ".espnv3.basisPriceUsd") == 100` and `.fillGrid == 1_000_000_000`.
   4. `ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses").length == 0` (empty-array tolerance).
-  5. `HoldersLib.load` against a small fixture written to `./tmp/espn-holders-123.json` by the test itself via `vm.writeFile` (`./tmp/` is already write-permitted; extend `fs_permissions` to `read-write` on `./tmp/` if the read side is needed). Assert the filename/body block-number cross-check fires on a deliberately mismatched fixture, and that `included()` drops `excluded: true` entries and preserves order.
-  6. `SafeBatchLib.write` produces a file whose `.transactions[0].to` and `.meta.createdFromSafeAddress` parse back correctly.
+  5. `HoldersLib.load` against a small fixture written to `./tmp/espn-holders-123.json` by the test itself via `vm.writeFile` — Step 2 grants `read-write` on `./tmp/`, which the read-back in this test requires. Assert: balances decode to the right `uint256`s; **`isContract` and `excluded` land on the right holders** (make the fixture asymmetric — one holder `excluded: true, isContract: false`, another the reverse — so a swapped decode fails loudly); the filename/body block-number cross-check fires on a deliberately mismatched fixture; and `included()` drops `excluded: true` entries and preserves order.
+  6. `SafeBatchLib.write` produces a file whose `.transactions[0].to`, `.transactions[0].data` and `.meta.createdFromSafeAddress` parse back correctly, and whose `.transactions[0].data` equals `vm.toString(abi.encodeCall(IERC20.approve, (spender, amount)))` for a known pair.
 
   **Verify the whole task:** `forge build` clean; `yarn test` green; `FOUNDRY_PROFILE=integration forge build` clean; `forge fmt --check` clean.
 
@@ -272,11 +314,14 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   ```json
   "snapshot:espn": "node script/snapshot/espn-holders.mjs",
-  "verify:redemption": "forge script script/deployments/1/003-espn-redemption/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} -vvv",
-  "verify:migration": "forge script script/deployments/1/004-stry-migration/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} -vvv"
+  "snapshot:selftest": "node script/snapshot/espn-holders.mjs --selftest",
+  "verify:redemption": "forge script script/deployments/1/003-espn-redemption/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} ${SNAPSHOT_BLOCK:+--fork-block-number $SNAPSHOT_BLOCK} -vvv",
+  "verify:migration": "forge script script/deployments/1/004-stry-migration/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} ${SNAPSHOT_BLOCK:+--fork-block-number $SNAPSHOT_BLOCK} -vvv"
   ```
 
-  Add **no** `dependencies` block. The snapshot script is zero-dependency by design (Task 3).
+  **The fork block must be pinned, and `${SNAPSHOT_BLOCK:+…}` is how.** Both Verify scripts mint from *snapshot* balances and then fill against *live* balances; on an unpinned `latest` fork, any holder who moved ESPN after the snapshot breaks the fill for reasons that have nothing to do with the code under test. The `:+` form expands to nothing when `SNAPSHOT_BLOCK` is unset, so the scripts still run before Task 3 has produced a snapshot. Both Verify scripts additionally `require(block.number >= snapshotBlock)` and **log a prominent warning when `block.number != snapshotBlock`**, naming `SNAPSHOT_BLOCK` as the fix. The run-book records exporting `SNAPSHOT_BLOCK` (it is in the holders filename) as part of the standard verify invocation.
+
+  Add **no** `dependencies` block. The snapshot script is zero-dependency by design (Task 3), and `snapshot:selftest` uses only `node:assert` and `node:test`-free plain asserts.
 
 ---
 
@@ -308,10 +353,6 @@ Two deliberately plain tokens. **Do not** use the `MintableBurnableToken` / `Tri
 
       constructor(address initialOwner) ERC20("ESPN Redemption", "ESPNR") Ownable(initialOwner) {}
 
-      function mint(address to, uint256 amount) external onlyOwner {
-          _mint(to, amount);
-      }
-
       function mintBatch(address[] calldata to, uint256[] calldata amounts) external onlyOwner {
           if (to.length != amounts.length) revert LengthMismatch();
           for (uint256 i; i < to.length; ++i) {
@@ -325,6 +366,7 @@ Two deliberately plain tokens. **Do not** use the `MintableBurnableToken` / `Tri
 
   Points that are load-bearing, not stylistic:
 
+  - **There is no single-recipient `mint(address,uint256)`.** An earlier draft had one. No script in this plan calls it, ownership is renounced in the same transaction as the airdrop, and its only consumer was its own unit tests. `mintBatch` with a one-element array covers every case it could have served.
   - **`mintBatch`, not a loop of `mint()` calls.** `forge script --broadcast` sends one transaction per external call, so a `mint()` loop is ~170 separate transactions: not atomic, no resume story, ~3.6M gas of pure intrinsic overhead, and — because ownership is renounced immediately afterwards — a partial batch would leave holders permanently unmintable. `mintBatch` makes the airdrop one atomic transaction and makes the measured gas number meaningful. Expect ~4.5M gas for ~170 holders.
   - **18 decimals** (OZ default), matching ESPN, which the 1:1 airdrop depends on.
   - `pragma ^0.8.20` matches the rest of `src/`; `foundry.toml` pins `solc_version = "0.8.24"`.
@@ -337,15 +379,14 @@ Two deliberately plain tokens. **Do not** use the `MintableBurnableToken` / `Tri
 
   Both files cover the same list:
 
-  1. `mint` by owner credits the recipient and moves `totalSupply`.
-  2. `mint` by non-owner reverts `Ownable.OwnableUnauthorizedAccount(caller)` — assert with `vm.expectRevert(abi.encodeWithSelector(...))`, not a bare `vm.expectRevert()`.
-  3. `mintBatch` by non-owner reverts the same way.
-  4. `mintBatch` with mismatched array lengths reverts `LengthMismatch()`.
-  5. **`mintBatch` with 170 entries** produces exactly the expected per-address balances and `totalSupply == sum(amounts)`. Generate the addresses deterministically (`address(uint160(i + 1))`); this both proves the loop and gives a first gas signal.
-  6. `mint(address(0), …)` reverts `ERC20InvalidReceiver(address(0))`.
-  7. Standard ERC20 behaviour: `transfer`, `approve` + `transferFrom`, `name()`, `symbol()`, and **`decimals() == 18`** (asserted, not assumed — four formulas downstream hardcode `1e18`).
-  8. After `renounceOwnership()`, both `mint` and `mintBatch` revert `OwnableUnauthorizedAccount`.
-  9. `mintBatch` with empty arrays is a no-op that does not revert.
+  1. `mintBatch` with a single entry, by the owner, credits the recipient and moves `totalSupply`.
+  2. `mintBatch` by a non-owner reverts `Ownable.OwnableUnauthorizedAccount(caller)` — assert with `vm.expectRevert(abi.encodeWithSelector(...))`, not a bare `vm.expectRevert()`.
+  3. `mintBatch` with mismatched array lengths reverts `LengthMismatch()`.
+  4. **`mintBatch` with 170 entries** produces exactly the expected per-address balances and `totalSupply == sum(amounts)`. Generate the addresses deterministically (`address(uint160(i + 1))`); this both proves the loop and gives a first gas signal.
+  5. `mintBatch` including `address(0)` reverts `ERC20InvalidReceiver(address(0))`.
+  6. Standard ERC20 behaviour: `transfer`, `approve` + `transferFrom`, `name()`, `symbol()`, and **`decimals() == 18`** (asserted, not assumed — four formulas downstream hardcode `1e18`).
+  7. After `renounceOwnership()`, `mintBatch` reverts `OwnableUnauthorizedAccount`.
+  8. `mintBatch` with empty arrays is a no-op that does not revert.
 
   **Verify:** `yarn test` green, `forge fmt --check` clean.
 
@@ -357,7 +398,8 @@ Off-chain, Node ≥18, **zero dependencies** — Node 18's global `fetch` covers
 
 **Files:**
 - `script/snapshot/espn-holders.mjs`
-- `script/snapshot/README.md`
+
+No `script/snapshot/README.md`. An earlier draft had one; every line of its stated contents (env vars, `yarn snapshot:espn`, what the invariant failure means, the snapshot-block rule) is a strict subset of Task 6 Step 29's run-book. Two documents to keep in sync, for a single-file script. The env vars and the snapshot-block rule go in a header comment in the `.mjs`; the operator instructions go in the run-book, which is the one document this project tells operators to read.
 
 ---
 
@@ -378,29 +420,32 @@ Off-chain, Node ≥18, **zero dependencies** — Node 18's global `fetch` covers
      ```json
      { "snapshotBlock": 25800591,
        "totalSupply": "34795546682818036103184",
-       "navPerEspn": "111469817424243522517",
        "holders": [ { "address": "0x...", "balance": "...", "isContract": false, "excluded": false } ] }
      ```
 
-     `navPerEspn = totalAssets * 10n**18n / totalSupply`, both read at `snapshotBlock`. It is recorded for reference only — **every consuming Solidity script re-reads NAV live at broadcast time and must never use this field for an amount calculation.**
+     **There is no `navPerEspn` field.** An earlier draft wrote one and then forbade its use from three separate places (here, Step 25, and the spec). Every consuming Solidity script re-reads `totalAssets()` / `totalSupply()` live at broadcast time, so the field had exactly no consumer and three warnings. Deleting the field deletes the warnings. NAV still gets **printed** by item 8 for the operator's eyes.
 
-  8. Print a summary to stderr: block, holder count, contract count, excluded count, total supply, NAV.
+     `HoldersLib` (Step 9) decodes `.holders` as a struct array in **alphabetical key order** — `address`, `balance`, `excluded`, `isContract`. Emit exactly those four keys per holder and nothing else; an extra key or a renamed one breaks the decode.
+
+  8. Print a summary to stderr: block, holder count, contract count, excluded count, total supply, and NAV (`totalAssets * 10n**18n / totalSupply`, both read at `snapshotBlock`) — reference figures for the operator, not written to the file.
 
   Keep it one file. No CLI-argument framework, no logger, no retry library.
 
-- [ ] **Step 16: Write `script/snapshot/README.md` and run the script**
+  **`--selftest`, the one runnable check.** This script is ~200 lines of BigInt arithmetic, topic slicing, chunk halving and batched JSON-RPC parsing feeding *both* airdrops, and its only other verification is a live network run. Write the pure helpers as plain functions — `topicToAddress(topic32)`, `halveChunk(range)`, `parseBatchResponse(jsonArray)`, `sumBalances(map)` — and put a `--selftest` branch at the top of `main()` that `assert`s them against hardcoded literals and `process.exit(0)`s without touching the network. `node:assert` only; no test framework, no second file, no fixtures directory. `yarn snapshot:selftest` (Step 12) runs it offline.
 
-  Short operator doc: the env vars, `yarn snapshot:espn`, what the invariant failure means, and the rule that **the snapshot block lives only in the output filename and body — never in `settings.json`**, and that both tracks must use the same block (subject to Assumption 7 option 1).
+- [ ] **Step 16: Run the script and commit a real snapshot**
 
-  Then **actually run it** against a mainnet RPC at a finalized block and commit the resulting `script/deployments/1/config/espn-holders-<block>.json`. It is a generated artifact, so it is not listed in this task's file list, but Tasks 4 and 5's Verify scripts need a real holders file with addresses that genuinely hold ESPN on a fork — a hand-written fixture cannot fulfil a Seaport order.
+  Put the operator-facing notes in the `.mjs` header comment, not a separate doc (see this task's file list): the env vars, and the rule that **the snapshot block lives only in the output filename and body — never in `settings.json`**, and that both tracks must use the same block (subject to Assumption 7 option 1). Step 29's run-book carries the rest.
 
-  **Verify:** the script exits 0, the invariant passes, holder count is ~170, and the committed JSON parses. Then deliberately break it — pass `SNAPSHOT_BLOCK` equal to head — and confirm it exits non-zero on the reorg guard.
+  Then **actually run it** against a mainnet RPC at a finalized block and commit the resulting `script/deployments/1/config/espn-holders-<block>.json`. It is a generated artifact, so it is not listed in this task's file list, **but it is a hard dependency of Tasks 4 and 5** — their Verify scripts need a real holders file with addresses that genuinely hold ESPN on a fork (a hand-written fixture cannot fulfil a Seaport order), Step 22 picks sample holders from it at runtime, and both Verify runs pin the fork to its `snapshotBlock`. Neither Task 4 nor Task 5 can be verified until this step lands.
+
+  **Verify:** `yarn snapshot:selftest` exits 0 offline; the live run exits 0, the invariant passes, holder count is ~170, and the committed JSON parses. Then deliberately break it — pass `SNAPSHOT_BLOCK` equal to head — and confirm it exits non-zero on the reorg guard.
 
 ---
 
 ## Task 4: Track A — pro-rata capped redemption (`003-espn-redemption`)
 
-Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:script/deployments/1/002-rage-quit-order/BuildOrderLib.sol`, `…/Verify.s.sol`, and **`git show 95ff244:test/forge/seaport/README.md`** — particularly its "Numerator / denominator constraints", "Public fillability" and "MEV / fill competition" sections. Replicate the *shape*; use **none** of the `stoke` imports.
+Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's committed holders JSON. Reference reading before starting: `git show 6484357:script/deployments/1/002-rage-quit-order/BuildOrderLib.sol`, `…/Verify.s.sol`, and **`git show 95ff244:test/forge/seaport/README.md`** — particularly its "Numerator / denominator constraints", "Public fillability" and "MEV / fill competition" sections. Replicate the *shape*; use **none** of the `stoke` imports.
 
 **Files:**
 - `script/deployments/1/003-espn-redemption/interfaces/ISeaportMinimal.sol`
@@ -409,6 +454,7 @@ Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:s
 - `script/deployments/1/003-espn-redemption/BuildOrder.s.sol`
 - `script/deployments/1/003-espn-redemption/Cancel.s.sol`
 - `script/deployments/1/003-espn-redemption/Verify.s.sol`
+- `test/unit/BuildOrderLibTest.sol`
 
 ---
 
@@ -443,9 +489,32 @@ Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:s
 
   **(b) The fill grid, and why it exists.** This is the mechanism's sharpest edge. Seaport's `_getFraction(numerator, denominator, value)` reverts `InexactFraction` unless `value * numerator % denominator == 0` for **every offer item and every consideration item independently**. Raw NAV-derived amounts are ~22-digit arbitrary integers, so a holder trying to spend their exact balance would need a `n/d ≤ uint120` satisfying exact divisibility for all three items simultaneously. They cannot, and almost every attempted fill reverts. The prior art dodged this by hardcoding round `e18` amounts and filling at `33/100`; this project derives amounts from live NAV and cannot.
 
-  The fix: snap every amount down to a multiple of `FILL_GRID = 1e9`, and mandate `denominator = FILL_GRID` for all fills. If every item amount is a multiple of `fillGrid`, then `amount * n` is a multiple of `fillGrid` for **any** integer `n ≤ fillGrid`, so `_getFraction` is exact at every numerator. Two consequences come free: the **final tranche is fillable** (Seaport clamps `numerator = denominator - filledNumerator`, still an integer `< fillGrid`, so no permanently-unfillable dust tail strands the end of the 700k), and **no uint120 cross-scaling** ever occurs, so no fill can revert because of an earlier fulfiller's denominator choice.
+  The fix: snap every amount down to a multiple of `FILL_GRID = 1e9`, and mandate `denominator = FILL_GRID` for all fills. If every item amount is a multiple of `fillGrid`, then `amount * n` is a multiple of `fillGrid` for **any** integer `n ≤ fillGrid`, so `_getFraction` is exact at every numerator. One consequence comes free: the **final tranche is fillable** (Seaport clamps `numerator = denominator - filledNumerator`, still an integer `< fillGrid`, so no permanently-unfillable dust tail strands the end of the 700k).
 
-  Accepted costs, all to be stated in the run-book: snapping loses < 1e9 wei per item (negligible against 700,000e18); one grid unit ≈ 0.0000063 ESPN ≈ $0.0007, so a holder with less than that cannot fill; each holder rounds **down** to `n = floor(myEspn * fillGrid / espnAsk)` and retains sub-grid dust; a fulfiller who ignores the convention either reverts `InexactFraction` or triggers cross-scaling — there is no zone, so the convention cannot be enforced on-chain, and the mitigation is that the naive attempt reverts rather than succeeding badly.
+  **(c) The holder's numerator — REDEMPTION binds, not ESPN.** This is the formula every holder-facing surface prints, and getting it wrong makes every printed instruction revert:
+
+  ```
+  n = min( floor(espnBalance       * fillGrid / espnAsk),
+           floor(redemptionBalance * fillGrid / redemptionAsk) )
+  ```
+
+  Expose it as `deriveNumerator(uint256 espnBalance, uint256 redemptionBalance, uint256 espnAsk, uint256 redemptionAsk, uint256 fillGrid)`.
+
+  An earlier draft printed `n = floor(espnBalance * fillGrid / espnAsk)` in three places (Step 20's logged holder block, Step 22's fork fill, Step 29 §3). That is wrong by exactly `redemptionRatio` = **5×**. REDEMPTION is airdropped **1:1** with ESPN (Step 19 item 3) but the order consumes **5 REDEMPTION per 1 ESPN**, so the REDEMPTION leg is the binding constraint: a holder sized off their ESPN balance is asked for 5× the REDEMPTION they own and the fill reverts on insufficient balance. Since `redemptionAsk = 5 * espnAsk` and the two balances start equal, the second term always wins and the practical statement is: **each holder can redeem at most 20% of their ESPN.** Say that in plain words in the run-book — it is the single most surprising property of the mechanism.
+
+  Note this is *not* a capacity bug: aggregate capacity was already computed off the ratio (20% of ~$3.878M NAV ≈ 775,731 USDS, ~704,392 excluding the treasury's 9.2%), which is why 700,000 still binds. Only the printed per-holder formula was wrong.
+
+  Accepted costs, all to be stated in the run-book: snapping loses < 1e9 wei per item (negligible against 700,000e18); one grid unit ≈ 0.0000063 ESPN ≈ $0.0007, so a holder with less than that cannot fill; each holder rounds **down** and retains sub-grid dust; a fulfiller who ignores the `denominator = fillGrid` convention most likely reverts `InexactFraction` — there is no zone, so the convention cannot be enforced on-chain, and the mitigation is that the naive attempt reverts rather than succeeding badly.
+
+  **(d) `test/unit/BuildOrderLibTest.sol` — write it in this step, not later.** `deriveAmounts`, the grid snapping and `deriveNumerator` are pure arithmetic with no fork requirement, and this step calls the grid "the mechanism's sharpest edge". Leaving their only coverage inside the slow mainnet-fork Verify script is exactly the argument Step 11 makes for `ScriptLibsTest` — a mistake surfaces first inside a fork script, where it is far more expensive to diagnose — applied to the one calculation that can revert every fill. Plain `forge-std/Test.sol`, no fork, importing `BuildOrderLib` by relative path. Cover:
+
+  1. `deriveAmounts` at the block-25,800,591 figures (`totalAssets = 3878653235910468821362228`, `totalSupply = 34795546682818036103184`) yields `navPerEspn == 111469817424243522517` and `usdsOffer == targetRedemptionUsd` exactly.
+  2. All three returned amounts are `% fillGrid == 0`, at those figures **and** at two deliberately awkward NAVs (a prime-ish `totalAssets`, and one where each raw amount ends in nines) — the snapping is the whole point and it must hold for arbitrary inputs, not one lucky sample.
+  3. `redemptionAsk == espnAsk * redemptionRatio` after snapping (both are grid multiples, so the identity survives).
+  4. `deriveNumerator` with equal ESPN and REDEMPTION balances returns the REDEMPTION-bound value, and the resulting `espnAsk * n / fillGrid <= espnBalance` **and** `redemptionAsk * n / fillGrid <= redemptionBalance` — i.e. the holder can always afford the fill the formula tells them to make. Fuzz it over balances.
+  5. `value * n % fillGrid == 0` for all three amounts across a fuzzed `n` in `[1, fillGrid]` — the grid invariant `_getFraction` depends on, asserted directly rather than inferred.
+
+  **On cross-scaling, stated accurately.** An earlier draft claimed "no uint120 cross-scaling ever occurs". That is only true while every fulfiller uses `denominator = 1e9`, which the same paragraph admits cannot be enforced. The correct claim is weaker and still sufficient: **exactness survives cross-scaling.** Seaport's scaling multiplies numerator and denominator by the same factor, so `value * n % d == 0` is preserved, and the scaled denominator stays `≤ 1e18`, far below `uint120` max. Write it that way; do not overclaim.
 
 - [ ] **Step 19: Write `Distribute.s.sol`**
 
@@ -458,6 +527,8 @@ Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:s
   5. `ConfigLib.writeDeployedAddress(".espn-redemption-token", address(token))`.
   6. Log holder count, excluded count, total minted, and gas (see Step 23 for the gas-logging format).
 
+  **Structure so that `Verify.s.sol` never writes config.** Put items 1-4 and the post-conditions in an `internal` function that returns the deployed token; call `writeDeployedAddress` (item 5) only from `run()`, outside it. `Verify.s.sol` calls the `internal` function. Otherwise every `yarn verify:redemption` run overwrites the committed `deploymentAddresses.json` with a throwaway fork address — and Task 5's `Distribute` has the identical hazard on `.stry` / `.staked-stry` in the same file.
+
   In-script post-conditions, asserted with `require`: `totalSupply() == HoldersLib.sum(balances)`; `owner() == address(0)`; and a loop asserting `balanceOf(addrs[i]) == balances[i]` for **every** included holder (170 view calls cost nothing in a script and this is the cheapest possible proof the airdrop is right).
 
 - [ ] **Step 20: Write `BuildOrder.s.sol`**
@@ -469,25 +540,42 @@ Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:s
   3. **Pre-conditions.** These replace the vacuous `redemptionAsk <= REDEMPTION.totalSupply()` from an earlier draft, which passes by 5× at any plausible NAV and detects nothing:
      - **Hard revert:** `USDS.balanceOf(treasury) >= usdsOffer`. The treasury holds ~1,199,676 USDS today, comfortably above 700,000 — assert it anyway, never assume. `ESPN.totalAssets()` is bookkeeping, not a balance; the vault itself holds ~0.005 USDS because `_deposit` and `increaseAssetsPerShare` forward every asset straight to `manager`.
      - **Hard revert:** `USDS.decimals() == 18 && ESPN.decimals() == 18 && REDEMPTION.decimals() == 18`.
+     - **Hard revert:** `ESPN.asset() == USDS`. Both addresses are hand-copied into `externalAddresses.json` (Step 4) and nothing else in the project checks that they relate — Step 11's config test only proves the JSON round-trips a string. A wrong USDS address flows straight into the Seaport offer item, into `USDS.approve(Seaport, 700k)` and into `StopEspnYield`. One `require` is the entire fix and it is the only cheap on-chain confirmation of the `0xb250C9E0…` / `0xdC035D45…` pair. Assert the same thing in both Verify scripts and in `StopEspnYield.s.sol`.
+     - **Hard revert:** `treasury.code.length > 0`. `0x0cbe9bDD…` is **Assumption 1, explicitly unconfirmed**. A wrong EOA passes every `vm.startPrank` in `Verify.s.sol` without complaint and yields a Safe batch nobody can execute.
      - **Hard revert:** `Seaport.getCounter(treasury) == expectedSeaportCounter` from settings (currently `0`). If the multisig ever increments its counter, every previously validated order silently dies; the counter feeds the order hash anyway.
      - **Hard revert:** `usdsOffer % fillGrid == 0 && espnAsk % fillGrid == 0 && redemptionAsk % fillGrid == 0`.
      - **Hard revert:** `block.timestamp < startTime` and `startTime < endTime`. Absolute timestamps in a committed JSON go stale between authoring and broadcast; this is the intended forcing function.
-     - **Logged, not reverted:** `usableRedemption = REDEMPTION.totalSupply() - REDEMPTION.balanceOf(treasury) - sum(REDEMPTION.balanceOf(x) for x in excludedAddresses)`; log `usableRedemption / redemptionRatio * navPerEspn / 1e18` next to `usdsOffer` so the signer can see **which side binds** before signing. At current numbers the offer binds (700,000 vs ~704,396).
+     - **Logged, not reverted — two capacity figures, not one.** The signer must see the realistic cap, not just the theoretical one.
+
+       ```
+       usableRedemption   = REDEMPTION.totalSupply()
+                          - REDEMPTION.balanceOf(treasury)
+                          - sum(REDEMPTION.balanceOf(x) for x in excludedAddresses)
+       reachableRedemption = usableRedemption
+                          - sum(REDEMPTION.balanceOf(h) for h in holders where isContract)
+       ```
+
+       Log `usableRedemption / redemptionRatio * navPerEspn / 1e18` **and** the same expression over `reachableRedemption`, both next to `usdsOffer`, so the signer can see which side binds. Theoretical ex-treasury capacity is ~704,392 USDS against a 700,000 target — **0.6% headroom** — and any REDEMPTION airdropped to a contract that cannot call `approve` / `fulfillAdvancedOrder` (LP pairs above all, and ESPN's stated exit path *is* the LP) is permanently stranded and comes straight off that number. Combined with the 20%-of-ESPN per-holder cap from Step 18(c), exhausting the 700,000 pool is unlikely; the run-book must not imply otherwise. `isContract` still **does not filter** the airdrop (Step 9) — this is a logged figure only.
   4. Build the order via `BuildOrderLib.constructOrderParams` with `offerer = treasury`, offer `[USDS, usdsOffer]`, consideration `[[REDEMPTION, redemptionAsk, treasury], [ESPN, espnAsk, treasury]]`.
   5. Compute and log the order hash: build `OrderComponents` (same fields but `counter = Seaport.getCounter(treasury)` in place of `totalOriginalConsiderationItems`) and call `Seaport.getOrderHash`.
   6. Log the **holder run-book block** verbatim — there is no UI, so this text is the entire holder-facing interface:
 
      ```
      denominator = 1000000000
-     numerator   = floor(yourEspnBalance * 1000000000 / <espnAsk>)
+     numerator   = min( floor(yourEspnBalance       * 1000000000 / <espnAsk>),
+                        floor(yourRedemptionBalance * 1000000000 / <redemptionAsk>) )
+                 = in practice, floor(yourEspnBalance * 1000000000 / <redemptionAsk>)
+                   -> you can redeem at most 20% of your ESPN
      you pay     : espnAsk * n / 1e9 ESPN  and  redemptionAsk * n / 1e9 REDEMPTION
      you receive : usdsOffer * n / 1e9 USDS
      approve Seaport (0x0000000000000068F116a894984e2DB1123eB395) for both amounts first
      ```
 
-  7. Emit the **2-transaction Safe batch** via `SafeBatchLib.write` to `script/deployments/1/multisig/003-espn-redemption/001-0x0cbe9bDD-multisig.json`: `USDS.approve(Seaport, usdsOffer)` **then** `Seaport.validate([order])`. The approval is a separate transaction from `validate` and must be in the same Safe execution.
+     Compute `n` with `BuildOrderLib.deriveNumerator` (Step 18(c)) — do **not** inline a formula here that can drift from the library the fork test exercises. The "at most 20%" line is load-bearing, not commentary: REDEMPTION is airdropped 1:1 with ESPN and the order consumes 5 REDEMPTION per ESPN.
 
-  Expose the derivation and order-construction as `internal` functions so `Verify.s.sol` can call them under a prank rather than duplicating the logic.
+  7. Emit the **2-transaction Safe batch** via `SafeBatchLib.write` to `script/deployments/1/multisig/003-espn-redemption/001-0x0cbe9bDD-multisig.json`: `USDS.approve(Seaport, usdsOffer)` **then** `Seaport.validate([order])`. The approval is a separate transaction from `validate` and must be in the same Safe execution. Both are raw-calldata transactions built with `abi.encodeCall` (Step 10) — there is **no** ABI descriptor to hand-write, and no precedent in the prior art for a 2-transaction batch.
+
+  Expose the derivation and order-construction as `internal` functions so `Verify.s.sol` can call them under a prank rather than duplicating the logic. Keep the `SafeBatchLib.write` call in `run()`, outside them, so a fork run does not scatter throwaway batch files.
 
 - [ ] **Step 21: Write `Cancel.s.sol`**
 
@@ -500,24 +588,29 @@ Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:s
 
   Because NAV moves, rebuilding from live NAV would produce a *different* hash than the validated order. `Cancel.s.sol` must therefore reconstruct the amounts from `EXPECTED_ORDER_HASH`'s originals — take `usdsOffer`, `espnAsk` and `redemptionAsk` as explicit env inputs (the values `BuildOrder.s.sol` logged), derive nothing from live NAV, and let the hash assertion be the proof they are right.
 
+  **Same structural rule as Step 20, and it is not optional: expose the component rebuild + hash assertion as an `internal` function taking the three amounts as arguments**, with `run()` reading them from env and calling `SafeBatchLib.write`. Step 22 item 9 requires `Verify.s.sol` to run the `Cancel` logic under a prank; without the `internal` entry point it would have to shell out env vars mid-script or duplicate the logic, and a duplicated hash rebuild is exactly the drift the hash assertion exists to catch.
+
 - [ ] **Step 22: Write `Verify.s.sol` (Track A, mainnet fork)**
 
-  `contract Verify is Script, StdCheats, StdAssertions` — a `Script` inherits only `StdCheatsSafe`, so `deal` and `assertEq` need the explicit imports. Use `vm.startPrank`/`vm.stopPrank`, **not** `vm.startBroadcast`, for impersonation: broadcast signs with a key and cannot act as a Safe; prank can.
+  `contract Verify is Script, StdCheats, StdAssertions` — verified to linearize at this forge-std pin: `Script` inherits `StdCheatsSafe`, not `StdCheats`, so `deal` and `assertEq` need the explicit imports. `assertEq` delegates to `vm.assertEq`, which reverts, so assertions genuinely fail a `forge script` run. Use `vm.startPrank`/`vm.stopPrank`, **not** `vm.startBroadcast`, for impersonation: broadcast signs with a key and cannot act as a Safe; prank can.
+
+  Call the `internal` entry points of `Distribute`, `BuildOrder` and `Cancel` — **never their `run()`s**, which write config and Safe batch files (Steps 19, 20, 21). A `yarn verify:*` run must leave the working tree clean.
 
   Sequence, in order:
 
-  1. `vm.warp` into the order window if `block.timestamp < startTime`. A fork pinned before `startTime` otherwise fails at fulfilment for a reason unrelated to the code.
+  0. **Fork block check.** `require(block.number >= snapshotBlock)` from the holders file, and log a loud warning if `block.number != snapshotBlock` naming `SNAPSHOT_BLOCK` (Step 12) as the fix. Distribute mints from snapshot balances while item 4 fills against live balances; on an unpinned fork any holder who moved ESPN since the snapshot breaks the fill for reasons unrelated to the code.
+  1. **`vm.warp(startTime - 1 hours)` unconditionally**, in either direction, then let the `BuildOrder` pre-condition (`block.timestamp < startTime`) do its job before item 3 warps into the window. Do **not** make this conditional on `block.timestamp < startTime`: the committed `settings.json` window goes stale by construction (Step 7), and a one-sided warp means a stale committed value reverts `BuildOrder`'s pre-condition and takes `yarn verify:redemption` — a Definition-of-Done item — down with it. `vm.warp` moves fork time backwards as happily as forwards; this makes the Verify script indifferent to how stale the committed window is, while leaving the hard revert intact on the broadcast path.
   2. Prank the deployer → run the `Distribute` logic. Assert `totalSupply == sum(included snapshot balances)` and `owner() == address(0)`. **Log gas for the single `mintBatch`.**
   3. Prank the treasury (`vm.deal(treasury, 1 ether)` for gas). `deal(USDS, treasury, usdsOffer)` **only if** the fork's real balance is short — it is ~1.2M USDS on a current fork, so normally assert the real balance instead of faking it. Run the `BuildOrder` logic → `USDS.approve` + `Seaport.validate`. Assert `getOrderStatus(orderHash)` → `isValidated == true`, `isCancelled == false`, `totalFilled == 0`.
-  4. Prank a sample snapshot holder → approve Seaport for ESPN and REDEMPTION → `fulfillAdvancedOrder` with `denominator = fillGrid` and a **realistic derived** `numerator = floor(holderBalance * fillGrid / espnAsk)`. **Not** a convenient round fraction like `1/10` — a round fraction happens to divide and would mask the entire `InexactFraction` class of bug the grid exists to prevent.
+  4. Prank a sample snapshot holder → approve Seaport for ESPN and REDEMPTION → `fulfillAdvancedOrder` with `denominator = fillGrid` and a **realistic derived** numerator from `BuildOrderLib.deriveNumerator(espnBal, redemptionBal, espnAsk, redemptionAsk, fillGrid)` — the REDEMPTION-bound `min`, per Step 18(c). **Not** `floor(holderBalance * fillGrid / espnAsk)`: that asks for 5× the REDEMPTION the holder owns and reverts on insufficient balance. And **not** a convenient round fraction like `1/10` — a round fraction happens to divide and would mask the entire `InexactFraction` class of bug the grid exists to prevent. Assert before filling that the holder can actually afford both legs, so a numerator regression fails with a legible message rather than a Seaport transfer revert.
   5. Assert **exact** balance deltas: holder USDS `+usdsOffer*n/D`, holder ESPN `−espnAsk*n/D`, holder REDEMPTION `−redemptionAsk*n/D`, and the treasury's mirror image. Assert `getOrderStatus`'s `totalFilled`/`totalSize` reflect the fraction.
   6. A **second partial fill by a second holder at a different numerator** over the same `fillGrid` denominator. This proves `PARTIAL_OPEN` fractions are taken against the **original** order size (not the remainder) and that no cross-scaling occurs.
   7. A **deliberate over-large fill** whose numerator exceeds the remainder, proving Seaport's clamp still divides exactly on the grid. This is the regression test for the dust-tail failure.
-  8. A **negative test**: a fill with a non-grid denominator (e.g. `7`) expected to revert `InexactFraction`, documenting the constraint the run-book warns about. Use `vm.expectRevert`.
+  8. A **negative test**: a fill with a non-grid denominator expected to revert `InexactFraction`, documenting the constraint the run-book warns about. Use `vm.expectRevert`. **Derive the denominator, do not hardcode `7`.** At the current NAV `7` happens to work — `usdsOffer % 7 == 0` and the snapped `espnAsk % 7 == 1`, so only the ESPN item forces the revert — and that depends entirely on live NAV at run time. At a different NAV the test can silently stop testing anything. Instead loop the small primes (3, 7, 11, 13, 17, …) and pick the first `d` that divides **none** of `usdsOffer`, `espnAsk`, `redemptionAsk`; `require` that such a `d` was found, and log it.
   9. Run the `Cancel` logic → assert `isCancelled == true` and `USDS.allowance(treasury, Seaport) == 0`.
   10. **Log gas for a single fulfilment.**
 
-  Pick the sample holders from the committed snapshot JSON at runtime — the two largest non-contract, non-excluded balances — rather than hardcoding addresses that may have moved.
+  Pick the sample holders from the committed snapshot JSON at runtime — the two largest non-contract, non-excluded balances — rather than hardcoding addresses that may have moved. This is why Task 4 depends on Task 3, not merely on Tasks 1 and 2.
 
 - [ ] **Step 23: Gas logging format, and verify Task 4**
 
@@ -534,13 +627,13 @@ Depends on Tasks 1 and 2. Reference reading before starting: `git show 6484357:s
 
   **Decision rule to record in the run-book:** if measured `mintBatch` gas exceeds **~15M**, split into chunks of 100 and record the loss of atomicity. At ~170 holders it will not.
 
-  **Verify Task 4:** `forge build` clean, `forge fmt --check` clean, and `yarn verify:redemption` completes with every assertion passing and both gas figures printed.
+  **Verify Task 4:** `forge build` clean, `forge fmt --check` clean, `yarn test` green (now including `test/unit/BuildOrderLibTest.sol`), and `SNAPSHOT_BLOCK=<block from the holders filename> yarn verify:redemption` completes with every assertion passing and both gas figures printed. Then `git status` must be **clean** — a Verify run that dirtied `deploymentAddresses.json` or wrote a Safe batch file is a failure of Steps 19-21's structural rule, not a pass.
 
 ---
 
 ## Task 5: Track B — migration to a yield-paying token (`004-stry-migration`)
 
-Depends on Tasks 1 and 2. Shares no files with Task 4; imports Task 1's libs only.
+Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed holders JSON and pins the fork to its `snapshotBlock`. Shares no *static* files with Task 4; imports Task 1's libs only. The one shared **runtime** write is `deploymentAddresses.json` (`.stry`, `.staked-stry` here; `.espn-redemption-token` in Task 4) — see the dependency-order section: `writeDeployedAddress` stays out of every `internal` function `Verify.s.sol` calls, and the two `Distribute` scripts are only ever broadcast serially.
 
 **`src/StakedStrat.sol` gets ZERO code changes.** Its constructor is already generic: `constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_)`. Track B deploys a **new instance**.
 
@@ -568,9 +661,10 @@ Depends on Tasks 1 and 2. Shares no files with Task 4; imports Task 1's libs onl
 
   Therefore:
 
+  - Pre-assert `ESPN.asset() == USDS` (same rationale as Step 20 — the two addresses are hand-copied and nothing else checks they relate).
   - Pre-assert `USDS.balanceOf(payer) >= finalYieldAmount` — the caller must hold **and** approve it.
-  - Pre-assert `ESPN.manager() != address(0)` (the call reverts on a zero manager) and **log the manager address prominently**. It is `0x823EfFFA08f946233D2a502a1B073C5E16Fea16b`, a **contract, and not the redemption multisig**. `finalYieldAmount` USDS leaves the treasury and lands at a third party. This is a real outflow, not a round trip, and the signer must see it (Assumption 3).
-  - Emit the 2-transaction Safe batch: `USDS.approve(ESPN, finalYieldAmount)` then `ESPN.increaseAssetsPerShare(finalYieldAmount)`, to `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json`.
+  - **Pre-assert `ESPN.manager() == 0x823EfFFA08f946233D2a502a1B073C5E16Fea16b`** — a hard equality against the recorded address, not merely `!= address(0)` plus a log. The entire "real outflow to a third party, must be budgeted" warning (Assumption 3) rests on that identity, and `manager` is **owner-settable**, so a silent change turns a budgeted payment into a payment to somewhere else. Revert message: `manager changed from the recorded address — re-confirm Assumption 3 (who receives finalYieldAmount) before updating this constant.` Log the address prominently either way. It is a **contract, and not the redemption multisig**: `finalYieldAmount` USDS leaves the treasury and lands at a third party. This is a real outflow, not a round trip, and the signer must see it.
+  - Emit the 2-transaction Safe batch: `USDS.approve(ESPN, finalYieldAmount)` then `ESPN.increaseAssetsPerShare(finalYieldAmount)`, to `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json`. Both as raw-calldata `abi.encodeCall` transactions (Step 10).
   - Post-conditions (asserted in `Verify.s.sol`, since this script does not execute): `totalAssets()` increased by **exactly** `finalYieldAmount`, and `AssetsPerShareIncreased` fired. **Beware the event's field names** — the signature is `AssetsPerShareIncreased(address indexed caller, uint256 newAssetsPerShare, uint256 delta)` but the contract passes post-increment `_totalAssets` into the `newAssetsPerShare` slot (line 62). Any assertion on that field must expect **total assets**, not a per-share figure.
 
   Record in the log output that this "stop" is a **policy, not an on-chain state change**: `increaseAssetsPerShare` is `external` with **no access control**, so anyone can keep raising NAV afterwards, including while the redemption order is live (Assumption 3). The order's amounts are fixed at validate time and do not follow NAV.
@@ -587,9 +681,9 @@ Depends on Tasks 1 and 2. Shares no files with Task 4; imports Task 1's libs onl
      stryAmount_i = espnBalance_i * totalAssets / (totalSupply * basisPriceUsd)
      ```
 
-     At the block-25,800,591 NAV this yields ~38,786.53 STRY total (~3,878,653 USDS ÷ $100). **`navPerEspn` from the snapshot JSON must not be used here** — read it live.
+     At the block-25,800,591 NAV this yields ~38,786.53 STRY total (~3,878,653 USDS ÷ $100). Read NAV **live**; the snapshot JSON no longer carries a `navPerEspn` field to be tempted by (Step 15 item 7).
 
-  4. One `mintBatch`, then `renounceOwnership()`, then `ConfigLib.writeDeployedAddress(".stry", …)`.
+  4. One `mintBatch`, then `renounceOwnership()`, then `ConfigLib.writeDeployedAddress(".stry", …)`. **Same structural rule as Step 19:** items 1-3 and the assertions go in an `internal` function; `writeDeployedAddress` is called only from `run()`, so `yarn verify:migration` never dirties the committed `deploymentAddresses.json`.
   5. **Calibration assertion with the correct tolerance.** Each per-holder division truncates up to 1 wei of STRY; multiplied back by `basisPriceUsd = 100`, that is up to **100 wei of USDS per holder**, so over ~170 holders the tolerance is `holderCount * basisPriceUsd` wei ≈ **17,000 wei** — not "1 wei per holder":
 
      ```
@@ -606,14 +700,17 @@ Depends on Tasks 1 and 2. Shares no files with Task 4; imports Task 1's libs onl
 
 - [ ] **Step 26: Write `Deploy.s.sol` (new `StakedStrat` instance)**
 
-  `new StakedStrat(STRY, USDS, tripwireController, guardian)`, controller and guardian from `internalAddresses.json`, then `ConfigLib.writeDeployedAddress(".staked-stry", …)`.
+  Structure it as an `internal deploy(address controller, address guardian) returns (StakedStrat)` — taking the controller as an **argument** — plus a `run()` that reads controller and guardian from `internalAddresses.json`, pre-asserts, calls `deploy`, and then `ConfigLib.writeDeployedAddress(".staked-stry", …)`. The argument is what lets Step 28 pass a locally-deployed controller on a fork; `writeDeployedAddress` stays in `run()` for the usual reason.
 
-  **Pre-assert `tripwireController.code.length > 0` with an explicit message naming Assumption 4** before deploying. `TripwireGuard`'s constructor reverts a bare `InvalidController()` on a zero-or-codeless controller, which is opaque, and `internalAddresses.json` currently carries the zero-address placeholder because **no deployed controller address is recorded anywhere in this repo**. Fail with something the operator can act on, e.g.:
+  **`run()` pre-asserts `tripwireController.code.length > 0` with an explicit message naming Assumption 4** before deploying. `TripwireGuard`'s constructor reverts a bare `InvalidController()` on a zero-or-codeless controller, which is opaque, and `internalAddresses.json` currently carries the zero-address placeholder because **no deployed controller address is recorded anywhere in this repo**. Fail with something the operator can act on, e.g.:
 
   ```
   Assumption 4 unresolved: no TripwireController deployed at <addr>.
-  Track B is blocked until one exists. Deploying a controller is unscoped work.
+  Track B cannot be BROADCAST until one exists. Deploying a controller is unscoped work.
+  (yarn verify:migration is unaffected — it deploys its own controller on the fork.)
   ```
+
+  **This assert guards the mainnet broadcast only. It must not gate fork verification.** `src/lib/TripwireController.sol` is in this repo, has a **zero-argument constructor**, and is already instantiated with `new TripwireController()` by five existing unit tests (e.g. `test/unit/MintableBurnableTokenTest.sol:18`). Step 28 deploys one on the fork in one line and passes it to `deploy(...)`, so Assumption 4 blocks the on-chain rollout and nothing else.
 
   Facts of the unmodified contract to record in the log and the run-book (all accepted under the zero-code-change constraint):
 
@@ -636,21 +733,25 @@ Depends on Tasks 1 and 2. Shares no files with Task 4; imports Task 1's libs onl
 
 - [ ] **Step 28: Write `Verify.s.sol` (Track B, mainnet fork)**
 
-  Same harness as Track A: `contract Verify is Script, StdCheats, StdAssertions`, `vm.startPrank` not `vm.startBroadcast`.
+  Same harness as Track A: `contract Verify is Script, StdCheats, StdAssertions`, `vm.startPrank` not `vm.startBroadcast`, calling the scripts' `internal` entry points and never their `run()`s, so no config or Safe batch file is written. Same fork-block check as Step 22 item 0 (`require(block.number >= snapshotBlock)`, warn if not equal).
 
   1. Run the `StopEspnYield` logic first (prank the payer, `deal` USDS, approve + `increaseAssetsPerShare`). Assert `totalAssets()` delta equals `finalYieldAmount` **exactly**, and assert the USDS landed at `ESPN.manager()` — the point is to make the third-party outflow visible in test output, not merely to pass.
   2. Distribute STRY (single `mintBatch`) → assert the calibration invariant with the `holderCount * basisPriceUsd` wei tolerance; assert `owner() == address(0)`; **log `mintBatch` gas** in the Step 23 format.
-  3. Deploy the new `StakedStrat(STRY, USDS, controller, guardian)`. If no controller is configured, the script must **fail with the explicit Assumption 4 message** from Step 26, not revert opaquely inside `TripwireGuard`.
+  3. **Deploy a `TripwireController` locally — `TripwireController controller = new TripwireController();` — and pass it to `Deploy.s.sol`'s `internal deploy(controller, guardian)`.** One line. `src/lib/TripwireController.sol` is in this repo with a zero-argument constructor and is already used this way by five existing unit tests. Then deploy the new `StakedStrat(STRY, USDS, controller, guardian)`.
+
+     An earlier draft instead let the run halt here on the zero-address controller and called that "a pass for the script". It is not: it leaves Step 27's `totalStaked > 0` guard, the zero-staker permanent-loss case, and stake / syncRewards / claim / unstake — items 4 through 9, i.e. **most of Track B** — never executed once, while the Definition of Done accepts the run. Assumption 4 genuinely blocks the **mainnet broadcast** (`Deploy.s.sol`'s `run()` still pre-asserts, per Step 26) and nothing about fork verification.
+
+     Note the registration path works unmodified on the fork: `TripwireGuard`'s constructor calls `controller.register(address(this), guardian_)` itself, permissionlessly, so no controller-owner transaction is needed.
   4. **Zero-staker loss case — must come before the happy path.** With `totalStaked == 0`, transfer USDS in and call `syncRewards()` **directly**, bypassing the script's guard. Warp 1 day, then have a holder stake and warp to `periodFinish`. Assert the holder's claim is **strictly less than** the deposit, and that a second `syncRewards()` is a no-op. This demonstrates the permanent loss the Step 27 guard prevents. Then restore: take a state snapshot before this case and revert to it (`vm.snapshotState()` / `vm.revertToState()` in current forge-std; `vm.snapshot()` / `vm.revertTo()` in older — check `lib/forge-std` and use whichever is present).
   5. Happy path: prank a sample holder → `STRY.approve(stakedStrat, amount)` → `stake()`. **Approve STRY, never the position token** (position-token `approve` reverts `TransferDisabled()`).
   6. Run the `WeeklyYield` logic **including its `totalStaked > 0` guard** → assert `rewardRate`/`periodFinish` describe a 7-day stream and `totalNotifiedRewards` increased by the deposit.
   7. `vm.warp(block.timestamp + 7 days)` → holder `claim()` → assert claimed USDS equals the expected reward (sole staker ⇒ ~the full week's deposit, minus stream rounding dust — use a tolerance, not exact equality).
-  8. `unstake()` the full position → assert STRY returned **and** the auto-claim paid out. `unstake()` is its own `external nonReentrant whenNotTripped` function (line 220) that auto-claims first — it is not reached "via the claim path".
+  8. `unstake(uint256 amount)` for the full staked balance → assert STRY returned **and** the auto-claim paid out. The signature takes an amount; there is no zero-argument `unstake()`. It is its own `external nonReentrant whenNotTripped` function (line 220) that auto-claims first — it is not reached "via the claim path".
   9. Log gas for `stake` / `syncRewards` / `claim` / `unstake` (informational).
 
   If `finalYieldAmount` is still `"0"` in settings, step 1 must still run and assert a zero delta rather than being skipped — a skipped step is an untested step.
 
-  **Verify Task 5:** `forge build` clean, `forge fmt --check` clean, `yarn verify:migration` passes end to end with gas printed. If Assumption 4 is unresolved, the run is expected to stop at step 3 with the explicit message — that is a **pass for the script** and a **blocked status for the track**. Report it as such; do not fake a controller address to make the run go green.
+  **Verify Task 5:** `forge build` clean, `forge fmt --check` clean, and `SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end, all nine items, with gas printed** — there is no accepted early-exit. The fork deploys its own `TripwireController` (item 3), so an unresolved Assumption 4 is a **blocked status for the mainnet rollout only** and never an excuse for an unexecuted Verify run. Do not fake a mainnet controller address in `internalAddresses.json` to make `Deploy.s.sol`'s `run()` go green. `git status` clean afterwards.
 
 ---
 
@@ -685,21 +786,38 @@ There is **no UI**. This document is the entire holder-facing and operator-facin
 
      Note why step 1 precedes step 5: `usdsOffer` is pinned at `targetRedemptionUsd` regardless of NAV, so the treasury's USDS outlay is bounded either way; what a higher NAV changes is `espnAsk` — the treasury reclaims **less ESPN** for the same 700k. That is the honest price, and it is why the yield stop must not land in the middle of the redemption window. Note why step 8's order matters: yield deposited with zero stakers is destroyed permanently.
 
-  3. **The holder fill instructions**, verbatim from Step 20's logged block, with the actual `espnAsk` / `redemptionAsk` / `usdsOffer` / order hash filled in after `BuildOrder.s.sol` runs. State plainly that `denominator` must be `1000000000`, that any other denominator will most likely revert `InexactFraction`, that holders must approve **Seaport directly** (no conduit) for both ESPN and REDEMPTION, and that sub-grid dust is retained rather than redeemable.
-  4. **What "pro-rata" does and does not mean.** Capacity is capped at 700,000 USDS and is **first-come-first-served**, not a guaranteed per-holder entitlement. REDEMPTION is a plain freely-transferable ERC20 and the order is `PARTIAL_OPEN` with no zone, so anyone — including non-holders who buy REDEMPTION from apathetic holders and ESPN from the LP — can consume capacity ahead of snapshot holders. This is accepted, not a bug; a zone is explicitly out of scope.
+  3. **The holder fill instructions**, verbatim from Step 20's logged block, with the actual `espnAsk` / `redemptionAsk` / `usdsOffer` / order hash filled in after `BuildOrder.s.sol` runs. Lead with the sentence holders most need: **you can redeem at most 20% of your ESPN** — REDEMPTION was airdropped 1:1 with ESPN and the order consumes 5 REDEMPTION per ESPN, so your REDEMPTION balance, not your ESPN balance, sets the maximum (Step 18(c)). Print the `min(...)` numerator formula, not the ESPN-only one. State plainly that `denominator` must be `1000000000` (the JSON key is `fillGrid`; `FILL_GRID` is only the Solidity constant name — use one spelling per audience and do not mix them), that any other denominator will most likely revert `InexactFraction`, that holders must approve **Seaport directly** (no conduit) for both ESPN and REDEMPTION, and that sub-grid dust is retained rather than redeemable.
+  4. **What "pro-rata" does and does not mean.** Capacity is capped at 700,000 USDS and is **first-come-first-served**, not a guaranteed per-holder entitlement — and in practice the pool is unlikely to be exhausted: theoretical ex-treasury capacity is only ~704,392 USDS (0.6% headroom), REDEMPTION held by contracts that cannot call `approve` / `fulfillAdvancedOrder` (LP pairs above all) is permanently stranded and comes off that figure, and each holder is capped at 20% of their ESPN. Quote both the `usableRedemption` and `reachableRedemption` figures `BuildOrder.s.sol` logs (Step 20). REDEMPTION is a plain freely-transferable ERC20 and the order is `PARTIAL_OPEN` with no zone, so anyone — including non-holders who buy REDEMPTION from apathetic holders and ESPN from the LP — can consume capacity ahead of snapshot holders. This is accepted, not a bug; a zone is explicitly out of scope.
   5. **Measured gas numbers** from both Verify runs, with the execution-gas caveat stated, and the ">15M ⇒ chunk into 100s" decision rule.
-  6. **Safe batch files**: where each is written, that `checksum` is null and the operator re-derives it on import, and the order the two transactions in each batch must execute in.
-  7. **Track B holder notes**: approve **STRY** not the position token; the position token is non-transferable; the instance is cosmetically named `"Staked STRAT v2"`; a tripwire trip locks staked STRY in until untripped; `$100 is a nominal basis price, not a redemption guarantee`.
+  6. **Safe batch files**: where each is written, that `checksum` is null and the operator re-derives it on import, that each transaction is **raw calldata** (`"data": "0x…"`, `"contractMethod": null`) so the Transaction Builder shows no decoded parameters — the signer verifies the `to` address and the selector, and the batch's counterpart assertions in the Verify runs are the proof of the payload — and the order the two transactions in each batch must execute in.
+  7. **Operator env quick-reference**: the snapshot script's env vars (`RPC_URL`, `SNAPSHOT_BLOCK`, `ESPN_ADDRESS`, `SETTINGS_PATH`), `yarn snapshot:espn` / `yarn snapshot:selftest`, what an invariant failure means, and the rule that **the snapshot block lives only in the output filename and body — never in `settings.json`**. Also: export `SNAPSHOT_BLOCK` (read off the holders filename) before `yarn verify:redemption` / `yarn verify:migration` so both fork runs pin to the snapshot block. This section replaces the `script/snapshot/README.md` an earlier draft proposed — one document, not two to keep in sync.
+  8. **Resetting the order window before broadcast.** `settings.json` ships `orderStartTime` / `orderEndTime` as a future-dated placeholder (2027-01-01 → 2027-01-08). They must be edited to the real window before `BuildOrder.s.sol` is run for broadcast; the script hard-reverts if `orderStartTime <= block.timestamp`, which is the forcing function. Fork verification is immune — Step 22 warps unconditionally.
+  9. **Track B holder notes**: approve **STRY** not the position token; the position token is non-transferable; `unstake` takes an amount argument; the instance is cosmetically named `"Staked STRAT v2"`; a tripwire trip locks staked STRY in until untripped; `$100 is a nominal basis price, not a redemption guarantee`.
 
 ---
 
 ## Definition of done
 
 - `forge build` and `FOUNDRY_PROFILE=integration forge build` both clean.
-- `yarn test` green (includes the two new token test files and `ScriptLibsTest`).
+- `yarn test` green (includes the two token test files, `ScriptLibsTest` and `BuildOrderLibTest`).
 - `forge fmt --check` clean (a pre-existing CI blocker in this repo — see `c98c2a2`).
-- `yarn verify:redemption` passes every assertion, including the `InexactFraction` negative test and the over-large-fill clamp test, and prints both gas figures.
-- `yarn verify:migration` passes end to end, **or** stops at the `Deploy` step with the explicit Assumption 4 message if no `TripwireController` is deployed.
+- `yarn snapshot:selftest` exits 0 offline.
+- `SNAPSHOT_BLOCK=<block> yarn verify:redemption` passes every assertion, including the `InexactFraction` negative test (with a **derived** denominator) and the over-large-fill clamp test, and prints both gas figures.
+- `SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end, all nine steps.** There is no accepted early exit: the fork deploys its own `TripwireController`. An unresolved Assumption 4 blocks the mainnet broadcast of `Deploy.s.sol` and nothing else.
+- `git status` is clean after both verify runs — neither writes `deploymentAddresses.json` or a Safe batch file.
 - A real snapshot JSON is committed and its `sum(balances) == totalSupply` invariant passed.
+- `settings.json`'s `orderStartTime` is in the **future** relative to the commit date.
 - `docs/ESPNv3_Runbook.md` exists with the real order hash and gas numbers filled in.
 - No dependency on `stoke`. No `dependencies` block in `package.json`. No changes to `src/StakedStrat.sol`, `src/EthStrategyPerpetualNote.sol`, or any other existing contract.
+
+---
+
+## Review findings deliberately not applied
+
+Two independent reviews were folded into this plan. Everything else they raised was applied. These three were not, with reasons:
+
+1. **"Split Task 1 into a mechanical half and a code half (two tasks)."** Not split. The task count stays at six and the file scopes stay strictly disjoint; the parallelism benefit is captured instead by the **1a / 1b internal ordering** documented in the dependency section, which unblocks Tasks 2 and 3 after Step 7 + 12 land. Splitting would put `ScriptLibsTest` (1b) in a different task from the config files it asserts against (1a), i.e. two reviewers for one contract.
+
+2. **"Remove the two orphan `.gitmodules` entries."** Recorded as a verified fact in the corrections table and in Step 1, but not fixed. `git submodule update --init --recursive` iterates the index, so the orphans are inert; deleting them is unrelated churn on a branch that already touches `foundry.toml`, `remappings.txt` and `package.json`.
+
+3. **"Assert `usableRedemption` excludes contract holders as a hard revert."** Applied as a **logged** figure (`reachableRedemption`, Step 20), not a revert. Which contracts can and cannot fulfil is a judgement the script cannot make — a Safe holding REDEMPTION can fill perfectly well — and turning it into a pre-condition would block a signable order on a heuristic. The signer sees both numbers and decides.
