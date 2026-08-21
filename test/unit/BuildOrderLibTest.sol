@@ -55,10 +55,55 @@ contract BuildOrderLibTest is Test {
         );
 
         uint256 n = BuildOrderLib.deriveNumerator(balance, balance, espnAsk, redemptionAsk, FILL_GRID);
+        uint256 expected = balance * FILL_GRID / redemptionAsk;
+        if (expected > FILL_GRID) expected = FILL_GRID;
 
-        assertEq(n, balance * FILL_GRID / redemptionAsk, "REDEMPTION leg must bind when balances are equal");
+        assertEq(n, expected, "REDEMPTION leg must bind (and clamp to fillGrid) when balances are equal");
+        assertLe(n, FILL_GRID, "numerator must never exceed the order's own denominator");
         assertLe(espnAsk * n / FILL_GRID, balance);
         assertLe(redemptionAsk * n / FILL_GRID, balance);
+    }
+
+    /// @dev Independently fuzzed ESPN and REDEMPTION balances — exercises *both* branches of the
+    /// `min()`, not just the REDEMPTION-always-wins case equal balances force (Step 18(d) item 4),
+    /// and proves the fillGrid clamp for a holder who owns more than either ask amount.
+    function testFuzz_deriveNumerator_eitherLegCanBindAndClamps(uint256 espnBalance, uint256 redemptionBalance)
+        public
+        pure
+    {
+        espnBalance = bound(espnBalance, 0, 1e30);
+        redemptionBalance = bound(redemptionBalance, 0, 1e30);
+        (, uint256 espnAsk, uint256 redemptionAsk,) = BuildOrderLib.deriveAmounts(
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+        );
+
+        uint256 n = BuildOrderLib.deriveNumerator(espnBalance, redemptionBalance, espnAsk, redemptionAsk, FILL_GRID);
+
+        uint256 fromEspn = espnBalance * FILL_GRID / espnAsk;
+        uint256 fromRedemption = redemptionBalance * FILL_GRID / redemptionAsk;
+        uint256 expected = fromEspn < fromRedemption ? fromEspn : fromRedemption;
+        if (expected > FILL_GRID) expected = FILL_GRID;
+
+        assertEq(n, expected);
+        assertLe(n, FILL_GRID, "numerator must never exceed the order's own denominator");
+        assertLe(espnAsk * n / FILL_GRID, espnBalance);
+        assertLe(redemptionAsk * n / FILL_GRID, redemptionBalance);
+    }
+
+    /// @dev Deterministic case for each branch, so a regression that always picks one side is
+    /// caught even if a fuzz run happens not to land on it.
+    function test_deriveNumerator_bothBranchesCanBind() public pure {
+        (, uint256 espnAsk, uint256 redemptionAsk,) = BuildOrderLib.deriveAmounts(
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+        );
+
+        // Equal balances: REDEMPTION binds (redemptionAsk == 5x espnAsk).
+        uint256 nRedemptionBound = BuildOrderLib.deriveNumerator(1e18, 1e18, espnAsk, redemptionAsk, FILL_GRID);
+        assertEq(nRedemptionBound, 1e18 * FILL_GRID / redemptionAsk);
+
+        // REDEMPTION balance far larger than ESPN balance: ESPN binds instead.
+        uint256 nEspnBound = BuildOrderLib.deriveNumerator(1e18, 1000e18, espnAsk, redemptionAsk, FILL_GRID);
+        assertEq(nEspnBound, 1e18 * FILL_GRID / espnAsk);
     }
 
     /// @dev The grid invariant `_getFraction` depends on: every derived amount times any numerator

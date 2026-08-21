@@ -18,15 +18,18 @@ import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 /// informational capacity log, order construction, hash and run-book text together touch too many
 /// live values for one function's locals alone.
 contract BuildOrder is Script {
-    IERC4626 private espn;
-    IERC20 private usds;
-    ISeaportMinimal private seaport;
-    address private treasury;
-    uint256 private fillGrid;
-    uint256 private redemptionRatio;
-    uint256 private orderStartTime;
-    uint256 private orderEndTime;
-    string private orderSalt;
+    // Internal, not private: `Verify.s.sol` inherits this contract and reuses these fields
+    // directly via `_loadConfig()` rather than re-deriving its own separate copies (Step 20/22 —
+    // one source of config, not two that can silently read different keys).
+    IERC4626 internal espn;
+    IERC20 internal usds;
+    ISeaportMinimal internal seaport;
+    address internal treasury;
+    uint256 internal fillGrid;
+    uint256 internal redemptionRatio;
+    uint256 internal orderStartTime;
+    uint256 internal orderEndTime;
+    string internal orderSalt;
 
     function run() external virtual {
         address redemptionToken = ConfigLib.addr("deploymentAddresses.json", ".espn-redemption-token");
@@ -81,7 +84,7 @@ contract BuildOrder is Script {
         _logRunBook(usdsOffer, espnAsk, redemptionAsk);
     }
 
-    function _loadConfig() private {
+    function _loadConfig() internal {
         espn = IERC4626(ConfigLib.addr("externalAddresses.json", ".eth-strategy.espn"));
         usds = IERC20(ConfigLib.addr("externalAddresses.json", ".sky-money.USDS"));
         seaport = ISeaportMinimal(ConfigLib.addr("externalAddresses.json", ".opensea.seaport"));
@@ -132,11 +135,17 @@ contract BuildOrder is Script {
         for (uint256 i = 0; i < excludedAddresses.length; i++) {
             usableRedemption -= redemption.balanceOf(excludedAddresses[i]);
         }
+        // Skip the treasury and any already-excluded address here — both are already subtracted
+        // above, and the treasury itself can appear in the snapshot flagged `isContract: true`.
+        // Double-subtracting it understated reachable capacity by its whole balance. Purely
+        // informational logging must never revert the build, so clamp instead of `-=`.
         uint256 reachableRedemption = usableRedemption;
         for (uint256 i = 0; i < snapshot.holders.length; i++) {
-            if (snapshot.holders[i].isContract) {
-                reachableRedemption -= redemption.balanceOf(snapshot.holders[i].addr);
-            }
+            address holderAddr = snapshot.holders[i].addr;
+            if (!snapshot.holders[i].isContract) continue;
+            if (holderAddr == treasury || _isExcluded(holderAddr, excludedAddresses)) continue;
+            uint256 bal = redemption.balanceOf(holderAddr);
+            reachableRedemption = reachableRedemption > bal ? reachableRedemption - bal : 0;
         }
 
         console2.log(
@@ -148,44 +157,40 @@ contract BuildOrder is Script {
         );
     }
 
+    /// @dev `excludedAddresses` is expected to be short (single-digit entries); a linear scan is
+    /// the cheapest correct way to keep `_logCapacity` from double-subtracting one.
+    function _isExcluded(address addr, address[] memory excludedAddresses) private pure returns (bool) {
+        for (uint256 i = 0; i < excludedAddresses.length; i++) {
+            if (excludedAddresses[i] == addr) return true;
+        }
+        return false;
+    }
+
     function _constructOrder(address redemptionToken, uint256 usdsOffer, uint256 espnAsk, uint256 redemptionAsk)
         private
         view
         returns (ISeaportMinimal.OrderParameters memory)
     {
-        BuildOrderLib.TokenAndAmount[] memory offers = new BuildOrderLib.TokenAndAmount[](1);
-        offers[0] = BuildOrderLib.TokenAndAmount({token: address(usds), amount: usdsOffer});
-        BuildOrderLib.TokenAndAmount[] memory asks = new BuildOrderLib.TokenAndAmount[](2);
-        asks[0] = BuildOrderLib.TokenAndAmount({token: redemptionToken, amount: redemptionAsk});
-        asks[1] = BuildOrderLib.TokenAndAmount({token: address(espn), amount: espnAsk});
-
         return BuildOrderLib.constructOrderParams(
             treasury,
-            BuildOrderLib.Order({
-                offers: offers,
-                asks: asks,
-                askRecipient: treasury,
-                startTimestamp: orderStartTime,
-                endTimestamp: orderEndTime,
-                salt: bytes(orderSalt)
-            })
+            BuildOrderLib.buildRedemptionOrder(
+                treasury,
+                address(usds),
+                usdsOffer,
+                redemptionToken,
+                redemptionAsk,
+                address(espn),
+                espnAsk,
+                orderStartTime,
+                orderEndTime,
+                orderSalt
+            )
         );
     }
 
     function _hashOrder(ISeaportMinimal.OrderParameters memory orderParams) private view returns (bytes32) {
-        ISeaportMinimal.OrderComponents memory components = ISeaportMinimal.OrderComponents({
-            offerer: orderParams.offerer,
-            zone: orderParams.zone,
-            offer: orderParams.offer,
-            consideration: orderParams.consideration,
-            orderType: orderParams.orderType,
-            startTime: orderParams.startTime,
-            endTime: orderParams.endTime,
-            zoneHash: orderParams.zoneHash,
-            salt: orderParams.salt,
-            conduitKey: orderParams.conduitKey,
-            counter: seaport.getCounter(treasury)
-        });
+        ISeaportMinimal.OrderComponents memory components =
+            BuildOrderLib.toOrderComponents(orderParams, seaport.getCounter(treasury));
         bytes32 orderHash = seaport.getOrderHash(components);
         console2.log("order hash:");
         console2.logBytes32(orderHash);
@@ -194,8 +199,17 @@ contract BuildOrder is Script {
 
     /// @dev The holder run-book block (item 6) — there is no UI, so this text is the entire
     /// holder-facing interface. REDEMPTION binds, not ESPN — matches `BuildOrderLib.deriveNumerator`
-    /// exactly; do not hand-roll a different formula here.
+    /// exactly; do not hand-roll a different formula here. The printed "in practice, REDEMPTION
+    /// binds" simplification is proved against the real library below (Step 20 item 6), not just
+    /// asserted in prose, so a future change to the binding logic breaks this require instead of
+    /// silently leaving stale text on the page.
     function _logRunBook(uint256 usdsOffer, uint256 espnAsk, uint256 redemptionAsk) private view {
+        uint256 exampleN = BuildOrderLib.deriveNumerator(1e18, 1e18, espnAsk, redemptionAsk, fillGrid);
+        require(
+            exampleN == 1e18 * fillGrid / redemptionAsk,
+            "BuildOrder: REDEMPTION no longer binds at 1:1 balances -- update the run-book text"
+        );
+
         console2.log("--- holder run-book (this is the entire holder-facing interface) ---");
         console2.log("denominator =", fillGrid);
         console2.log("numerator   = min( floor(yourEspnBalance * denominator / espnAsk),");

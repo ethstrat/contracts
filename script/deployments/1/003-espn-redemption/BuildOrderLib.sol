@@ -68,6 +68,63 @@ library BuildOrderLib {
         });
     }
 
+    /// @notice Plain-argument replacement for the ported `minimalOrderParams(Context, address)`
+    /// (Task 4 Step 18): assembles the redemption order's offer `[USDS]` / consideration
+    /// `[REDEMPTION, ESPN]` legs from explicit addresses and amounts instead of a `Context`. The
+    /// `[REDEMPTION, ESPN]` consideration ordering is load-bearing for the order hash — both
+    /// `BuildOrder.s.sol` and `Cancel.s.sol` must build the identical order through this one
+    /// function, never re-assemble it by hand, or the two can silently drift apart.
+    function buildRedemptionOrder(
+        address treasury,
+        address usds,
+        uint256 usdsOffer,
+        address redemptionToken,
+        uint256 redemptionAsk,
+        address espn,
+        uint256 espnAsk,
+        uint256 startTime,
+        uint256 endTime,
+        string memory salt
+    ) internal pure returns (Order memory) {
+        TokenAndAmount[] memory offers = new TokenAndAmount[](1);
+        offers[0] = TokenAndAmount({token: usds, amount: usdsOffer});
+        TokenAndAmount[] memory asks = new TokenAndAmount[](2);
+        asks[0] = TokenAndAmount({token: redemptionToken, amount: redemptionAsk});
+        asks[1] = TokenAndAmount({token: espn, amount: espnAsk});
+        return Order({
+            offers: offers,
+            asks: asks,
+            askRecipient: treasury,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
+            salt: bytes(salt)
+        });
+    }
+
+    /// @notice Rebuilds an `OrderComponents` from already-constructed `OrderParameters` plus the
+    /// live Seaport counter — same fields, `counter` in place of `totalOriginalConsiderationItems`
+    /// (Step 20 item 5 / Step 21). Shared so the hash computed by `BuildOrder.s.sol` and the hash
+    /// recomputed by `Cancel.s.sol` can never diverge on a hand-copied field.
+    function toOrderComponents(ISeaportMinimal.OrderParameters memory params, uint256 counter)
+        internal
+        pure
+        returns (ISeaportMinimal.OrderComponents memory)
+    {
+        return ISeaportMinimal.OrderComponents({
+            offerer: params.offerer,
+            zone: params.zone,
+            offer: params.offer,
+            consideration: params.consideration,
+            orderType: params.orderType,
+            startTime: params.startTime,
+            endTime: params.endTime,
+            zoneHash: params.zoneHash,
+            salt: params.salt,
+            conduitKey: params.conduitKey,
+            counter: counter
+        });
+    }
+
     /// @notice Derives the three order amounts from live NAV, snapped down to `fillGrid`. The
     /// offer IS the target (no round-trip through espnAsk); see Task 4 Step 18(a).
     function deriveAmounts(
@@ -90,7 +147,9 @@ library BuildOrderLib {
 
     /// @notice The holder's fill numerator. REDEMPTION binds, not ESPN — REDEMPTION is airdropped
     /// 1:1 with ESPN but the order consumes `redemptionRatio` REDEMPTION per ESPN, so the
-    /// REDEMPTION leg is (in practice) always the smaller term. See Task 4 Step 18(c).
+    /// REDEMPTION leg is (in practice) always the smaller term. See Task 4 Step 18(c). Clamped to
+    /// `fillGrid`: a holder owning more than the whole order (either leg) would otherwise get a
+    /// numerator exceeding the denominator, which Seaport rejects with `BadFraction`.
     function deriveNumerator(
         uint256 espnBalance,
         uint256 redemptionBalance,
@@ -101,5 +160,6 @@ library BuildOrderLib {
         uint256 fromEspn = espnBalance * fillGrid / espnAsk;
         uint256 fromRedemption = redemptionBalance * fillGrid / redemptionAsk;
         n = fromEspn < fromRedemption ? fromEspn : fromRedemption;
+        if (n > fillGrid) n = fillGrid;
     }
 }

@@ -64,37 +64,23 @@ contract Cancel is Script {
         uint256 orderEndTime = ConfigLib.num("settings.json", ".espnv3.orderEndTime");
         string memory orderSalt = ConfigLib.str("settings.json", ".espnv3.orderSalt");
 
-        BuildOrderLib.TokenAndAmount[] memory offers = new BuildOrderLib.TokenAndAmount[](1);
-        offers[0] = BuildOrderLib.TokenAndAmount({token: usds, amount: usdsOffer});
-        BuildOrderLib.TokenAndAmount[] memory asks = new BuildOrderLib.TokenAndAmount[](2);
-        asks[0] = BuildOrderLib.TokenAndAmount({token: redemptionToken, amount: redemptionAsk});
-        asks[1] = BuildOrderLib.TokenAndAmount({token: espn, amount: espnAsk});
-
         ISeaportMinimal.OrderParameters memory orderParams = BuildOrderLib.constructOrderParams(
             treasury,
-            BuildOrderLib.Order({
-                offers: offers,
-                asks: asks,
-                askRecipient: treasury,
-                startTimestamp: orderStartTime,
-                endTimestamp: orderEndTime,
-                salt: bytes(orderSalt)
-            })
+            BuildOrderLib.buildRedemptionOrder(
+                treasury,
+                usds,
+                usdsOffer,
+                redemptionToken,
+                redemptionAsk,
+                espn,
+                espnAsk,
+                orderStartTime,
+                orderEndTime,
+                orderSalt
+            )
         );
 
-        components = ISeaportMinimal.OrderComponents({
-            offerer: orderParams.offerer,
-            zone: orderParams.zone,
-            offer: orderParams.offer,
-            consideration: orderParams.consideration,
-            orderType: orderParams.orderType,
-            startTime: orderParams.startTime,
-            endTime: orderParams.endTime,
-            zoneHash: orderParams.zoneHash,
-            salt: orderParams.salt,
-            conduitKey: orderParams.conduitKey,
-            counter: seaport.getCounter(treasury)
-        });
+        components = BuildOrderLib.toOrderComponents(orderParams, seaport.getCounter(treasury));
 
         orderHash = seaport.getOrderHash(components);
         require(orderHash == expectedOrderHash, "Cancel: recomputed order hash does not match EXPECTED_ORDER_HASH");

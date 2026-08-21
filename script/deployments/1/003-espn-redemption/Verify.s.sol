@@ -4,8 +4,6 @@ pragma solidity ^0.8.24;
 import {console2} from "forge-std/Script.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {StdAssertions} from "forge-std/StdAssertions.sol";
-import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {EspnRedemptionToken} from "src/EspnRedemptionToken.sol";
 import {ISeaportMinimal} from "./interfaces/ISeaportMinimal.sol";
 import {BuildOrderLib} from "./BuildOrderLib.sol";
@@ -24,12 +22,10 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
     /// not extend it), so it is redeclared here purely to match against with `vm.expectRevert`.
     error InexactFraction();
 
-    ISeaportMinimal internal seaport;
-    IERC20 internal usds;
-    IERC4626 internal espn;
+    // `seaport`, `usds`, `espn`, `treasury` and `fillGrid` are inherited from `BuildOrder` (Step
+    // 20/22's "one source of config" rule) — populated below by calling `_loadConfig()` directly
+    // rather than re-declaring and re-deriving a second, independently-populated copy here.
     EspnRedemptionToken internal token;
-    address internal treasury;
-    uint256 internal fillGrid;
 
     ISeaportMinimal.OrderParameters internal orderParams;
     bytes32 internal orderHash;
@@ -48,13 +44,9 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
             console2.log("WARNING: fork block != snapshotBlock; export SNAPSHOT_BLOCK to pin the fork (Step 12)");
         }
 
-        treasury = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
-        address seaportAddr = ConfigLib.addr("externalAddresses.json", ".opensea.seaport");
-        seaport = ISeaportMinimal(seaportAddr);
-        usds = IERC20(ConfigLib.addr("externalAddresses.json", ".sky-money.USDS"));
-        espn = IERC4626(ConfigLib.addr("externalAddresses.json", ".eth-strategy.espn"));
-        fillGrid = ConfigLib.num("settings.json", ".espnv3.fillGrid");
-        uint256 orderStartTime = ConfigLib.num("settings.json", ".espnv3.orderStartTime");
+        // Populate the inherited `BuildOrder` config fields (treasury, usds, espn, seaport,
+        // fillGrid, orderStartTime, ...) once, directly — not a second independently-derived copy.
+        _loadConfig();
 
         // --- 1. Warp to just before startTime, unconditionally, in either direction, so a stale
         // committed window never breaks this run (Step 22 item 1). ---
@@ -65,6 +57,12 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
         vm.startPrank(deployer);
         token = _distribute(deployer, holdersFile);
         vm.stopPrank();
+
+        // Step 22 item 2: restated here, not merely trusted from `_distribute`'s own internal
+        // requires — Verify is the outer check that the airdrop is right.
+        (, uint256[] memory includedBalances,,) = HoldersLib.included(snapshot);
+        assertEq(token.totalSupply(), HoldersLib.sum(includedBalances), "Verify: totalSupply != sum(included balances)");
+        assertEq(token.owner(), address(0), "Verify: ownership not renounced");
 
         // --- 3. Prank the treasury -> BuildOrder logic (pre-conditions still pass: block.timestamp
         // < orderStartTime), then move into the window and perform the real approve + validate. ---
@@ -77,7 +75,7 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
         if (usds.balanceOf(treasury) < usdsOffer) {
             deal(address(usds), treasury, usdsOffer);
         }
-        usds.approve(seaportAddr, usdsOffer);
+        usds.approve(address(seaport), usdsOffer);
         ISeaportMinimal.Order[] memory orders = new ISeaportMinimal.Order[](1);
         orders[0] = ISeaportMinimal.Order({parameters: orderParams, signature: ""});
         seaport.validate(orders);
@@ -91,11 +89,10 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
         }
 
         // --- 4-6. Two holder partial fills at different numerators, same fillGrid denominator. ---
-        (address holder1, uint256 holder1Balance, address holder2, uint256 holder2Balance) =
-            _pickSampleHolders(snapshot);
+        (address holder1,, address holder2,) = _pickSampleHolders(snapshot);
 
-        uint256 n1 = _fulfillForHolder(holder1, holder1Balance, true);
-        uint256 n2 = _fulfillForHolder(holder2, holder2Balance, false);
+        uint256 n1 = _fulfillForHolder(holder1, true);
+        uint256 n2 = _fulfillForHolder(holder2, false);
 
         {
             (,, uint256 totalFilled, uint256 totalSize) = seaport.getOrderStatus(orderHash);
@@ -119,12 +116,12 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
         ISeaportMinimal.OrderComponents[] memory componentsArr = new ISeaportMinimal.OrderComponents[](1);
         componentsArr[0] = components;
         seaport.cancel(componentsArr);
-        usds.approve(seaportAddr, 0);
+        usds.approve(address(seaport), 0);
         vm.stopPrank();
 
         (, bool isCancelledFinal,,) = seaport.getOrderStatus(orderHash);
         assertTrue(isCancelledFinal, "Verify: order not cancelled");
-        assertEq(usds.allowance(treasury, seaportAddr), 0, "Verify: USDS allowance not revoked");
+        assertEq(usds.allowance(treasury, address(seaport)), 0, "Verify: USDS allowance not revoked");
     }
 
     /// @dev Picks the two largest non-contract, non-excluded snapshot holders at runtime — a
@@ -154,9 +151,14 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
 
     /// @dev A realistic partial fill by one sample holder, using the REDEMPTION-bound numerator
     /// from `BuildOrderLib.deriveNumerator` (Step 18(c)) — never a convenient round fraction,
-    /// which would happen to divide and mask the whole `InexactFraction` class of bug.
-    function _fulfillForHolder(address holder, uint256 holderBalance, bool logGas) private returns (uint256 n) {
-        n = BuildOrderLib.deriveNumerator(holderBalance, holderBalance, espnAsk, redemptionAsk, fillGrid);
+    /// which would happen to divide and mask the whole `InexactFraction` class of bug. Reads the
+    /// holder's live ESPN and REDEMPTION balances separately (Step 22 item 4) — not the same
+    /// snapshot figure fed into both legs, which would never exercise the REDEMPTION-vs-ESPN
+    /// binding distinction `deriveNumerator` exists to make.
+    function _fulfillForHolder(address holder, bool logGas) private returns (uint256 n) {
+        uint256 espnBalance = espn.balanceOf(holder);
+        uint256 redemptionBalance = token.balanceOf(holder);
+        n = BuildOrderLib.deriveNumerator(espnBalance, redemptionBalance, espnAsk, redemptionAsk, fillGrid);
         uint256 espnCost = espnAsk * n / fillGrid;
         uint256 redemptionCost = redemptionAsk * n / fillGrid;
         require(espn.balanceOf(holder) >= espnCost, "Verify: sample holder cannot afford the ESPN leg");
@@ -188,6 +190,9 @@ contract Verify is Distribute, BuildOrder, Cancel, StdCheats, StdAssertions {
                 "fulfillAdvancedOrder",
                 gasBefore - gasAfter,
                 abi.encodeCall(ISeaportMinimal.fulfillAdvancedOrder, (advancedOrder, noResolvers, bytes32(0), holder))
+            );
+            console2.log(
+                "NOTE: measured warm (balances just read, order-status slot already written by validate); a cold real fill costs more"
             );
         }
 
