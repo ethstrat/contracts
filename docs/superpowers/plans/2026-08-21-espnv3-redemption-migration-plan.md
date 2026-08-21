@@ -67,7 +67,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
 ---
 
-- [ ] **Step 1: Initialize git submodules and confirm a clean baseline build**
+- [x] **Step 1: Initialize git submodules and confirm a clean baseline build**
 
   Run `git submodule update --init --recursive` (equivalently `forge install`). Then confirm `forge build` succeeds and `yarn test` passes **before** changing anything. If the baseline is already red, stop and report — do not fold a pre-existing failure into this task.
 
@@ -80,7 +80,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Confirmed at this forge-std pin, so no later step needs to re-check them: `abstract contract Script is ScriptBase, StdChains, StdCheatsSafe, StdUtils` — it does **not** inherit `StdCheats`, so `contract Verify is Script, StdCheats, StdAssertions` linearizes cleanly (Steps 22 and 28). `vm.parseUint`, `vm.parseJsonUint`, `vm.parseJsonAddressArray` (empty array → length 0), `vm.snapshotState` and `vm.revertToState` all exist.
 
-- [ ] **Step 2: Grant filesystem permissions in `foundry.toml` and add the `src/` remapping**
+- [x] **Step 2: Grant filesystem permissions in `foundry.toml` and add the `src/` remapping**
 
   Current `fs_permissions` grants write-only on `./tmp/` and therefore **no read access to anything**, so every `vm.readFile` in this project reverts. `./tmp/` must be `read-write`, not `write` — Step 11's `HoldersLib` test writes a fixture there and reads it back, and a `write`-only grant makes that test revert. Replace:
 
@@ -103,7 +103,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Note for later tasks: `via-ir = true` makes the large `Verify.s.sol` scripts slow to compile. That is expected, not a bug.
 
-- [ ] **Step 3: Delete the two orphaned integration tests**
+- [x] **Step 3: Delete the two orphaned integration tests**
 
   `test/integration/ESPNRedemptionQueueIntegrationTest.sol` imports `src/ESPNRedemptionQueue.sol` and `test/integration/MorphoBlueFlashLoanProviderIntegrationTest.sol` imports `src/MorphoBlueFlashLoanProvider.sol`. Both source contracts were deleted in `2d29ce6`; both are verified absent from `src/`. `FOUNDRY_PROFILE=integration forge test` currently fails to compile because of them.
 
@@ -111,7 +111,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Verify: `FOUNDRY_PROFILE=integration forge build` compiles.
 
-- [ ] **Step 4: Create `script/deployments/1/config/externalAddresses.json`**
+- [x] **Step 4: Create `script/deployments/1/config/externalAddresses.json`**
 
   Recreate the historical file (recoverable verbatim via `git show 6484357:script/deployments/1/config/externalAddresses.json`) and add the ESPN entry. Final content:
 
@@ -136,7 +136,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   All three ESPNv3-relevant addresses are **confirmed on-chain**: Seaport 1.6, USDS (= `ESPN.asset()`), and ESPN (`EthStrategyPerpetualNote`, ERC4626).
 
-- [ ] **Step 5: Create `script/deployments/1/config/internalAddresses.json`**
+- [x] **Step 5: Create `script/deployments/1/config/internalAddresses.json`**
 
   Recreate the historical file and add a placeholder for the tripwire controller:
 
@@ -164,7 +164,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   `.protocol.multisigs.main` (`0xC53CCed…`) is confirmed as ESPN's `owner()`. Note it is **not** the redemption multisig — any `setWithdrawalsDisabled` / `setDepositCap` call (Assumptions 3 and 8) needs the main multisig.
 
-- [ ] **Step 6: Create `script/deployments/1/config/deploymentAddresses.json`**
+- [x] **Step 6: Create `script/deployments/1/config/deploymentAddresses.json`**
 
   Historical content plus three zero-address placeholders. The placeholders must exist as keys, because `vm.writeJson(value, path, key)` overwrites an existing key rather than creating a nested path:
 
@@ -180,7 +180,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
   }
   ```
 
-- [ ] **Step 7: Create `script/deployments/1/config/settings.json`**
+- [x] **Step 7: Create `script/deployments/1/config/settings.json`**
 
   **The unit convention is mandatory.** Its justification is *not* the one an earlier draft gave: on the forge version pinned here `vm.parseJsonUint` was verified to parse both `"34795546682818036103184"` and `"2900e18"` correctly, so there is no "`parseJsonUint`-vs-`parseUint` trap" to catch and no reason to route wei amounts through `parseJsonString` + `parseUint`. The real reasons to quote amounts and timestamps as decimal strings are: a 22-digit **unquoted** JSON number is silently mangled by every JSON consumer that uses IEEE-754 doubles — including `JSON.parse` in Task 3's `.mjs` writer and `jq` — and `e18` notation is unreadable to those same consumers. Therefore:
 
@@ -215,7 +215,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
   - `excludedAddresses` is `[]` — **the airdrops exclude nothing by default**. Assumption 5 (LP pairs, the treasury, ESPN itself) is a founder decision.
   - `snapshotBlock` is deliberately **absent**. It lives only in the holders JSON filename and body (Task 3 Step 14).
 
-- [ ] **Step 8: Write `script/deployments/1/lib/ConfigLib.sol`**
+- [x] **Step 8: Write `script/deployments/1/lib/ConfigLib.sol`**
 
   A plain Solidity `library` with `internal` functions, `pragma ^0.8.24`, SPDX `MIT`. It gets the cheatcode address the standard way, since a library cannot inherit `Script`:
 
@@ -235,7 +235,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   That is the whole surface. **No `seaport()` / `usds()` / `espn()` / `treasury()` wrappers** — an earlier draft added four zero-logic aliases over `addr(file, key)` in a library the same step declares should carry "nothing speculative". Scripts call `ConfigLib.addr("externalAddresses.json", ".eth-strategy.espn")` and friends directly; the key strings are self-documenting and appear in the file they name.
 
-- [ ] **Step 9: Write `script/deployments/1/lib/HoldersLib.sol`**
+- [x] **Step 9: Write `script/deployments/1/lib/HoldersLib.sol`**
 
   Reads the snapshot artifact produced by Task 3 and hands the distribute scripts arrays they can pass straight to `mintBatch`.
 
@@ -262,7 +262,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Step 11's `ScriptLibsTest` must prove this round-trips a real fixture. Do not assume it works.
 
-- [ ] **Step 10: Write `script/deployments/1/lib/SafeBatchLib.sol`**
+- [x] **Step 10: Write `script/deployments/1/lib/SafeBatchLib.sol`**
 
   Neither `BuildOrder.s.sol`, `Cancel.s.sol` nor `StopEspnYield.s.sol` can broadcast — the sender is a Safe. Each emits a **Safe Transaction Builder JSON** batch instead. One shared writer, three call sites.
 
@@ -293,7 +293,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   Note for Steps 20, 21 and 24: the prior-art batch contains **one** transaction, not two. This plan's batches are 2-transaction batches for reasons of its own (approve-then-act, cancel-then-revoke) — there is no precedent to copy for that shape, so do not describe it as "matching the prior art".
 
-- [ ] **Step 11: Write `test/unit/ScriptLibsTest.sol` and verify Task 1**
+- [x] **Step 11: Write `test/unit/ScriptLibsTest.sol` and verify Task 1**
 
   One forge test file, run by the default profile. It is the runnable check for the three libraries — without it, a `vm.parseJson` struct-decoding mistake in `HoldersLib` surfaces for the first time inside a fork Verify script, where it is far more expensive to diagnose.
 
@@ -308,7 +308,7 @@ Nothing else in this plan compiles or runs until this task lands. It also owns e
 
   **Verify the whole task:** `forge build` clean; `yarn test` green; `FOUNDRY_PROFILE=integration forge build` clean; `forge fmt --check` clean.
 
-- [ ] **Step 12: Add the `package.json` scripts**
+- [x] **Step 12: Add the `package.json` scripts**
 
   `foundry.toml` sets `test = "test/unit"` and `[profile.integration] test = "test/integration"`, so **`forge test` never picks up anything under `script/`**. Without named scripts, no Verify script in this project would ever be executed by `yarn test` or `yarn test:integration`. Add, reusing the fork URL default already present in `test:integration`:
 
@@ -337,7 +337,7 @@ Two deliberately plain tokens. **Do not** use the `MintableBurnableToken` / `Tri
 
 ---
 
-- [ ] **Step 13: Write `src/EspnRedemptionToken.sol` and `src/StryToken.sol`**
+- [x] **Step 13: Write `src/EspnRedemptionToken.sol` and `src/StryToken.sol`**
 
   Both files, complete:
 
@@ -373,7 +373,7 @@ Two deliberately plain tokens. **Do not** use the `MintableBurnableToken` / `Tri
   - Import paths use the `openzeppelin-contracts/` remapping already in `remappings.txt`.
   - Name/symbol for `EspnRedemptionToken` are **Assumption 11 — a placeholder pending founder confirmation**. `STRY` / `ETH Strategy Yield` were specified by the founder.
 
-- [ ] **Step 14: Write `test/unit/EspnRedemptionTokenTest.sol` and `test/unit/StryTokenTest.sol`**
+- [x] **Step 14: Write `test/unit/EspnRedemptionTokenTest.sol` and `test/unit/StryTokenTest.sol`**
 
   Plain `forge-std/Test.sol`, no fork, following the shape of `test/unit/MintableBurnableTokenTest.sol` (SPDX `GPL-2.0-or-later`, `pragma ^0.8.20`, `contract … is Test`, `setUp()` deploying with an `owner` address constant).
 
@@ -403,7 +403,7 @@ No `script/snapshot/README.md`. An earlier draft had one; every line of its stat
 
 ---
 
-- [ ] **Step 15: Write `script/snapshot/espn-holders.mjs`**
+- [x] **Step 15: Write `script/snapshot/espn-holders.mjs`**
 
   Inputs via env: `RPC_URL` (required), `SNAPSHOT_BLOCK` (optional — defaults to the `finalized` tag's block number), `ESPN_ADDRESS` (defaults to `0xb250C9E0F7bE4cfF13F94374C993aC445A1385fE`), `SETTINGS_PATH` (defaults to `script/deployments/1/config/settings.json`).
 
@@ -433,7 +433,7 @@ No `script/snapshot/README.md`. An earlier draft had one; every line of its stat
 
   **`--selftest`, the one runnable check.** This script is ~200 lines of BigInt arithmetic, topic slicing, chunk halving and batched JSON-RPC parsing feeding *both* airdrops, and its only other verification is a live network run. Write the pure helpers as plain functions — `topicToAddress(topic32)`, `halveChunk(range)`, `parseBatchResponse(jsonArray)`, `sumBalances(map)` — and put a `--selftest` branch at the top of `main()` that `assert`s them against hardcoded literals and `process.exit(0)`s without touching the network. `node:assert` only; no test framework, no second file, no fixtures directory. `yarn snapshot:selftest` (Step 12) runs it offline.
 
-- [ ] **Step 16: Run the script and commit a real snapshot**
+- [x] **Step 16: Run the script and commit a real snapshot**
 
   Put the operator-facing notes in the `.mjs` header comment, not a separate doc (see this task's file list): the env vars, and the rule that **the snapshot block lives only in the output filename and body — never in `settings.json`**, and that both tracks must use the same block (subject to Assumption 7 option 1). Step 29's run-book carries the rest.
 
@@ -458,7 +458,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
 ---
 
-- [ ] **Step 17: Revive `interfaces/ISeaportMinimal.sol`**
+- [x] **Step 17: Revive `interfaces/ISeaportMinimal.sol`**
 
   Copy verbatim from `git show 6484357:script/deployments/1/002-rage-quit-order/interfaces/ISeaportMinimal.sol`. It is already exactly the surface this project needs: `ItemType`/`OrderType`/`Side` enums, `OfferItem`, `ConsiderationItem`, `OrderParameters`, `OrderComponents`, `AdvancedOrder`, `CriteriaResolver`, `Order`, plus `getCounter`, `getOrderHash`, `getOrderStatus`, `information`, `cancel`, `incrementCounter`, `fulfillAdvancedOrder`, `validate`, and the `OrderIsCancelled` error.
 
@@ -466,7 +466,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
   Note the two struct types that differ by one field: `OrderParameters` ends with `totalOriginalConsiderationItems` (used by `validate`/`fulfillAdvancedOrder`), `OrderComponents` ends with `counter` (used by `getOrderHash`/`cancel`). Mixing them up produces a wrong order hash that will not be caught until a fill fails.
 
-- [ ] **Step 18: Write `BuildOrderLib.sol` — order construction and the fill grid**
+- [x] **Step 18: Write `BuildOrderLib.sol` — order construction and the fill grid**
 
   Port `6484357`'s `BuildOrderLib` with the stoke `Context`/`Config` plumbing removed. Keep `constructOrderParams` essentially as-is: it is correct and it already produces `PARTIAL_OPEN`, `zone = address(0)`, `zoneHash = 0`, `conduitKey = bytes32(0)`, `salt = uint256(keccak256(order.salt))`, `totalOriginalConsiderationItems = consideration.length`. Replace `minimalOrderParams(Context, address)` with a plain function that takes explicit arguments.
 
@@ -516,7 +516,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
   **On cross-scaling, stated accurately.** An earlier draft claimed "no uint120 cross-scaling ever occurs". That is only true while every fulfiller uses `denominator = 1e9`, which the same paragraph admits cannot be enforced. The correct claim is weaker and still sufficient: **exactness survives cross-scaling.** Seaport's scaling multiplies numerator and denominator by the same factor, so `value * n % d == 0` is preserved, and the scaled denominator stays `≤ 1e18`, far below `uint120` max. Write it that way; do not overclaim.
 
-- [ ] **Step 19: Write `Distribute.s.sol`**
+- [x] **Step 19: Write `Distribute.s.sol`**
 
   Plain `forge-std/Script`, `pragma ^0.8.24`. One broadcast (`vm.startBroadcast()` / `vm.stopBroadcast()`), holders-file path from env `HOLDERS_FILE`:
 
@@ -531,7 +531,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
   In-script post-conditions, asserted with `require`: `totalSupply() == HoldersLib.sum(balances)`; `owner() == address(0)`; and a loop asserting `balanceOf(addrs[i]) == balances[i]` for **every** included holder (170 view calls cost nothing in a script and this is the cheapest possible proof the airdrop is right).
 
-- [ ] **Step 20: Write `BuildOrder.s.sol`**
+- [x] **Step 20: Write `BuildOrder.s.sol`**
 
   **Never broadcasts.** The offerer is a Safe. It computes, asserts, logs, and emits a Safe batch.
 
@@ -577,7 +577,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
   Expose the derivation and order-construction as `internal` functions so `Verify.s.sol` can call them under a prank rather than duplicating the logic. Keep the `SafeBatchLib.write` call in `run()`, outside them, so a fork run does not scatter throwaway batch files.
 
-- [ ] **Step 21: Write `Cancel.s.sol`**
+- [x] **Step 21: Write `Cancel.s.sol`**
 
   Also never broadcasts. Rebuilds **identical** order components from the same config so the cancelled hash provably matches the validated one, asserts the recomputed hash equals the hash logged by `BuildOrder.s.sol` (passed in via env `EXPECTED_ORDER_HASH`), then emits a 2-transaction Safe batch to `script/deployments/1/multisig/003-espn-redemption/002-0x0cbe9bDD-multisig.json`:
 
@@ -590,7 +590,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
   **Same structural rule as Step 20, and it is not optional: expose the component rebuild + hash assertion as an `internal` function taking the three amounts as arguments**, with `run()` reading them from env and calling `SafeBatchLib.write`. Step 22 item 9 requires `Verify.s.sol` to run the `Cancel` logic under a prank; without the `internal` entry point it would have to shell out env vars mid-script or duplicate the logic, and a duplicated hash rebuild is exactly the drift the hash assertion exists to catch.
 
-- [ ] **Step 22: Write `Verify.s.sol` (Track A, mainnet fork)**
+- [x] **Step 22: Write `Verify.s.sol` (Track A, mainnet fork)**
 
   `contract Verify is Script, StdCheats, StdAssertions` — verified to linearize at this forge-std pin: `Script` inherits `StdCheatsSafe`, not `StdCheats`, so `deal` and `assertEq` need the explicit imports. `assertEq` delegates to `vm.assertEq`, which reverts, so assertions genuinely fail a `forge script` run. Use `vm.startPrank`/`vm.stopPrank`, **not** `vm.startBroadcast`, for impersonation: broadcast signs with a key and cannot act as a Safe; prank can.
 
@@ -612,7 +612,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
   Pick the sample holders from the committed snapshot JSON at runtime — the two largest non-contract, non-excluded balances — rather than hardcoding addresses that may have moved. This is why Task 4 depends on Task 3, not merely on Tasks 1 and 2.
 
-- [ ] **Step 23: Gas logging format, and verify Task 4**
+- [x] **Step 23: Gas logging format, and verify Task 4**
 
   Both Verify scripts log through `console2`. The measurement caveat must be honoured, not glossed: `gasBefore - gasleft()` inside a single script frame measures **execution gas only** — it excludes the transaction's 21,000 intrinsic cost and its calldata cost. For one `mintBatch` that understates the real figure by roughly 21k + 170 × (20 bytes × 16 gas) ≈ **~76k**: small against ~4.5M, and acceptable **if stated**.
 
@@ -646,7 +646,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed hold
 
 ---
 
-- [ ] **Step 24: Write `StopEspnYield.s.sol`**
+- [x] **Step 24: Write `StopEspnYield.s.sol`**
 
   One-time, and **first in the global operational sequence** — it changes NAV, and every later formula must read the final NAV. Never broadcasts; emits a Safe batch.
 
@@ -669,7 +669,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed hold
 
   Record in the log output that this "stop" is a **policy, not an on-chain state change**: `increaseAssetsPerShare` is `external` with **no access control**, so anyone can keep raising NAV afterwards, including while the redemption order is live (Assumption 3). The order's amounts are fixed at validate time and do not follow NAV.
 
-- [ ] **Step 25: Write `Distribute.s.sol` (STRY)**
+- [x] **Step 25: Write `Distribute.s.sol` (STRY)**
 
   Same single-`mintBatch` pattern as Track A. One broadcast:
 
@@ -698,7 +698,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed hold
 
   **Record in the script's log output and in the run-book:** per Assumption 7 / option 2, **$100 is a nominal basis price, not a redemption guarantee.** Both tracks lay claim to the same ~$3.878M of ESPN backing — Track A pays out up to 700,000 USDS of it, Track B mints STRY nominally claiming the full amount, an overstatement of ~18% if both ship off one snapshot. The spec defaults to option 2 and requires the nominal-basis caveat to appear wherever the $100 figure does. Do not print "$100 backed".
 
-- [ ] **Step 26: Write `Deploy.s.sol` (new `StakedStrat` instance)**
+- [x] **Step 26: Write `Deploy.s.sol` (new `StakedStrat` instance)**
 
   Structure it as an `internal deploy(address controller, address guardian) returns (StakedStrat)` — taking the controller as an **argument** — plus a `run()` that reads controller and guardian from `internalAddresses.json`, pre-asserts, calls `deploy`, and then `ConfigLib.writeDeployedAddress(".staked-stry", …)`. The argument is what lets Step 28 pass a locally-deployed controller on a fork; `writeDeployedAddress` stays in `run()` for the usual reason.
 
@@ -722,7 +722,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed hold
   - `unstake()` is `whenNotTripped`: a trip **locks stakers' STRY in** until untripped. Worth telling holders.
   - `_CONTROLLER` is `immutable` and the guardian is fixed at construction. A wrong value means **redeploying**.
 
-- [ ] **Step 27: Write `WeeklyYield.s.sol` (repeatable, manually triggered)**
+- [x] **Step 27: Write `WeeklyYield.s.sol` (repeatable, manually triggered)**
 
   Not a one-time script and **not** automation — no cron, keeper, or CI schedule. Amount per run comes from env `WEEKLY_YIELD_AMOUNT` (plain decimal wei), not `settings.json`, because it changes every run.
 
@@ -731,7 +731,7 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed hold
   2. `stakedStrat.syncRewards()`.
   3. Assert `periodFinish` moved and `totalNotifiedRewards` increased by exactly `amount`; log the new `rewardRate` and `periodFinish`.
 
-- [ ] **Step 28: Write `Verify.s.sol` (Track B, mainnet fork)**
+- [x] **Step 28: Write `Verify.s.sol` (Track B, mainnet fork)**
 
   Same harness as Track A: `contract Verify is Script, StdCheats, StdAssertions`, `vm.startPrank` not `vm.startBroadcast`, calling the scripts' `internal` entry points and never their `run()`s, so no config or Safe batch file is written. Same fork-block check as Step 22 item 0 (`require(block.number >= snapshotBlock)`, warn if not equal).
 
@@ -764,7 +764,7 @@ There is **no UI**. This document is the entire holder-facing and operator-facin
 
 ---
 
-- [ ] **Step 29: Write `docs/ESPNv3_Runbook.md`**
+- [x] **Step 29: Write `docs/ESPNv3_Runbook.md`**
 
   Follow the naming style already used in `docs/` (`ESPN_User_Stories.md`, `StakedStrat_User_Stories.md`). Sections:
 
