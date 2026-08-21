@@ -78,6 +78,8 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         TripwireController controller = new TripwireController();
         StakedStrat stakedStrat = deploy(address(stry), address(controller), guardian);
 
+        uint256 holderStryBalance = stry.balanceOf(holder);
+
         // Item 4: zero-staker permanent-loss case, before the happy path. Snapshot state first so
         // this can be reverted afterwards.
         uint256 preLossSnapshot = vm.snapshotState();
@@ -91,7 +93,6 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
 
             vm.warp(block.timestamp + 1 days);
 
-            uint256 holderStryBalance = stry.balanceOf(holder);
             vm.startPrank(holder);
             stry.approve(address(stakedStrat), holderStryBalance);
             stakedStrat.stake(holderStryBalance);
@@ -122,7 +123,6 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
 
         // Item 5: happy path -- stake. Approve STRY, never the position token (position-token
         // approve reverts TransferDisabled()).
-        uint256 holderStryBalance = stry.balanceOf(holder);
         vm.startPrank(holder);
         stry.approve(address(stakedStrat), holderStryBalance);
         uint256 stakeGasBefore = gasleft();
@@ -145,6 +145,11 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
             "Verify: periodFinish does not describe a 7-day stream"
         );
         assertEq(
+            stakedStrat.rewardRate(),
+            WEEKLY_DEPOSIT / 7 days,
+            "Verify: rewardRate does not describe a 7-day stream of the deposit"
+        );
+        assertEq(
             stakedStrat.totalNotifiedRewards(),
             notifiedBeforeWeekly + WEEKLY_DEPOSIT,
             "Verify: totalNotifiedRewards did not increase by the deposit"
@@ -163,7 +168,18 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
             claimedFull, WEEKLY_DEPOSIT, CLAIM_TOLERANCE, "Verify: claimed reward far from the full week's deposit"
         );
 
-        // Item 8: unstake the full staked balance -> STRY returned and the auto-claim runs.
+        // Item 8: unstake the full staked balance -> STRY returned and the auto-claim runs. Item 7
+        // just claimed everything as of periodFinish, so unstaking immediately after would
+        // auto-claim zero and never exercise unstake's `if (claimable > 0)` branch
+        // (src/StakedStrat.sol:228). Notify a second reward and warp partway through its stream
+        // first so real rewards are pending at unstake time.
+        uint256 secondYieldAmount = WEEKLY_DEPOSIT / 2;
+        deal(usds, weeklyOperator, secondYieldAmount);
+        vm.startPrank(weeklyOperator);
+        weeklyYield(address(stakedStrat), usds, secondYieldAmount);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 days);
+
         uint256 stakedBalance = stakedStrat.staked(holder);
         uint256 stryBefore = stry.balanceOf(holder);
         uint256 usdsBeforeUnstake = IERC20(usds).balanceOf(holder);
@@ -172,11 +188,13 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         stakedStrat.unstake(stakedBalance);
         uint256 unstakeGas = unstakeGasBefore - gasleft();
         assertEq(stry.balanceOf(holder), stryBefore + stakedBalance, "Verify: STRY not returned on unstake");
-        console2.log("unstake auto-claim paid:", IERC20(usds).balanceOf(holder) - usdsBeforeUnstake);
+        uint256 unstakeAutoClaimed = IERC20(usds).balanceOf(holder) - usdsBeforeUnstake;
+        assertGt(unstakeAutoClaimed, 0, "Verify: unstake auto-claim paid zero -- claimable > 0 branch not exercised");
+        console2.log("unstake auto-claim paid:", unstakeAutoClaimed);
 
         // Item 9: gas (informational).
         console2.log("stake execution gas:", stakeGas);
-        console2.log("syncRewards execution gas:", syncGas);
+        console2.log("weeklyYield execution gas:", syncGas);
         console2.log("claim execution gas:", claimGas);
         console2.log("unstake execution gas:", unstakeGas);
     }

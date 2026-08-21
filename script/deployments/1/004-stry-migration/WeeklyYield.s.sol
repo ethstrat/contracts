@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {StakedStrat} from "src/StakedStrat.sol";
 import {ConfigLib} from "../lib/ConfigLib.sol";
 
@@ -10,6 +11,8 @@ import {ConfigLib} from "../lib/ConfigLib.sol";
 /// schedule. Amount per run comes from env WEEKLY_YIELD_AMOUNT (plain decimal wei), not
 /// settings.json, because it changes every run.
 contract WeeklyYield is Script {
+    using SafeERC20 for IERC20;
+
     function run() external virtual {
         address stakedStratAddr = ConfigLib.addr("deploymentAddresses.json", ".staked-stry");
         address usds = ConfigLib.addr("externalAddresses.json", ".sky-money.USDS");
@@ -37,7 +40,7 @@ contract WeeklyYield is Script {
         uint256 periodFinishBefore = stakedStrat.periodFinish();
         uint256 notifiedBefore = stakedStrat.totalNotifiedRewards();
 
-        IERC20(usds).transfer(stakedStratAddr, amount);
+        IERC20(usds).safeTransfer(stakedStratAddr, amount);
         stakedStrat.syncRewards();
 
         require(stakedStrat.periodFinish() > periodFinishBefore, "WeeklyYield: periodFinish did not move");

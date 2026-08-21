@@ -25,6 +25,11 @@ contract StopEspnYield is Script {
     function run() external virtual {
         (address usds, address espnAddr, address payer, uint256 finalYieldAmount) = _preconditions();
 
+        console2.log("This 'stop' is a POLICY, not an on-chain state change: increaseAssetsPerShare is");
+        console2.log("external with no access control, so anyone can keep raising NAV afterwards, including");
+        console2.log("while the redemption order is live (Assumption 3). The order's amounts are fixed at");
+        console2.log("validate time and do not follow NAV.");
+
         SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](2);
         txs[0] = SafeBatchLib.Tx({to: usds, data: abi.encodeCall(IERC20.approve, (espnAddr, finalYieldAmount))});
         txs[1] = SafeBatchLib.Tx({

@@ -67,6 +67,9 @@ contract Distribute is Script {
         );
 
         console2.log("STRY distributed to included holders:", includedCount);
-        console2.log("NOTE: basisPriceUsd is a nominal basis price, not a redemption guarantee.");
+        console2.log("NOTE: basisPriceUsd is a nominal basis price, not a redemption guarantee. Both tracks");
+        console2.log("lay claim to the same ESPN backing snapshot: Track A pays out up to 700,000 USDS of");
+        console2.log("it, Track B mints STRY nominally claiming the full amount -- an overstatement of ~18%");
+        console2.log("if both ship off one snapshot.");
     }
 }
