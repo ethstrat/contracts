@@ -1,0 +1,14 @@
+{
+  "espnv3": {
+    "targetRedemptionUsd": "700000000000000000000000",
+    "redemptionRatio": 5,
+    "fillGrid": 1000000000,
+    "basisPriceUsd": 100,
+    "expectedSeaportCounter": 0,
+    "orderStartTime": "1798761600",
+    "orderEndTime": "1799366400",
+    "orderSalt": "espnv3-redemption-1",
+    "finalYieldAmount": "0",
+    "excludedAddresses": []
+  }
+}
