@@ -13,9 +13,11 @@ import {HoldersLib} from "../lib/HoldersLib.sol";
 /// -- both tracks lay claim to the same ESPN backing.
 contract Distribute is Script {
     function run() external virtual {
+        string memory holdersFile = vm.envString("HOLDERS_FILE");
+
         address deployer = msg.sender;
         vm.startBroadcast();
-        StryToken stry = distribute(deployer);
+        StryToken stry = distribute(deployer, holdersFile);
         vm.stopBroadcast();
 
         ConfigLib.writeDeployedAddress(".stry", address(stry));
@@ -25,8 +27,9 @@ contract Distribute is Script {
     /// only runs from run(), so Verify.s.sol never dirties the committed deploymentAddresses.json.
     /// `deployer` is taken as an argument (not read via msg.sender) so Verify.s.sol can prank as
     /// whichever address it likes and pass the same address through as the constructor owner.
-    function distribute(address deployer) internal returns (StryToken stry) {
-        string memory holdersFile = vm.envString("HOLDERS_FILE");
+    /// `holdersFile` is likewise an argument, not an env read, so Verify.s.sol can pass the path it
+    /// already derived from SNAPSHOT_BLOCK (same shape as 003-espn-redemption/Distribute.s.sol).
+    function distribute(address deployer, string memory holdersFile) internal returns (StryToken stry) {
         HoldersLib.Snapshot memory snapshot = HoldersLib.load(holdersFile);
         (address[] memory addrs, uint256[] memory espnBalances, uint256 includedCount,) = HoldersLib.included(snapshot);
 

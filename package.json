@@ -16,7 +16,7 @@
     "snapshot:espn": "node script/snapshot/espn-holders.mjs",
     "snapshot:selftest": "node script/snapshot/espn-holders.mjs --selftest",
     "verify:redemption": "forge script script/deployments/1/003-espn-redemption/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} --fork-block-number ${SNAPSHOT_BLOCK:?Set SNAPSHOT_BLOCK to the block encoded in the espn-holders snapshot filename} -vvv",
-    "verify:migration": "forge script script/deployments/1/004-stry-migration/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} ${SNAPSHOT_BLOCK:+--fork-block-number $SNAPSHOT_BLOCK} -vvv",
+    "verify:migration": "forge script script/deployments/1/004-stry-migration/Verify.s.sol --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} --fork-block-number ${SNAPSHOT_BLOCK:?Set SNAPSHOT_BLOCK to the block encoded in the espn-holders snapshot filename} -vvv",
     "lint": "yarn lint:forge",
     "lint:forge": "forge fmt --check",
     "lint:fix": "forge fmt",

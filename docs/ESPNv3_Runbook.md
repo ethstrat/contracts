@@ -126,11 +126,11 @@ From `SNAPSHOT_BLOCK=25800912 yarn verify:redemption`:
 | Track A `mintBatch` (113 holders) | 2,814,900 | 2,901,368 |
 | Track A `fulfillAdvancedOrder` (single fill) | 48,641 | 78,153 |
 
-From `SNAPSHOT_BLOCK=25800912 HOLDERS_FILE=script/deployments/1/config/espn-holders-25800912.json yarn verify:migration`:
+From `SNAPSHOT_BLOCK=25800912 yarn verify:migration`:
 
 | Operation | Execution gas |
 |---|---|
-| Track B `mintBatch` (113 holders) | 2,808,623 (2,865,783 total estimated) |
+| Track B `mintBatch` (113 holders) | 2,808,622 (2,865,782 total estimated) |
 | `stake` | 140,286 |
 | `syncRewards` (WeeklyYield) | 123,824 |
 | `claim` | 77,842 |
@@ -199,8 +199,11 @@ filename you're verifying against, so both fork runs pin to the snapshot block:
 ```
 export SNAPSHOT_BLOCK=25800912
 yarn verify:redemption
-HOLDERS_FILE=script/deployments/1/config/espn-holders-25800912.json yarn verify:migration
+yarn verify:migration
 ```
+
+Both Verify scripts derive the holders file from `SNAPSHOT_BLOCK` — it is the only env var
+they need. `HOLDERS_FILE` applies to the broadcast scripts below, not to verification.
 
 This section replaces the `script/snapshot/README.md` an earlier draft proposed — one
 document, not two to keep in sync.

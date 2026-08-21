@@ -25,7 +25,11 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
     uint256 internal constant CLAIM_TOLERANCE = 1e6;
 
     function run() external override(StopEspnYield, Distribute, Deploy, WeeklyYield) {
-        string memory holdersFile = vm.envString("HOLDERS_FILE");
+        // Same derivation as 003-espn-redemption/Verify.s.sol: the holders file is named after the
+        // snapshot block, so SNAPSHOT_BLOCK alone pins both the fork and the snapshot.
+        uint256 snapshotBlockTarget = vm.envUint("SNAPSHOT_BLOCK");
+        string memory holdersFile =
+            string.concat("script/deployments/1/config/espn-holders-", vm.toString(snapshotBlockTarget), ".json");
         HoldersLib.Snapshot memory snapshot = HoldersLib.load(holdersFile);
 
         // Item 0: fork block check.
@@ -67,7 +71,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         // Item 2: Distribute STRY (single mintBatch).
         address stryDeployer = makeAddr("stryDeployer");
         vm.startPrank(stryDeployer);
-        StryToken stry = distribute(stryDeployer);
+        StryToken stry = distribute(stryDeployer, holdersFile);
         vm.stopPrank();
         assertEq(stry.owner(), address(0), "Verify: STRY ownership not renounced");
 
