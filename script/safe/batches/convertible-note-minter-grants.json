@@ -1,0 +1,28 @@
+{
+  "description": "Grant the redeployed EthStrategyConvertibleNote (0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56, deployed tx 0x1d15b6107fd6258d1c27cbe7019fbfbe7ba68a8434b85e39d0ed5a7432ad14db) its required minter rights on CDT, STRAT, and esETH.",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Grant CDT minter rights",
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "contractName": "CdtToken",
+      "signature": "manageMinter(address,bool)",
+      "args": ["0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56", true]
+    },
+    {
+      "label": "Grant STRAT minter rights",
+      "to": "0x14cF922aa1512Adfc34409b63e18D391e4a86A2f",
+      "contractName": "StratToken",
+      "signature": "manageMinter(address,bool)",
+      "args": ["0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56", true]
+    },
+    {
+      "label": "Grant esETH minter rights",
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "contractName": "esETH",
+      "signature": "addMinter(address)",
+      "args": ["0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"]
+    }
+  ]
+}
