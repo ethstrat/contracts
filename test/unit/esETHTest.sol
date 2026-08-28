@@ -82,6 +82,7 @@ contract esETHTest is Test {
         ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
         esETHContract = new esETH(owner, address(weth), ctrl, owner);
+        vm.stopPrank();
 
         // Configure tokens
         vm.startPrank(owner);

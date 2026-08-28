@@ -16,12 +16,16 @@
     "lint": "yarn lint:forge",
     "lint:forge": "forge fmt --check",
     "lint:fix": "forge fmt",
-    "clean": "forge clean"
+    "clean": "forge clean",
+    "safe:propose": "node --env-file=.env script/safe/propose-batch.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^17.7.1",
     "@commitlint/config-conventional": "^17.7.0",
+    "@safe-global/api-kit": "^5.0.2",
+    "@safe-global/protocol-kit": "^8.0.6",
     "@trivago/prettier-plugin-sort-imports": "^4.2.0",
+    "ethers": "^6.17.0",
     "husky": "^8.0.3",
     "lint-staged": "^14.0.1",
     "prettier": "^3.0.2",

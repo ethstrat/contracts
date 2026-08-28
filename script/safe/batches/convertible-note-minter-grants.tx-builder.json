@@ -1,0 +1,84 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1787876635119,
+  "meta": {
+    "name": "Grant the redeployed EthStrategyConvertibleNote (0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56, deployed tx 0x1d15b6107fd6258d1c27cbe7019fbfbe7ba68a8434b85e39d0ed5a7432ad14db) its required minter rights on CDT, STRAT, and esETH.",
+    "description": "Grant the redeployed EthStrategyConvertibleNote (0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56, deployed tx 0x1d15b6107fd6258d1c27cbe7019fbfbe7ba68a8434b85e39d0ed5a7432ad14db) its required minter rights on CDT, STRAT, and esETH.",
+    "txBuilderVersion": "1.18.0",
+    "createdFromSafeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "createdFromOwnerAddress": "",
+    "checksum": null
+  },
+  "transactions": [
+    {
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg1",
+            "type": "bool"
+          }
+        ],
+        "name": "manageMinter",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+        "arg1": "true"
+      }
+    },
+    {
+      "to": "0x14cF922aa1512Adfc34409b63e18D391e4a86A2f",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg1",
+            "type": "bool"
+          }
+        ],
+        "name": "manageMinter",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+        "arg1": "true"
+      }
+    },
+    {
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "addMinter",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"
+      }
+    }
+  ]
+}

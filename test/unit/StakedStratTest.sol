@@ -53,12 +53,14 @@ contract StakedStratTest is Test {
 
         vm.prank(owner);
         stratToken = new StratToken(owner, ctrl, owner);
+        vm.stopPrank();
 
         vm.prank(owner);
         stratToken.manageMinter(owner, true);
 
         vm.prank(owner);
         rewardToken = new MintableBurnableToken("Reward Token", "RWD", owner, ctrl, owner);
+        vm.stopPrank();
 
         vm.prank(owner);
         rewardToken.manageMinter(owner, true);
