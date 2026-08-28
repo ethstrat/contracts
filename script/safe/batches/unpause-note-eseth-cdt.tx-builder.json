@@ -1,0 +1,72 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1787876635364,
+  "meta": {
+    "name": "Global-reset the redeployed EthStrategyConvertibleNote (0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56), esETH, and CdtToken via TripwireController. Companion to script/safe/batches/pause-note-esteh-cdt.json — use once the incident is resolved.",
+    "description": "Global-reset the redeployed EthStrategyConvertibleNote (0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56), esETH, and CdtToken via TripwireController. Companion to script/safe/batches/pause-note-esteh-cdt.json — use once the incident is resolved.",
+    "txBuilderVersion": "1.18.0",
+    "createdFromSafeAddress": "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF",
+    "createdFromOwnerAddress": "",
+    "checksum": null
+  },
+  "transactions": [
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "resetGlobal",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "resetGlobal",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "resetGlobal",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3"
+      }
+    }
+  ]
+}
