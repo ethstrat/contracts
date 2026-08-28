@@ -37,6 +37,8 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.0
 
       - name: Run Forge tests in ${{ matrix.type }} mode
         run: yarn test -vvv

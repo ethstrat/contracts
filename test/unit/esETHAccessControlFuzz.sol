@@ -100,6 +100,7 @@ abstract contract esETHClosedConfigBase is Test {
         ITripwireController ctrl = ITripwireController(address(new TripwireController()));
         vm.prank(owner);
         vault = new esETH(owner, address(weth), ctrl, owner);
+        vm.stopPrank();
 
         vm.startPrank(owner);
         vault.setTokenConfig(address(weth), esETH.TokenType.ERC20, false, false);
