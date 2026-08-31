@@ -13,3 +13,6 @@
 [submodule "lib/openzeppelin-v4"]
 	path = lib/openzeppelin-v4
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "lib/stoke"]
+	path = lib/stoke
+	url = git@github.com:frontier159/stoke
