@@ -1199,7 +1199,7 @@ Depends on Task 3. This is the half of verification that actually spends the USD
 
 ---
 
-- [ ] **Step 18: Write the failing assertions — extend `run()` with items 4–10**
+- [x] **Step 18: Write the failing assertions — extend `run()` with items 4–10**
 
   Append to `run()`, immediately after the item-3 assertions written in Step 12:
 
@@ -1417,7 +1417,7 @@ Depends on Task 3. This is the half of verification that actually spends the USD
       }
   ```
 
-- [ ] **Step 19: Run the fork verification to confirm it fails before the code is complete**
+- [x] **Step 19: Run the fork verification to confirm it fails before the code is complete**
 
   ```
   SNAPSHOT_BLOCK=25800912 yarn verify:migration
@@ -1425,7 +1425,7 @@ Depends on Task 3. This is the half of verification that actually spends the USD
 
   Run this **after writing the item 4–10 block but before adding the four helpers** to see the intended red state. Expected: compilation fails with `Undeclared identifier: _assertRejectsBelowMinimum` (and the two siblings). Add the helpers, then proceed to Step 20.
 
-- [ ] **Step 20: Run the fork verification to verify it passes**
+- [x] **Step 20: Run the fork verification to verify it passes**
 
   ```
   forge build
@@ -1437,7 +1437,7 @@ Depends on Task 3. This is the half of verification that actually spends the USD
 
   If item 6's `feeRecipient` assertion fails by exactly the fee, re-read `defaultFees()`/`campaignSpecificFees(18)` on the fork block: `_merklFeeSplit` mirrors `_computeFees` and a mismatch means Merkl changed the fee schedule, not that the arithmetic is wrong.
 
-- [ ] **Step 21: Confirm the working tree is clean**
+- [x] **Step 21: Confirm the working tree is clean**
 
   ```
   git status --porcelain -- script/deployments/1/config script/deployments/1/multisig
@@ -1445,7 +1445,7 @@ Depends on Task 3. This is the half of verification that actually spends the USD
 
   Expected: no output. `Verify.s.sol` calls only internal entry points, so no `deploymentAddresses.json` write and no file under `script/deployments/1/multisig/`. Output from this scoped check is a failure of the structural rule. Untracked paths elsewhere in the tree (e.g. `script/safe-propose/`, `script/multisig/`) are pre-existing and unrelated — do not stage them, and do not read them as a failure.
 
-- [ ] **Step 22: Commit**
+- [x] **Step 22: Commit**
 
   ```
   git add script/deployments/1/004-stry-migration/Verify.s.sol
