@@ -683,7 +683,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
 
 ---
 
-- [ ] **Step 11: Delete the staking contract, its test, its user stories and its deploy step**
+- [x] **Step 11: Delete the staking contract, its test, its user stories and its deploy step**
 
   ```
   git rm src/StakedStrat.sol test/unit/StakedStratTest.sol docs/StakedStrat_User_Stories.md \
@@ -708,7 +708,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
   - The **live sSTRAT contract** (`0xD6664390E0485Cd609d4D04b430e84e945a51994`, "Staked STRAT") *is* this source. It stays deployed and unaffected; the source stays in git history and on Etherscan's verified-source record. Deletion changes nothing on-chain.
   - `src/lib/TripwireGuard.sol`, `src/lib/TripwireController.sol` and `src/interfaces/ITripwireController.sol` **stay** — `StratToken`, `CdtToken`, `DesEthToken` and their tests use them. `docs/StratETHTreasuryLend_User_Stories.md:16` mentions `StakedStrat` as an example and is **left alone**. `internalAddresses.json`'s `.protocol.tripwire.controller` is **left in place**: a config key with no reader is inert, and removing it is unrelated churn on a file Track A does not touch.
 
-- [ ] **Step 12: Rewrite `script/deployments/1/004-stry-migration/Verify.s.sol` down to Testing items 1–3**
+- [x] **Step 12: Rewrite `script/deployments/1/004-stry-migration/Verify.s.sol` down to Testing items 1–3**
 
   Complete file (items 4–10 are added in Task 4):
 
@@ -832,7 +832,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
   }
   ```
 
-- [ ] **Step 13: Run `forge build` to verify it fails for exactly the expected reason**
+- [x] **Step 13: Run `forge build` to verify it fails for exactly the expected reason**
 
   ```
   forge build
@@ -840,7 +840,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
 
   Expected: failure, with errors confined to `script/deployments/1/004-stry-migration/WeeklyYield.s.sol` — `Source "src/StakedStrat.sol" not found` on its import line, and `Identifier not found or not unique` for `StakedStrat` inside `weeklyYield`. If any error names a file other than `WeeklyYield.s.sol`, stop: something else still depends on the deleted contract and the deletion inventory in Step 11 is incomplete.
 
-- [ ] **Step 14: Rewrite `script/deployments/1/004-stry-migration/WeeklyYield.s.sol`**
+- [x] **Step 14: Rewrite `script/deployments/1/004-stry-migration/WeeklyYield.s.sol`**
 
   Complete file:
 
@@ -1134,7 +1134,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
   }
   ```
 
-- [ ] **Step 15: Run the unit suite and the build to verify they pass**
+- [x] **Step 15: Run the unit suite and the build to verify they pass**
 
   ```
   forge build
@@ -1144,7 +1144,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
 
   Expected: `forge build` succeeds with `src/StakedStrat.sol` absent; `forge test` green (the `StakedStratTest` suite is gone, `MerklCampaignLibTest` and `ScriptLibsTest` pass); `forge fmt --check` prints nothing.
 
-- [ ] **Step 16: Run the fork verification for items 1–3 and confirm the tree stays clean**
+- [x] **Step 16: Run the fork verification for items 1–3 and confirm the tree stays clean**
 
   ```
   SNAPSHOT_BLOCK=25800912 yarn verify:migration
@@ -1153,7 +1153,7 @@ Depends on Tasks 1 and 2. This is the one task in the plan that goes through a n
 
   Expected: the script completes with no revert, printing the `mintBatch` gas lines from `Distribute`, then the `_log` block — gross/fee/net, `campaignId`, `campaignData`, the canonical JSON, and ISO start/end 48 hours apart — followed by no assertion failure. The scoped `git status --porcelain` prints **nothing**: no `deploymentAddresses.json` change, no file under `script/deployments/1/multisig/`. Output there is a failure of the structural rule, not a pass. Untracked paths elsewhere in the tree (e.g. `script/safe-propose/`, `script/multisig/`) are pre-existing and unrelated — do not stage them, and do not read them as a failure.
 
-- [ ] **Step 17: Commit**
+- [x] **Step 17: Commit**
 
   ```
   git add src/StakedStrat.sol test/unit/StakedStratTest.sol docs/StakedStrat_User_Stories.md \
