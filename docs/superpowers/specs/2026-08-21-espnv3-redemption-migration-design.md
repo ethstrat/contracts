@@ -4,6 +4,7 @@
 - **Branch:** `espn-redemption`
 - **Status:** Approved design; open decisions listed in Explicit Assumptions must be closed before any non-fork broadcast
 - **Chain:** Ethereum mainnet (chain id 1)
+- **Superseded (in part):** Track B's staking design is superseded by [`2026-09-04-stry-merkl-yield-design.md`](2026-09-04-stry-merkl-yield-design.md).
 
 ## Overview
 

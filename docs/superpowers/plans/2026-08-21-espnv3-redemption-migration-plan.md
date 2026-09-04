@@ -42,7 +42,7 @@ Task 6 (operator run-book)          ← needs 4, 5 for the numbers it documents
 
 Tasks 2 and 3 run fully in parallel with each other. Tasks 4 and 5 run in parallel with each other once 1, 2 and 3 have landed: their static file lists are disjoint, and both only *import* Task 1's libs.
 
-**One runtime write is shared and must not be made concurrent:** Task 4's `Distribute.s.sol` writes `.espn-redemption-token` and Task 5's writes `.stry` / `.staked-stry` into the same `script/deployments/1/config/deploymentAddresses.json` via `ConfigLib.writeDeployedAddress`. Two rules keep that safe: (1) `writeDeployedAddress` lives **outside** the `internal` function `Verify.s.sol` calls, so `yarn verify:*` never dirties the committed file; (2) the two `Distribute` scripts are only ever *broadcast* serially, per the run-book's global sequence.
+**One runtime write is shared and must not be made concurrent:** Task 4's `Distribute.s.sol` writes `.espn-redemption-token` and Task 5's writes `.stry` into the same `script/deployments/1/config/deploymentAddresses.json` via `ConfigLib.writeDeployedAddress`. Two rules keep that safe: (1) `writeDeployedAddress` lives **outside** the `internal` function `Verify.s.sol` calls, so `yarn verify:*` never dirties the committed file; (2) the two `Distribute` scripts are only ever *broadcast* serially, per the run-book's global sequence.
 
 ---
 
@@ -633,14 +633,13 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` cannot run without Task 3's c
 
 ## Task 5: Track B — migration to a yield-paying token (`004-stry-migration`)
 
-Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed holders JSON and pins the fork to its `snapshotBlock`. Shares no *static* files with Task 4; imports Task 1's libs only. The one shared **runtime** write is `deploymentAddresses.json` (`.stry`, `.staked-stry` here; `.espn-redemption-token` in Task 4) — see the dependency-order section: `writeDeployedAddress` stays out of every `internal` function `Verify.s.sol` calls, and the two `Distribute` scripts are only ever broadcast serially.
-
-**`src/StakedStrat.sol` gets ZERO code changes.** Its constructor is already generic: `constructor(address _stratToken, address _rewardToken, ITripwireController controller_, address guardian_)`. Track B deploys a **new instance**.
+Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed holders JSON and pins the fork to its `snapshotBlock`. Shares no *static* files with Task 4; imports Task 1's libs only. The one shared **runtime** write is `deploymentAddresses.json` (`.stry` here; `.espn-redemption-token` in Task 4) — see the dependency-order section: `writeDeployedAddress` stays out of every `internal` function `Verify.s.sol` calls, and the two `Distribute` scripts are only ever broadcast serially.
 
 **Files:**
 - `script/deployments/1/004-stry-migration/StopEspnYield.s.sol`
 - `script/deployments/1/004-stry-migration/Distribute.s.sol`
-- `script/deployments/1/004-stry-migration/Deploy.s.sol`
+- `script/deployments/1/004-stry-migration/interfaces/IMerklDistributionCreator.sol`
+- `script/deployments/1/004-stry-migration/MerklCampaignLib.sol`
 - `script/deployments/1/004-stry-migration/WeeklyYield.s.sol`
 - `script/deployments/1/004-stry-migration/Verify.s.sol`
 
@@ -698,60 +697,24 @@ Depends on Tasks 1, 2 **and 3** — `Verify.s.sol` needs Task 3's committed hold
 
   **Record in the script's log output and in the run-book:** per Assumption 7 / option 2, **$100 is a nominal basis price, not a redemption guarantee.** Both tracks lay claim to the same ~$3.878M of ESPN backing — Track A pays out up to 700,000 USDS of it, Track B mints STRY nominally claiming the full amount, an overstatement of ~18% if both ship off one snapshot. The spec defaults to option 2 and requires the nominal-basis caveat to appear wherever the $100 figure does. Do not print "$100 backed".
 
-- [x] **Step 26: Write `Deploy.s.sol` (new `StakedStrat` instance)**
+- [ ] **Step 27: Write `WeeklyYield.s.sol` (repeatable, manually triggered)**
 
-  Structure it as an `internal deploy(address controller, address guardian) returns (StakedStrat)` — taking the controller as an **argument** — plus a `run()` that reads controller and guardian from `internalAddresses.json`, pre-asserts, calls `deploy`, and then `ConfigLib.writeDeployedAddress(".staked-stry", …)`. The argument is what lets Step 28 pass a locally-deployed controller on a fork; `writeDeployedAddress` stays in `run()` for the usual reason.
+  Superseded. `WeeklyYield.s.sol` no longer transfers USDS to a staking contract; it emits
+  a Safe batch creating a weekly Merkl campaign. See the Architecture section of
+  [`../specs/2026-09-04-stry-merkl-yield-design.md`](../specs/2026-09-04-stry-merkl-yield-design.md)
+  and Task 3 of [`2026-09-04-stry-merkl-yield-plan.md`](2026-09-04-stry-merkl-yield-plan.md).
 
-  **`run()` pre-asserts `tripwireController.code.length > 0` with an explicit message naming Assumption 4** before deploying. `TripwireGuard`'s constructor reverts a bare `InvalidController()` on a zero-or-codeless controller, which is opaque, and `internalAddresses.json` currently carries the zero-address placeholder because **no deployed controller address is recorded anywhere in this repo**. Fail with something the operator can act on, e.g.:
-
-  ```
-  Assumption 4 unresolved: no TripwireController deployed at <addr>.
-  Track B cannot be BROADCAST until one exists. Deploying a controller is unscoped work.
-  (yarn verify:migration is unaffected — it deploys its own controller on the fork.)
-  ```
-
-  **This assert guards the mainnet broadcast only. It must not gate fork verification.** `src/lib/TripwireController.sol` is in this repo, has a **zero-argument constructor**, and is already instantiated with `new TripwireController()` by five existing unit tests (e.g. `test/unit/MintableBurnableTokenTest.sol:18`). Step 28 deploys one on the fork in one line and passes it to `deploy(...)`, so Assumption 4 blocks the on-chain rollout and nothing else.
-
-  Facts of the unmodified contract to record in the log and the run-book (all accepted under the zero-code-change constraint):
-
-  - The ERC20 name/symbol are hardcoded `"Staked STRAT v2"` / `"sSTRAT-v2"`; the new instance carries that name despite staking STRY. Cosmetic (Assumption 12).
-  - `REWARD_DURATION = 7 days` is a constant; `syncRewards()` is **permissionless**.
-  - The staked **position** token is non-transferable: `transfer`, `transferFrom` **and `approve`** all revert `TransferDisabled()` (`src/StakedStrat.sol:114-124`). Holders approve the **STRY** token for the staking contract, never the position token. Any integration that calls `approve` on the position token breaks.
-  - The constructor reverts on a zero `_stratToken`/`_rewardToken` or on the two being equal.
-  - Tripwire registration is **self-service and permissionless** — `TripwireGuard`'s constructor calls `controller_.register(address(this), guardian_)` itself, so no controller-owner transaction is needed. Trip state is per-guarded-contract, so the new instance inherits nothing.
-  - `unstake()` is `whenNotTripped`: a trip **locks stakers' STRY in** until untripped. Worth telling holders.
-  - `_CONTROLLER` is `immutable` and the guardian is fixed at construction. A wrong value means **redeploying**.
-
-- [x] **Step 27: Write `WeeklyYield.s.sol` (repeatable, manually triggered)**
-
-  Not a one-time script and **not** automation — no cron, keeper, or CI schedule. Amount per run comes from env `WEEKLY_YIELD_AMOUNT` (plain decimal wei), not `settings.json`, because it changes every run.
-
-  0. **`require(stakedStrat.totalStaked() > 0)` — hard revert, first thing.** This guard is the whole reason the script exists rather than two `cast` calls. `_currentRewardsPerShare()` returns early when `totalStaked == 0` (`src/StakedStrat.sol:137`), but `syncRewards()` has already folded the deposit into `totalNotifiedRewards` and started the clock (lines 163-172). Every second elapsed with zero stakers accrues to **nobody**, and those tokens can **never** be re-notified — a later `syncRewards()` sees `totalDeposited <= totalNotifiedRewards` and early-returns (line 169). **Depositing before anyone stakes permanently destroys the deposit**, and Track B's chronology (deploy → holders stake whenever they choose) makes a day-one loss the *default* failure mode.
-  1. `USDS.transfer(stakedStrat, amount)` from the yield payer.
-  2. `stakedStrat.syncRewards()`.
-  3. Assert `periodFinish` moved and `totalNotifiedRewards` increased by exactly `amount`; log the new `rewardRate` and `periodFinish`.
-
-- [x] **Step 28: Write `Verify.s.sol` (Track B, mainnet fork)**
+- [ ] **Step 28: Write `Verify.s.sol` (Track B, mainnet fork)**
 
   Same harness as Track A: `contract Verify is Script, StdCheats, StdAssertions`, `vm.startPrank` not `vm.startBroadcast`, calling the scripts' `internal` entry points and never their `run()`s, so no config or Safe batch file is written. Same fork-block check as Step 22 item 0 (`require(block.number >= snapshotBlock)`, warn if not equal).
 
   1. Run the `StopEspnYield` logic first (prank the payer, `deal` USDS, approve + `increaseAssetsPerShare`). Assert `totalAssets()` delta equals `finalYieldAmount` **exactly**, and assert the USDS landed at `ESPN.manager()` — the point is to make the third-party outflow visible in test output, not merely to pass.
   2. Distribute STRY (single `mintBatch`) → assert the calibration invariant with the `holderCount * basisPriceUsd` wei tolerance; assert `owner() == address(0)`; **log `mintBatch` gas** in the Step 23 format.
-  3. **Deploy a `TripwireController` locally — `TripwireController controller = new TripwireController();` — and pass it to `Deploy.s.sol`'s `internal deploy(controller, guardian)`.** One line. `src/lib/TripwireController.sol` is in this repo with a zero-argument constructor and is already used this way by five existing unit tests. Then deploy the new `StakedStrat(STRY, USDS, controller, guardian)`.
-
-     An earlier draft instead let the run halt here on the zero-address controller and called that "a pass for the script". It is not: it leaves Step 27's `totalStaked > 0` guard, the zero-staker permanent-loss case, and stake / syncRewards / claim / unstake — items 4 through 9, i.e. **most of Track B** — never executed once, while the Definition of Done accepts the run. Assumption 4 genuinely blocks the **mainnet broadcast** (`Deploy.s.sol`'s `run()` still pre-asserts, per Step 26) and nothing about fork verification.
-
-     Note the registration path works unmodified on the fork: `TripwireGuard`'s constructor calls `controller.register(address(this), guardian_)` itself, permissionlessly, so no controller-owner transaction is needed.
-  4. **Zero-staker loss case — must come before the happy path.** With `totalStaked == 0`, transfer USDS in and call `syncRewards()` **directly**, bypassing the script's guard. Warp 1 day, then have a holder stake and warp to `periodFinish`. Assert the holder's claim is **strictly less than** the deposit, and that a second `syncRewards()` is a no-op. This demonstrates the permanent loss the Step 27 guard prevents. Then restore: take a state snapshot before this case and revert to it (`vm.snapshotState()` / `vm.revertToState()` in current forge-std; `vm.snapshot()` / `vm.revertTo()` in older — check `lib/forge-std` and use whichever is present).
-  5. Happy path: prank a sample holder → `STRY.approve(stakedStrat, amount)` → `stake()`. **Approve STRY, never the position token** (position-token `approve` reverts `TransferDisabled()`).
-  6. Run the `WeeklyYield` logic **including its `totalStaked > 0` guard** → assert `rewardRate`/`periodFinish` describe a 7-day stream and `totalNotifiedRewards` increased by the deposit.
-  7. `vm.warp(block.timestamp + 7 days)` → holder `claim()` → assert claimed USDS equals the expected reward (sole staker ⇒ ~the full week's deposit, minus stream rounding dust — use a tolerance, not exact equality).
-  8. `unstake(uint256 amount)` for the full staked balance → assert STRY returned **and** the auto-claim paid out. The signature takes an amount; there is no zero-argument `unstake()`. It is its own `external nonReentrant whenNotTripped` function (line 220) that auto-claims first — it is not reached "via the claim path".
-  9. Log gas for `stake` / `syncRewards` / `claim` / `unstake` (informational).
+  3. Superseded by the Testing approach of [`../specs/2026-09-04-stry-merkl-yield-design.md`](../specs/2026-09-04-stry-merkl-yield-design.md) items 3–10, implemented in Tasks 3 and 4 of [`2026-09-04-stry-merkl-yield-plan.md`](2026-09-04-stry-merkl-yield-plan.md).
 
   If `finalYieldAmount` is still `"0"` in settings, step 1 must still run and assert a zero delta rather than being skipped — a skipped step is an untested step.
 
-  **Verify Task 5:** `forge build` clean, `forge fmt --check` clean, and `SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end, all nine items, with gas printed** — there is no accepted early-exit. The fork deploys its own `TripwireController` (item 3), so an unresolved Assumption 4 is a **blocked status for the mainnet rollout only** and never an excuse for an unexecuted Verify run. Do not fake a mainnet controller address in `internalAddresses.json` to make `Deploy.s.sol`'s `run()` go green. `git status` clean afterwards.
+  **Verify Task 5:** `forge build` clean, `forge fmt --check` clean, and `SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end, with gas printed** — there is no accepted early-exit. `git status` clean afterwards.
 
 ---
 
@@ -803,12 +766,12 @@ There is **no UI**. This document is the entire holder-facing and operator-facin
 - `forge fmt --check` clean (a pre-existing CI blocker in this repo — see `c98c2a2`).
 - `yarn snapshot:selftest` exits 0 offline.
 - `SNAPSHOT_BLOCK=<block> yarn verify:redemption` passes every assertion, including the `InexactFraction` negative test (with a **derived** denominator) and the over-large-fill clamp test, and prints both gas figures.
-- `SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end, all nine steps.** There is no accepted early exit: the fork deploys its own `TripwireController`. An unresolved Assumption 4 blocks the mainnet broadcast of `Deploy.s.sol` and nothing else.
+- `SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end** — see the Definition of done in [`2026-09-04-stry-merkl-yield-plan.md`](2026-09-04-stry-merkl-yield-plan.md).
 - `git status` is clean after both verify runs — neither writes `deploymentAddresses.json` or a Safe batch file.
 - A real snapshot JSON is committed and its `sum(balances) == totalSupply` invariant passed.
 - `settings.json`'s `orderStartTime` is in the **future** relative to the commit date.
 - `docs/ESPNv3_Runbook.md` exists with the real order hash and gas numbers filled in.
-- No dependency on `stoke`. No `dependencies` block in `package.json`. No changes to `src/StakedStrat.sol`, `src/EthStrategyPerpetualNote.sol`, or any other existing contract.
+- No dependency on `stoke`. No `dependencies` block in `package.json`. No changes to `src/EthStrategyPerpetualNote.sol`, or any other existing contract.
 
 ---
 
