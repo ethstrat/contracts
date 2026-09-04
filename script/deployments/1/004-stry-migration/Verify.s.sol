@@ -139,11 +139,8 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         {
             (uint256 net, uint256 fee) = _merklFeeSplit(dc, safe, params.campaignType, params.amount);
             // The Safe holds ~1.2M USDS on this fork, so assert the real balance rather than
-            // faking it; deal only if a future fork block is short.
-            if (IERC20(usds).balanceOf(safe) < params.amount) {
-                console2.log("WARNING: fork Safe USDS balance short -- dealing instead of using the real balance");
-                deal(usds, safe, params.amount);
-            }
+            // faking it. weeklyYield() above already requires balanceOf(safe) >= amount, so a
+            // short balance would have reverted before reaching here.
             address distributorAddr = dc.distributor();
             address feeRecipientAddr = dc.feeRecipient();
             uint256 safeBefore = IERC20(usds).balanceOf(safe);

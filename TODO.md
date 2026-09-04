@@ -1,8 +1,8 @@
 # ETH Strategy Protocol Testing & Review TODO
 
 ## Integration Testing
-- **Full protocol integration test suite**: Create comprehensive tests that deploy all contracts together and test realistic user flows across the entire protocol (esETH, StakedStrat, TreasuryLend, ESPN, ConvertibleNotes, RedemptionQueue)
-- **Cross-contract interaction testing**: Test scenarios where users interact with multiple contracts in sequence (e.g., mint esETH, stake in StakedStrat, use as collateral in TreasuryLend)
+- **Full protocol integration test suite**: Create comprehensive tests that deploy all contracts together and test realistic user flows across the entire protocol (esETH, TreasuryLend, ESPN, ConvertibleNotes, RedemptionQueue)
+- **Cross-contract interaction testing**: Test scenarios where users interact with multiple contracts in sequence (e.g., mint esETH, use as collateral in TreasuryLend)
 - **Multi-user concurrent operations**: Test scenarios with multiple users performing operations simultaneously to check for race conditions and state consistency
 - **Realistic deployment simulation**: Create tests that simulate real-world deployment sequence with proper initialization, approvals, and seeding
 
@@ -16,7 +16,6 @@
 ## Economic Model & Invariant Testing
 - **Backing ratio maintenance**: Ensure esETH maintains proper backing across all operations (mint, redeem, harvest, burnExcess)
 - **TreasuryLend solvency**: Verify that TreasuryLend can always service redemptions and liquidations even with extreme market conditions
-- **StakedStrat reward distribution fairness**: Test that reward distribution is mathematically correct across stakes, unstakes, and migrations
 - **Convertible note entitlements**: Verify conversion entitlements are calculated correctly and maintain value preservation
 - **Yield harvesting accuracy**: Test yield harvesting captures exactly the right amount when backing exceeds supply
 - **Redemption queue ordering**: Ensure FIFO ordering is maintained and queue position calculations are accurate
@@ -32,7 +31,6 @@
 
 ## State Consistency & Invariant Checks
 - **esETH supply invariants**: totalSupply = sum of all minted amounts for each token type
-- **StakedStrat accounting**: totalStaked = sum of all user stakes, reward calculations match expected distribution
 - **TreasuryLend position tracking**: Position balances match stored collateral and debt amounts
 - **Convertible note balances**: Remaining entitlements and CDT owed are always consistent
 - **ESPN vault accounting**: totalAssets accurately reflects underlying asset balance

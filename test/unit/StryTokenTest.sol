@@ -15,6 +15,7 @@ contract StryTokenTest is Test {
     function setUp() external {
         vm.prank(owner);
         token = new StryToken(owner);
+        vm.stopPrank();
     }
 
     function _singleton(address to_, uint256 amount_)

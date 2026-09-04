@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {Vm} from "forge-std/Vm.sol";
 
 /// @notice Writes Safe Transaction Builder JSON batches using the raw-calldata transaction form
-/// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol and
-/// StopEspnYield.s.sol.
+/// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol
+/// and WeeklyYield.s.sol.
 library SafeBatchLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
