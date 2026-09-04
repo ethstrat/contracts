@@ -1482,7 +1482,7 @@ The numbering of Assumptions 1–13 is **kept** so every existing cross-referenc
 
 ---
 
-- [ ] **Step 23: Write the failing check**
+- [x] **Step 23: Write the failing check**
 
   Run the greps that must come back empty once the docs are correct:
 
@@ -1494,7 +1494,7 @@ The numbering of Assumptions 1–13 is **kept** so every existing cross-referenc
 
   Expected now: the first grep prints roughly a dozen hits across §1 (Assumptions 2, 4, 12), §2 (rows 7–8 and the zero-staker paragraph), §5 (the four staking gas rows), §7 (the step-7 and step-8 rows and the prose below the table) and §9 (the whole section); the second prints the Task 5 file list and dependency-section hits; the third prints `0`.
 
-- [ ] **Step 24: Edit `docs/ESPNv3_Runbook.md`**
+- [x] **Step 24: Edit `docs/ESPNv3_Runbook.md`**
 
   Apply exactly these, section by section:
 
@@ -1561,7 +1561,7 @@ The numbering of Assumptions 1–13 is **kept** so every existing cross-referenc
     > - **`$100 is a nominal basis price, not a redemption guarantee.`** STRY nominally claims the full ESPN backing at the snapshot; it is not backed to the extent Track A's 700,000 USDS redemption pool is.
     > - **Merkl's off-chain half is not covered by `yarn verify:migration`** — scoring, merkle-root posting and holder claims cannot be exercised on a fork. The acceptance check is manual: within ~12 h of the Safe executing a weekly batch, confirm `GET https://api.merkl.xyz/v4/campaigns?chainId=1&creatorAddress=0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D` lists the new campaign with `type: ERC20LOGPROCESSOR` and a non-zero `apr`/`dailyRewards`. If it does not, the campaign is funded but unscoreable — escalate before the next weekly run.
 
-- [ ] **Step 25: Edit `docs/superpowers/plans/2026-08-21-espnv3-redemption-migration-plan.md`**
+- [x] **Step 25: Edit `docs/superpowers/plans/2026-08-21-espnv3-redemption-migration-plan.md`**
 
   Apply exactly these, and reset the checkboxes on every replaced step from `[x]` to `[ ]`:
 
@@ -1573,7 +1573,7 @@ The numbering of Assumptions 1–13 is **kept** so every existing cross-referenc
   - **Task dependency order section.** Delete the `.staked-stry` mention from the "One runtime write is shared" paragraph.
   - **Definition of done.** Change "`SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end, all nine steps.** There is no accepted early exit: the fork deploys its own `TripwireController`. An unresolved Assumption 4 blocks the mainnet broadcast of `Deploy.s.sol` and nothing else." to "`SNAPSHOT_BLOCK=<block> yarn verify:migration` **passes end to end** — see the Definition of done in [`2026-09-04-stry-merkl-yield-plan.md`](2026-09-04-stry-merkl-yield-plan.md)." Delete "No changes to `src/StakedStrat.sol`," from the final bullet, leaving "No changes to `src/EthStrategyPerpetualNote.sol`, or any other existing contract."
 
-- [ ] **Step 26: Add the superseded-by line to `docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md`**
+- [x] **Step 26: Add the superseded-by line to `docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md`**
 
   Insert one line immediately after the `- **Chain:**` bullet in the header block. No other change — this is a historical document and it is not rewritten:
 
@@ -1581,7 +1581,7 @@ The numbering of Assumptions 1–13 is **kept** so every existing cross-referenc
   - **Superseded (in part):** Track B's staking design is superseded by [`2026-09-04-stry-merkl-yield-design.md`](2026-09-04-stry-merkl-yield-design.md).
   ```
 
-- [ ] **Step 27: Run the checks to verify they pass, then commit**
+- [x] **Step 27: Run the checks to verify they pass, then commit**
 
   ```
   grep -n "StakedStrat\|staked-stry\|stake(STRY)\|sSTRAT-v2\|syncRewards\|Deploy.s.sol" docs/ESPNv3_Runbook.md
