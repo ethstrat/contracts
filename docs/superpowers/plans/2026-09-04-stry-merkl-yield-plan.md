@@ -377,7 +377,7 @@ Purely additive: nothing imports this library until Task 3.
 
 ---
 
-- [ ] **Step 6: Write the failing test `test/unit/MerklCampaignLibTest.sol`**
+- [x] **Step 6: Write the failing test `test/unit/MerklCampaignLibTest.sol`**
 
   Complete file:
 
@@ -494,7 +494,7 @@ Purely additive: nothing imports this library until Task 3.
   }
   ```
 
-- [ ] **Step 7: Run the test to verify it fails**
+- [x] **Step 7: Run the test to verify it fails**
 
   ```
   forge test --match-path test/unit/MerklCampaignLibTest.sol
@@ -502,7 +502,7 @@ Purely additive: nothing imports this library until Task 3.
 
   Expected: compilation fails with `Source "script/deployments/1/004-stry-migration/MerklCampaignLib.sol" not found`.
 
-- [ ] **Step 8: Write `script/deployments/1/004-stry-migration/MerklCampaignLib.sol`**
+- [x] **Step 8: Write `script/deployments/1/004-stry-migration/MerklCampaignLib.sol`**
 
   Complete file:
 
@@ -628,7 +628,7 @@ Purely additive: nothing imports this library until Task 3.
   }
   ```
 
-- [ ] **Step 9: Run the test to verify it passes**
+- [x] **Step 9: Run the test to verify it passes**
 
   ```
   forge test --match-path test/unit/MerklCampaignLibTest.sol -vv
@@ -639,7 +639,7 @@ Purely additive: nothing imports this library until Task 3.
 
   If `test_campaignData_matchesMainnetFixture_withUrl` fails while `test_canonicalJson_exactStoredString` passes, the sha256 call is wrong. If both fail on a casing difference in the address literals, `vm.toString(address)` is not emitting EIP-55 at this pin and the library needs a checksum routine — that is exactly what this assertion exists to find. (Verified at the current pin: it does emit EIP-55, so no routine is expected to be needed.)
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
   ```
   git add script/deployments/1/004-stry-migration/MerklCampaignLib.sol test/unit/MerklCampaignLibTest.sol
