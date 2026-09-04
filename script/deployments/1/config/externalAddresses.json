@@ -12,5 +12,9 @@
   },
   "eth-strategy": {
     "espn": "0xb250C9E0F7bE4cfF13F94374C993aC445A1385fE"
+  },
+  "merkl": {
+    "distributionCreator": "0x8BB4C975Ff3c250e0ceEA271728547f3802B36Fd",
+    "distributor": "0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae"
   }
 }

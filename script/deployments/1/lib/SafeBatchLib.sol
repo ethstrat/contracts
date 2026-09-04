@@ -22,10 +22,9 @@ library SafeBatchLib {
         string memory description,
         Tx[] memory txs
     ) internal {
-        string memory dir = string.concat("script/deployments/1/multisig/", operation, "/");
-        vm.createDir(dir, true);
+        vm.createDir(string.concat("script/deployments/1/multisig/", operation, "/"), true);
 
-        string memory path = string.concat(dir, _pad3(index), "-", _slice10(vm.toString(safe)), "-multisig.json");
+        string memory filePath = path(safe, operation, index);
 
         string memory transactions = "";
         for (uint256 i = 0; i < txs.length; i++) {
@@ -53,7 +52,22 @@ library SafeBatchLib {
             "]}"
         );
 
-        vm.writeFile(path, json);
+        vm.writeFile(filePath, json);
+    }
+
+    /// @dev The exact path `write` writes to. Exposed so a repeatable batch producer
+    /// (004-stry-migration/WeeklyYield.s.sol) can scan for the first free index using the same
+    /// derivation as the writer -- `write` ends in vm.writeFile, which overwrites silently.
+    function path(address safe, string memory operation, uint256 index) internal pure returns (string memory) {
+        return string.concat(
+            "script/deployments/1/multisig/",
+            operation,
+            "/",
+            _pad3(index),
+            "-",
+            _slice10(vm.toString(safe)),
+            "-multisig.json"
+        );
     }
 
     function _pad3(uint256 index) private pure returns (string memory) {

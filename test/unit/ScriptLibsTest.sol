@@ -37,6 +37,25 @@ contract ScriptLibsTest is Test {
         assertEq(ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses").length, 0);
     }
 
+    function test_ConfigLib_addr_merklAddresses() public view {
+        assertEq(
+            ConfigLib.addr("externalAddresses.json", ".merkl.distributionCreator"),
+            0x8BB4C975Ff3c250e0ceEA271728547f3802B36Fd
+        );
+        assertEq(
+            ConfigLib.addr("externalAddresses.json", ".merkl.distributor"), 0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae
+        );
+    }
+
+    function test_ConfigLib_num_merklSettings() public view {
+        assertEq(ConfigLib.num("settings.json", ".espnv3.merkl.campaignType"), 18);
+        assertEq(ConfigLib.num("settings.json", ".espnv3.merkl.duration"), 604_800);
+    }
+
+    function test_ConfigLib_addrArray_emptyMerklBlacklist() public view {
+        assertEq(ConfigLib.addrArray("settings.json", ".espnv3.merkl.blacklist").length, 0);
+    }
+
     function _writeFixture(string memory path, uint256 bodyBlock) internal {
         string memory json = string.concat(
             '{"snapshotBlock":',
@@ -108,7 +127,8 @@ contract ScriptLibsTest is Test {
         SafeBatchLib.write(safe, operation, 1, "test batch", "test description", txs);
 
         string memory dir = string.concat("script/deployments/1/multisig/", operation);
-        string memory path = string.concat(dir, "/001-0x11111111-multisig.json");
+        string memory path = SafeBatchLib.path(safe, operation, 1);
+        assertEq(path, string.concat(dir, "/001-0x11111111-multisig.json"));
         string memory json = vm.readFile(path);
 
         assertEq(vm.parseJsonAddress(json, ".transactions[0].to"), spender);

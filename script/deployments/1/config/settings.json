@@ -9,6 +9,11 @@
     "orderEndTime": "1799366400",
     "orderSalt": "espnv3-redemption-1",
     "finalYieldAmount": "0",
-    "excludedAddresses": []
+    "excludedAddresses": [],
+    "merkl": {
+      "campaignType": 18,
+      "duration": "604800",
+      "blacklist": []
+    }
   }
 }
