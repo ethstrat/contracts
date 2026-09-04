@@ -94,7 +94,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
 
 ---
 
-- [ ] **Step 1: Write the failing tests in `test/unit/ScriptLibsTest.sol`**
+- [x] **Step 1: Write the failing tests in `test/unit/ScriptLibsTest.sol`**
 
   Append these three test functions to the existing contract (after `test_ConfigLib_addrArray_emptyExcludedAddresses`), and change the path construction inside the existing `test_SafeBatchLib_write_roundTrips` to go through the new helper:
 
@@ -135,7 +135,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
       assertEq(path, string.concat(dir, "/001-0x11111111-multisig.json"));
   ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
   ```
   forge test --match-path test/unit/ScriptLibsTest.sol
@@ -143,7 +143,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
 
   Expected: compilation fails with `Member "path" not found or not visible after argument-dependent lookup in type(library SafeBatchLib)`. After the `path` helper is added but before the config keys are, expect three failures reading `key ".merkl.distributionCreator" not found`, `key ".espnv3.merkl.campaignType" not found` and `key ".espnv3.merkl.blacklist" not found`.
 
-- [ ] **Step 3a: Add the `merkl` block to `script/deployments/1/config/externalAddresses.json`**
+- [x] **Step 3a: Add the `merkl` block to `script/deployments/1/config/externalAddresses.json`**
 
   Final content:
 
@@ -170,7 +170,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
   }
   ```
 
-- [ ] **Step 3b: Add `.espnv3.merkl` to `script/deployments/1/config/settings.json`**
+- [x] **Step 3b: Add `.espnv3.merkl` to `script/deployments/1/config/settings.json`**
 
   Append the `merkl` object as the last key inside `espnv3`. Final content:
 
@@ -198,7 +198,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
 
   `campaignType` is an unscaled number (it is an enum ordinal); `duration` is a quoted decimal string (it is a time quantity, per the plan's unit convention); `blacklist` ships empty — every STRY holder, including the redemption Safe's own ~9.2%, earns. That is Open Risk 6, a founder decision, and it is overridable per campaign later via Merkl's blacklist override without a new campaign.
 
-- [ ] **Step 3c: Write `script/deployments/1/004-stry-migration/interfaces/IMerklDistributionCreator.sol`**
+- [x] **Step 3c: Write `script/deployments/1/004-stry-migration/interfaces/IMerklDistributionCreator.sol`**
 
   Minimal, mirroring `003-espn-redemption/interfaces/ISeaportMinimal.sol`. Nothing beyond what `WeeklyYield.s.sol` and `Verify.s.sol` call. Complete file:
 
@@ -283,7 +283,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
   }
   ```
 
-- [ ] **Step 3d: Extract `path(...)` in `script/deployments/1/lib/SafeBatchLib.sol`**
+- [x] **Step 3d: Extract `path(...)` in `script/deployments/1/lib/SafeBatchLib.sol`**
 
   `write` ends in `vm.writeFile`, which overwrites silently. `WeeklyYield.s.sol` is this repo's first **repeatable** batch producer and must scan for the first free index using *exactly* the writer's derivation — a drift between the two rewrites a previous week's batch in place with no error. So there is one derivation, used by both.
 
@@ -323,7 +323,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
       }
   ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
   ```
   forge build
@@ -333,7 +333,7 @@ Purely additive. Nothing is deleted and no existing behaviour changes, so the tr
 
   Expected: `forge build` succeeds (`IMerklDistributionCreator` compiles under `solc 0.8.24`); the ScriptLibs suite passes with the three new tests plus the amended `test_SafeBatchLib_write_roundTrips`; `forge fmt --check` prints nothing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```
   git add script/deployments/1/004-stry-migration/interfaces/IMerklDistributionCreator.sol \
