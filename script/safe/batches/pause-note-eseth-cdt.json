@@ -1,0 +1,28 @@
+{
+  "description": "Global-trip the redeployed EthStrategyConvertibleNote (0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56), esETH, and CdtToken via TripwireController. Note: StratToken has no tripwire integration on-chain (no controller()/whenNotTripped at all on this deployment) and cannot be included — see script/safe/batches/disable-strat-minting.json for the separate lever available on STRAT.",
+  "safeAddress": "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Trip new convertible note",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "tripGlobal(address)",
+      "args": ["0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"]
+    },
+    {
+      "label": "Trip esETH",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "tripGlobal(address)",
+      "args": ["0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb"]
+    },
+    {
+      "label": "Trip CdtToken",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "tripGlobal(address)",
+      "args": ["0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3"]
+    }
+  ]
+}
