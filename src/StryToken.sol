@@ -7,7 +7,7 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 contract StryToken is ERC20, Ownable {
     error LengthMismatch();
 
-    constructor(address initialOwner) ERC20("ETH Strategy Yield", "STRY") Ownable(initialOwner) {}
+    constructor(address initialOwner) ERC20("ETH Strategy Earn", "EARN") Ownable(initialOwner) {}
 
     function mintBatch(address[] calldata to, uint256[] calldata amounts) external onlyOwner {
         if (to.length != amounts.length) revert LengthMismatch();

@@ -119,8 +119,8 @@ contract StryTokenTest is Test {
         assertEq(token.balanceOf(user), 700);
         assertEq(token.balanceOf(owner), 300);
 
-        assertEq(token.name(), "ETH Strategy Yield");
-        assertEq(token.symbol(), "STRY");
+        assertEq(token.name(), "ETH Strategy Earn");
+        assertEq(token.symbol(), "EARN");
         assertEq(token.decimals(), 18);
     }
 }

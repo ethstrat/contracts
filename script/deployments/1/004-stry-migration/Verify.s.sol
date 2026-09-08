@@ -7,24 +7,27 @@ import {StdAssertions} from "forge-std/StdAssertions.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {EthStrategyPerpetualNote} from "src/EthStrategyPerpetualNote.sol";
 import {StryToken} from "src/StryToken.sol";
+import {StakedStrat} from "src/StakedStrat.sol";
+import {TripwireController} from "src/lib/TripwireController.sol";
 import {ConfigLib} from "../lib/ConfigLib.sol";
 import {HoldersLib} from "../lib/HoldersLib.sol";
-import {IMerklDistributionCreator} from "./interfaces/IMerklDistributionCreator.sol";
-import {MerklCampaignLib} from "./MerklCampaignLib.sol";
+import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 import {StopEspnYield} from "./StopEspnYield.s.sol";
 import {Distribute} from "./Distribute.s.sol";
+import {Deploy} from "./Deploy.s.sol";
 import {WeeklyYield} from "./WeeklyYield.s.sol";
-import {WeeklyYieldProbe} from "./WeeklyYieldProbe.s.sol";
 
 /// @notice Track B mainnet-fork Verify script. Same harness as Track A: vm.startPrank, not
 /// vm.startBroadcast, so no config or Safe batch file is written. Calls the other scripts'
-/// internal entry points, never their run()s.
-contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, WeeklyYield {
-    /// @dev The fork Safe holds ~1.2M USDS, comfortably above this and above Merkl's 168 USDS
-    /// floor for a 7-day campaign.
-    uint256 internal constant FORK_YIELD_AMOUNT = 10_000e18;
+/// internal entry points, never their run()s. WeeklyYield's batch is exercised by building it via
+/// weeklyYield() and then executing the returned txs as calls from the Safe under prank -- the
+/// same shape a Safe signer's execution would take, without ever writing a batch file.
+contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, Deploy, WeeklyYield {
+    uint256 internal constant ZERO_STAKER_DEPOSIT = 1_000e18;
+    uint256 internal constant WEEKLY_DEPOSIT = 1_000e18;
+    uint256 internal constant CLAIM_TOLERANCE = 1e6;
 
-    function run() external override(StopEspnYield, Distribute, WeeklyYield) {
+    function run() external override(StopEspnYield, Distribute, Deploy, WeeklyYield) {
         // Same derivation as 003-espn-redemption/Verify.s.sol: the holders file is named after the
         // snapshot block, so SNAPSHOT_BLOCK alone pins both the fork and the snapshot.
         uint256 snapshotBlockTarget = vm.envUint("SNAPSHOT_BLOCK");
@@ -38,6 +41,9 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
             console2.log("WARNING: fork block != snapshotBlock; export SNAPSHOT_BLOCK to fix:");
             console2.log(snapshot.snapshotBlock);
         }
+
+        (address holder,) = _pickLargestHolder(snapshot);
+        require(holder != address(0), "Verify: no non-contract, non-excluded holder in snapshot");
 
         // Item 1: StopEspnYield -- the third-party outflow must be visible in test output, not
         // merely pass.
@@ -65,267 +71,177 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
             "Verify: USDS did not land at ESPN.manager()"
         );
 
-        // Item 2: Distribute STRY (single mintBatch). This is the fork-fresh STRY address item 3
-        // passes to weeklyYield as an argument -- never via deploymentAddresses.json.
+        // Item 2: Distribute STRY (single mintBatch).
         address stryDeployer = makeAddr("stryDeployer");
         vm.startPrank(stryDeployer);
         StryToken stry = distribute(stryDeployer, holdersFile);
         vm.stopPrank();
         assertEq(stry.owner(), address(0), "Verify: STRY ownership not renounced");
 
-        // Item 3: build the campaign. No vm.warp is needed: the start is derived from the fork
-        // clock, 48 hour-slots ahead, which is >= block.timestamp + 47h and hour-aligned, so it
-        // satisfies weeklyYield's two WEEKLY_YIELD_START pre-conditions by construction.
+        // Item 3: deploy a TripwireController locally and pass it to Deploy's internal deploy().
+        // TripwireGuard's constructor calls controller.register() itself, permissionlessly -- no
+        // controller-owner transaction is needed.
+        address guardian = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.tripwire-guardian");
+        TripwireController controller = new TripwireController();
+        StakedStrat stakedStrat = deploy(address(stry), address(controller), guardian);
+
         address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
-        address[] memory blacklist = ConfigLib.addrArray("settings.json", ".espnv3.merkl.blacklist");
-        uint32 start = uint32((block.timestamp / 3600 + 48) * 3600);
+        uint256 holderStryBalance = stry.balanceOf(holder);
 
-        (IMerklDistributionCreator.CampaignParameters memory params, bytes32 campaignId, string memory json) =
-            weeklyYield(safe, usds, address(stry), FORK_YIELD_AMOUNT, start, blacklist);
-
-        IMerklDistributionCreator dc =
-            IMerklDistributionCreator(ConfigLib.addr("externalAddresses.json", ".merkl.distributionCreator"));
-        assertEq(campaignId, dc.campaignId(params), "Verify: returned campaignId != DistributionCreator.campaignId");
-        assertEq(
-            params.campaignData,
-            abi.encodePacked(MerklCampaignLib.campaignData(json)),
-            "Verify: params.campaignData != sha256 of the JSON the script would POST to Merkl"
-        );
-        // Independent re-derivation from the same inputs, so a transposed argument inside
-        // weeklyYield fails here rather than on Merkl's engine a week later.
-        assertEq(
-            json,
-            MerklCampaignLib.canonicalJson({
-                amount: FORK_YIELD_AMOUNT,
-                creator: safe,
-                rewardToken: usds,
-                targetToken: address(stry),
-                campaignType: params.campaignType,
-                startTimestamp: start,
-                duration: params.duration,
-                blacklist: blacklist,
-                url: ""
-            }),
-            "Verify: weeklyYield's canonical JSON does not match an independent re-derivation"
-        );
-        assertEq(uint256(params.campaignType), 18, "Verify: campaignType != 18 (ERC20LOGPROCESSOR)");
-        assertEq(uint256(params.duration), 604_800, "Verify: duration != 604800 (7 days)");
-        assertEq(params.creator, safe, "Verify: creator != the redemption Safe");
-        assertEq(params.rewardToken, usds, "Verify: rewardToken != USDS");
-        assertEq(params.amount, FORK_YIELD_AMOUNT, "Verify: amount != the requested gross");
-        assertEq(params.campaignData.length, 32, "Verify: campaignData is not exactly 32 bytes");
-
-        // Items 4-6, 10: split into a helper -- via-ir hits "stack too deep" when this many
-        // locals (items 0-3's plus these) are live in one function body.
-        _executeAndVerifyCampaign(dc, safe, usds, params, campaignId, start);
-
-        // Items 7-9: the negative paths.
-        _assertRejectsBelowMinimum(dc, safe, usds, address(stry), start, blacklist);
-        _assertRejectsDuplicate(dc, safe, usds, params);
-        _assertUnsignedCreatorMustAcceptConditions(dc, usds, params);
-    }
-
-    /// @dev Items 4-6, 10. Execute the batch's calls in the emitted order, as the Safe.
-    /// startPrank's two-argument form also sets tx.origin, because Merkl's hasSigned modifier
-    /// reads both.
-    function _executeAndVerifyCampaign(
-        IMerklDistributionCreator dc,
-        address safe,
-        address usds,
-        IMerklDistributionCreator.CampaignParameters memory params,
-        bytes32 campaignId,
-        uint32 start
-    ) internal {
+        // Item 4: zero-staker permanent-loss case, before the happy path. Snapshot state first so
+        // this can be reverted afterwards.
+        uint256 preLossSnapshot = vm.snapshotState();
         {
-            (uint256 net, uint256 fee) = _merklFeeSplit(dc, safe, params.campaignType, params.amount);
-            // The Safe holds ~1.2M USDS on this fork, so assert the real balance rather than
-            // faking it. weeklyYield() above already requires balanceOf(safe) >= amount, so a
-            // short balance would have reverted before reaching here.
-            address distributorAddr = dc.distributor();
-            address feeRecipientAddr = dc.feeRecipient();
-            uint256 safeBefore = IERC20(usds).balanceOf(safe);
-            uint256 distributorBefore = IERC20(usds).balanceOf(distributorAddr);
-            uint256 feeRecipientBefore = IERC20(usds).balanceOf(feeRecipientAddr);
-
-            // The script omits acceptConditions() from the batch when the Safe is whitelisted.
-            // Assert the branch agrees with the live state rather than trusting either alone.
-            assertEq(dc.userSignatureWhitelist(safe), 1, "Verify: redemption Safe is no longer Merkl-whitelisted");
-            assertFalse(
-                _needsAcceptConditions(dc, safe),
-                "Verify: script would include acceptConditions() for a whitelisted Safe"
-            );
-
-            vm.startPrank(safe, safe);
-            IERC20(usds).approve(address(dc), params.amount);
-            uint256 gasBefore = gasleft();
-            bytes32 createdId = dc.createCampaign(params);
-            uint256 executionGas = gasBefore - gasleft();
+            address zeroStakerDepositor = makeAddr("zeroStakerDepositor");
+            deal(usds, zeroStakerDepositor, ZERO_STAKER_DEPOSIT);
+            vm.startPrank(zeroStakerDepositor);
+            IERC20(usds).transfer(address(stakedStrat), ZERO_STAKER_DEPOSIT);
+            stakedStrat.syncRewards();
             vm.stopPrank();
 
-            assertEq(createdId, campaignId, "Verify: createCampaign returned a different id than campaignId()");
+            vm.warp(block.timestamp + 1 days);
 
-            // Item 5: registration. campaignLookup reverts CampaignDoesNotExist() for an unknown
-            // id and returns index-1 otherwise, so "registered" means "this call does not revert".
-            try dc.campaignLookup(createdId) returns (uint256) {}
-            catch {
-                revert("Verify: campaign is not registered");
-            }
-            IMerklDistributionCreator.CampaignParameters memory stored = dc.campaign(createdId);
-            assertEq(stored.campaignId, campaignId, "Verify: stored campaignId mismatch");
-            assertEq(stored.creator, safe, "Verify: stored creator != the redemption Safe");
-            assertEq(stored.rewardToken, usds, "Verify: stored rewardToken != USDS");
-            assertEq(uint256(stored.campaignType), 18, "Verify: stored campaignType != 18");
-            assertEq(uint256(stored.startTimestamp), uint256(start), "Verify: stored startTimestamp mismatch");
-            assertEq(uint256(stored.duration), 604_800, "Verify: stored duration != 604800");
-            assertEq(stored.campaignData, params.campaignData, "Verify: stored campaignData mismatch");
-            // DistributionCreator stores the amount NET of fees -- confirmed on mainnet against
-            // the treasury's own campaign (23.2 -> 22.504 wETH at the default 3%).
-            assertEq(stored.amount, net, "Verify: stored amount != gross * (1e9 - fees) / 1e9");
+            vm.startPrank(holder);
+            stry.approve(address(stakedStrat), holderStryBalance);
+            stakedStrat.stake(holderStryBalance);
+            vm.stopPrank();
 
-            // Item 6: balances.
-            assertEq(IERC20(usds).balanceOf(safe), safeBefore - params.amount, "Verify: Safe USDS delta != -gross");
-            assertEq(
-                IERC20(usds).balanceOf(distributorAddr),
-                distributorBefore + net,
-                "Verify: Distributor USDS delta != +net"
-            );
-            assertEq(
-                IERC20(usds).balanceOf(feeRecipientAddr),
-                feeRecipientBefore + fee,
-                "Verify: feeRecipient USDS delta != +fee"
-            );
-            assertEq(
-                IERC20(usds).allowance(safe, address(dc)),
-                0,
-                "Verify: USDS allowance to DistributionCreator not fully consumed"
+            vm.warp(stakedStrat.periodFinish());
+
+            uint256 usdsBefore = IERC20(usds).balanceOf(holder);
+            vm.prank(holder);
+            stakedStrat.claim();
+            uint256 claimed = IERC20(usds).balanceOf(holder) - usdsBefore;
+            assertLt(
+                claimed, ZERO_STAKER_DEPOSIT, "Verify: zero-staker-case claim should be strictly less than the deposit"
             );
 
-            // Item 10: gas, in the Step 23 two-line format. The calldata term is an upper bound
-            // (16 gas per byte, ignoring the 4-gas discount on zero bytes).
-            uint256 calldataGasEstimate =
-                21_000 + abi.encodeCall(IMerklDistributionCreator.createCampaign, (params)).length * 16;
-            console2.log("createCampaign execution gas:", executionGas);
-            console2.log(
-                "createCampaign total estimated (execution + 21000 intrinsic + calldata):",
-                executionGas + calldataGasEstimate
+            uint256 notifiedBefore = stakedStrat.totalNotifiedRewards();
+            stakedStrat.syncRewards();
+            assertEq(
+                stakedStrat.totalNotifiedRewards(),
+                notifiedBefore,
+                "Verify: second syncRewards() after a fully-streamed period should be a no-op"
             );
+
+            console2.log("Zero-staker loss case -- deposited:", ZERO_STAKER_DEPOSIT);
+            console2.log("Zero-staker loss case -- claimed (permanently lost the rest):", claimed);
         }
-    }
+        vm.revertToState(preLossSnapshot);
 
-    /// @dev Item 7. Both halves of the same floor: Merkl's own revert, and the script's named
-    /// pre-condition, which exists so the operator sees the 168 USDS figure instead of a bare
-    /// CampaignRewardTooLow.
-    function _assertRejectsBelowMinimum(
-        IMerklDistributionCreator dc,
-        address safe,
-        address usds,
-        address stry,
-        uint32 start,
-        address[] memory blacklist
-    ) internal {
-        uint256 tooLow = dc.rewardTokenMinAmounts(usds) * 168 - 1;
-
-        // A different start keeps the campaignId distinct from the one already created, so this
-        // reverts on the amount and not on CampaignAlreadyExists.
-        IMerklDistributionCreator.CampaignParameters memory low = IMerklDistributionCreator.CampaignParameters({
-            campaignId: bytes32(0),
-            creator: safe,
-            rewardToken: usds,
-            amount: tooLow,
-            campaignType: 18,
-            startTimestamp: start + 3600,
-            duration: 604_800,
-            campaignData: abi.encodePacked(
-                MerklCampaignLib.campaignData(
-                    MerklCampaignLib.canonicalJson({
-                        amount: tooLow,
-                        creator: safe,
-                        rewardToken: usds,
-                        targetToken: stry,
-                        campaignType: 18,
-                        startTimestamp: start + 3600,
-                        duration: 604_800,
-                        blacklist: blacklist,
-                        url: ""
-                    })
-                )
-            )
-        });
-
-        vm.startPrank(safe, safe);
-        IERC20(usds).approve(address(dc), tooLow);
-        vm.expectRevert(IMerklDistributionCreator.CampaignRewardTooLow.selector);
-        dc.createCampaign(low);
-        IERC20(usds).approve(address(dc), 0);
+        // Item 5: happy path -- stake. Approve STRY, never the position token (position-token
+        // approve reverts TransferDisabled()).
+        vm.startPrank(holder);
+        stry.approve(address(stakedStrat), holderStryBalance);
+        uint256 stakeGasBefore = gasleft();
+        stakedStrat.stake(holderStryBalance);
+        uint256 stakeGas = stakeGasBefore - gasleft();
         vm.stopPrank();
 
-        // The script's own pre-condition, asserted through an external call boundary --
-        // weeklyYield is an internal function, so vm.expectRevert cannot observe its revert
-        // otherwise (same reason as ScriptLibsTest._loadExternal). Unlike that Test contract,
-        // Verify is a Script: forge script blocks a self-call via `this.foo()` ("Usage of
-        // `address(this)` detected in script contract"), so the wrapper lives on a separate
-        // deployed WeeklyYieldProbe instance instead of address(this). The deploy happens before
-        // expectRevert is armed -- expectRevert binds to the very next call, and a `new` in the
-        // same statement would bind it to the CREATE instead of the external call that reverts.
-        WeeklyYieldProbe probe = new WeeklyYieldProbe();
-        vm.expectRevert(
-            bytes(
-                "WeeklyYield: WEEKLY_YIELD_AMOUNT is below Merkl's floor of rewardTokenMinAmounts(USDS) per campaign-hour (>= 168 USDS for a 7-day campaign)"
-            )
+        // Item 6: WeeklyYield, including its totalStaked > 0 guard. weeklyYield() builds the same
+        // Tx[] batch run() would write to a Safe Transaction Builder file; _executeBatch runs it
+        // as calls from the redemption Safe under prank, mirroring what a Safe signer's execution
+        // would do.
+        if (IERC20(usds).balanceOf(safe) < WEEKLY_DEPOSIT) deal(usds, safe, WEEKLY_DEPOSIT);
+        uint256 notifiedBeforeWeekly = stakedStrat.totalNotifiedRewards();
+        SafeBatchLib.Tx[] memory weeklyTxs = weeklyYield(safe, usds, address(stakedStrat), WEEKLY_DEPOSIT);
+        uint256 syncGasBefore = gasleft();
+        _executeBatch(safe, weeklyTxs);
+        uint256 syncGas = syncGasBefore - gasleft();
+        assertEq(
+            stakedStrat.periodFinish(),
+            block.timestamp + 7 days,
+            "Verify: periodFinish does not describe a 7-day stream"
         );
-        probe.weeklyYieldExternal(safe, usds, stry, tooLow, start + 3600, blacklist);
+        assertEq(
+            stakedStrat.rewardRate(),
+            WEEKLY_DEPOSIT / 7 days,
+            "Verify: rewardRate does not describe a 7-day stream of the deposit"
+        );
+        assertEq(
+            stakedStrat.totalNotifiedRewards(),
+            notifiedBeforeWeekly + WEEKLY_DEPOSIT,
+            "Verify: totalNotifiedRewards did not increase by the deposit"
+        );
+
+        // Item 7: warp 7 days -> claim. Sole staker => the full week's deposit, minus stream
+        // rounding dust.
+        vm.warp(block.timestamp + 7 days);
+        uint256 usdsBeforeClaim = IERC20(usds).balanceOf(holder);
+        vm.prank(holder);
+        uint256 claimGasBefore = gasleft();
+        stakedStrat.claim();
+        uint256 claimGas = claimGasBefore - gasleft();
+        uint256 claimedFull = IERC20(usds).balanceOf(holder) - usdsBeforeClaim;
+        assertApproxEqAbs(
+            claimedFull, WEEKLY_DEPOSIT, CLAIM_TOLERANCE, "Verify: claimed reward far from the full week's deposit"
+        );
+
+        // Item 8: unstake the full staked balance -> STRY returned and the auto-claim runs. Item 7
+        // just claimed everything as of periodFinish, so unstaking immediately after would
+        // auto-claim zero and never exercise unstake's `if (claimable > 0)` branch
+        // (src/StakedStrat.sol:228). Notify a second reward and warp partway through its stream
+        // first so real rewards are pending at unstake time.
+        uint256 secondYieldAmount = WEEKLY_DEPOSIT / 2;
+        deal(usds, safe, secondYieldAmount);
+        SafeBatchLib.Tx[] memory secondTxs = weeklyYield(safe, usds, address(stakedStrat), secondYieldAmount);
+        _executeBatch(safe, secondTxs);
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 stakedBalance = stakedStrat.staked(holder);
+        uint256 stryBefore = stry.balanceOf(holder);
+        uint256 usdsBeforeUnstake = IERC20(usds).balanceOf(holder);
+        vm.prank(holder);
+        uint256 unstakeGasBefore = gasleft();
+        stakedStrat.unstake(stakedBalance);
+        uint256 unstakeGas = unstakeGasBefore - gasleft();
+        assertEq(stry.balanceOf(holder), stryBefore + stakedBalance, "Verify: STRY not returned on unstake");
+        uint256 unstakeAutoClaimed = IERC20(usds).balanceOf(holder) - usdsBeforeUnstake;
+        assertGt(unstakeAutoClaimed, 0, "Verify: unstake auto-claim paid zero -- claimable > 0 branch not exercised");
+        console2.log("unstake auto-claim paid:", unstakeAutoClaimed);
+
+        // Item 9: gas (informational).
+        console2.log("stake execution gas:", stakeGas);
+        console2.log("weeklyYield execution gas:", syncGas);
+        console2.log("claim execution gas:", claimGas);
+        console2.log("unstake execution gas:", unstakeGas);
     }
 
-    /// @dev Item 8. _createCampaign pulls the tokens before it checks the id, so the allowance
-    /// has to be re-granted for the attempt even though it reverts and rolls back.
-    function _assertRejectsDuplicate(
-        IMerklDistributionCreator dc,
-        address safe,
-        address usds,
-        IMerklDistributionCreator.CampaignParameters memory params
-    ) internal {
-        if (IERC20(usds).balanceOf(safe) < params.amount) deal(usds, safe, params.amount);
+    /// @dev Executes a Safe Transaction Builder batch's txs, in order, as calls from `safe` --
+    /// the same shape a Safe signer's execution would take once the emitted JSON is imported and
+    /// run. startPrank's two-argument form also sets tx.origin, matching how the other Verify
+    /// scripts in this repo simulate Safe execution.
+    function _executeBatch(address safe, SafeBatchLib.Tx[] memory txs) internal {
         vm.startPrank(safe, safe);
-        IERC20(usds).approve(address(dc), params.amount);
-        vm.expectRevert(IMerklDistributionCreator.CampaignAlreadyExists.selector);
-        dc.createCampaign(params);
-        IERC20(usds).approve(address(dc), 0);
+        for (uint256 i = 0; i < txs.length; i++) {
+            (bool ok, bytes memory ret) = txs[i].to.call(txs[i].data);
+            if (!ok) {
+                if (ret.length > 0) {
+                    assembly {
+                        revert(add(ret, 32), mload(ret))
+                    }
+                }
+                revert("Verify: batch tx reverted with no reason");
+            }
+        }
         vm.stopPrank();
     }
 
-    /// @dev Item 9. Proves the conditional second transaction is the right shape for a Safe that
-    /// is not on userSignatureWhitelist: createCampaign reverts NotSigned, acceptConditions()
-    /// fixes it, the identical call then succeeds. campaignData is deliberately left as the
-    /// whitelisted Safe's -- the creator field alone makes the campaignId distinct, and on a
-    /// fork there is no engine to resolve the config.
-    function _assertUnsignedCreatorMustAcceptConditions(
-        IMerklDistributionCreator dc,
-        address usds,
-        IMerklDistributionCreator.CampaignParameters memory params
-    ) internal {
-        address unsigned = makeAddr("unsignedCreator");
-        assertEq(dc.userSignatureWhitelist(unsigned), 0, "Verify: the unsigned fixture address is whitelisted");
-        deal(usds, unsigned, params.amount);
-
-        IMerklDistributionCreator.CampaignParameters memory p = params;
-        p.creator = unsigned;
-        p.campaignId = bytes32(0);
-
-        vm.startPrank(unsigned, unsigned);
-        IERC20(usds).approve(address(dc), params.amount);
-        vm.expectRevert(IMerklDistributionCreator.NotSigned.selector);
-        dc.createCampaign(p);
-
-        dc.acceptConditions();
-        assertEq(dc.userSignatures(unsigned), dc.messageHash(), "Verify: acceptConditions did not record a signature");
-        assertFalse(_needsAcceptConditions(dc, unsigned), "Verify: script would still ask a signed creator to sign");
-
-        bytes32 unsignedId = dc.createCampaign(p);
-        vm.stopPrank();
-        // Same semantics as item 5: registration is proven by campaignLookup not reverting.
-        try dc.campaignLookup(unsignedId) returns (uint256) {}
-        catch {
-            revert("Verify: campaign not registered after acceptConditions()");
+    /// @dev Picks the largest non-contract, non-excluded holder from the committed snapshot at
+    /// runtime, rather than hardcoding an address that may have moved.
+    function _pickLargestHolder(HoldersLib.Snapshot memory snapshot)
+        internal
+        pure
+        returns (address holder, uint256 balance)
+    {
+        for (uint256 i; i < snapshot.holders.length; ++i) {
+            HoldersLib.Holder memory h = snapshot.holders[i];
+            if (h.excluded || h.isContract) continue;
+            uint256 bal = vm.parseUint(h.balance);
+            if (bal > balance) {
+                balance = bal;
+                holder = h.addr;
+            }
         }
     }
 }
