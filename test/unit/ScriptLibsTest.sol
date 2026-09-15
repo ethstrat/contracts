@@ -33,8 +33,11 @@ contract ScriptLibsTest is Test {
         assertEq(ConfigLib.num("settings.json", ".espnv3.fillGrid"), 1_000_000_000);
     }
 
-    function test_ConfigLib_addrArray_emptyExcludedAddresses() public view {
-        assertEq(ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses").length, 0);
+    function test_ConfigLib_addrArray_excludedAddresses() public view {
+        address[] memory excluded = ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses");
+        assertEq(excluded.length, 2);
+        assertEq(excluded[0], 0x000000000004444c5dc75cB358380D2e3dE08A90); // V4 PoolManager singleton
+        assertEq(excluded[1], 0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D); // redemption Safe/treasury
     }
 
     function test_ConfigLib_addr_merklAddresses() public view {
