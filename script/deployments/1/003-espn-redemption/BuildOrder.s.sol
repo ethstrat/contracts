@@ -76,6 +76,8 @@ contract BuildOrder is Script {
         uint256 navPerEspn;
         (usdsOffer, espnAsk, redemptionAsk, navPerEspn) = _deriveAndCheckPreconditions(redemptionToken);
 
+        _checkSnapshotFreshness(holdersFile);
+
         _logCapacity(redemptionToken, holdersFile, navPerEspn);
 
         orderParams = _constructOrder(redemptionToken, usdsOffer, espnAsk, redemptionAsk);
@@ -122,6 +124,24 @@ contract BuildOrder is Script {
         );
         require(block.timestamp < orderStartTime, "BuildOrder: orderStartTime already passed");
         require(orderStartTime < orderEndTime, "BuildOrder: orderStartTime >= orderEndTime");
+    }
+
+    /// @dev Hard-revert guard against Assumption 3 (ESPN.increaseAssetsPerShare() has no access
+    /// control, so anyone can move NAV between snapshot time and broadcast) and Assumption 8
+    /// (deposit-cap-driven supply drift): ties the live ESPN state back to what the snapshot
+    /// recorded. `internal` (not `private`), matching `_loadConfig`/`_buildOrder` above, so
+    /// `Verify.s.sol` and tests can call it directly. `totalSupply` has always been recorded, so
+    /// it's checked unconditionally; `totalAssets` is optional (older snapshots predate this
+    /// check) and the NAV half is skipped when absent.
+    function _checkSnapshotFreshness(string memory holdersFile) internal view {
+        HoldersLib.Snapshot memory snapshot = HoldersLib.load(holdersFile);
+        require(espn.totalSupply() == snapshot.totalSupply, "BuildOrder: ESPN totalSupply drifted since snapshot");
+        if (snapshot.totalAssets != 0) {
+            require(
+                espn.totalAssets() == snapshot.totalAssets,
+                "BuildOrder: ESPN totalAssets drifted since snapshot (NAV moved)"
+            );
+        }
     }
 
     /// @dev Logged, not reverted — two capacity figures so the signer sees the realistic cap, not

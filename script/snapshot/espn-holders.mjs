@@ -324,15 +324,23 @@ async function main() {
     }))
     .sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
 
-  const output = { snapshotBlock, totalSupply: totalSupply.toString(), holders };
-  const outPath = repoPath(`script/deployments/1/config/espn-holders-${snapshotBlock}.json`);
-  writeFileSync(outPath, JSON.stringify(output, null, 2) + "\n");
-
-  // 8. Summary to stderr (reference figures, not written to the file).
+  // totalAssets — persisted (guards the NAV-didn't-change-since-snapshot check downstream) and
+  // also used for the NAV-per-share figure in the summary below.
   const totalAssets = hexToBigInt(
     await rpcRequest(rpcUrl, "eth_call", [{ to: espnAddress, data: "0x01e1d114" }, toHex(snapshotBlock)]),
     "ESPN.totalAssets()",
   );
+
+  const output = {
+    snapshotBlock,
+    totalSupply: totalSupply.toString(),
+    totalAssets: totalAssets.toString(),
+    holders,
+  };
+  const outPath = repoPath(`script/deployments/1/config/espn-holders-${snapshotBlock}.json`);
+  writeFileSync(outPath, JSON.stringify(output, null, 2) + "\n");
+
+  // 8. Summary to stderr.
   const navPerEspn = totalSupply === 0n ? 0n : (totalAssets * 10n ** 18n) / totalSupply;
   const contractCount = holders.filter((h) => h.isContract).length;
   const excludedCount = holders.filter((h) => h.excluded).length;

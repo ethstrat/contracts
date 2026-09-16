@@ -18,6 +18,9 @@ library HoldersLib {
     struct Snapshot {
         uint256 snapshotBlock;
         uint256 totalSupply;
+        // Optional — absent (0) means this snapshot pre-dates the NAV-drift check, which is then
+        // skipped for it. Old committed snapshot files have no `totalAssets` key.
+        uint256 totalAssets;
         Holder[] holders;
     }
 
@@ -26,6 +29,7 @@ library HoldersLib {
 
         snapshot.snapshotBlock = vm.parseJsonUint(json, ".snapshotBlock");
         snapshot.totalSupply = vm.parseJsonUint(json, ".totalSupply");
+        snapshot.totalAssets = vm.keyExistsJson(json, ".totalAssets") ? vm.parseJsonUint(json, ".totalAssets") : 0;
 
         // `.holders` is NOT decoded as `Holder[]` in one `abi.decode` — `vm.parseJson`'s untyped
         // type inference guesses each `balance` value's ABI type from its own magnitude: a quoted
