@@ -63,24 +63,24 @@ live 700,000 USDS Seaport allowance with no way to revoke it through this run-bo
 
 ## 3. Holder fill instructions
 
-**You can redeem at most 20% of your ESPN.** REDEMPTION was airdropped 1:1 with ESPN and
-the order consumes 5 REDEMPTION per ESPN redeemed, so your REDEMPTION balance, not your
+**You can redeem at most 19.84% of your ESPN.** REDEMPTION was airdropped 1:1 with ESPN and
+the order consumes 5.04 REDEMPTION per ESPN redeemed, so your REDEMPTION balance, not your
 ESPN balance, sets the maximum.
 
 Figures below are from the real `BuildOrder.s.sol` / `Verify.s.sol` run against
-`SNAPSHOT_BLOCK=25800912`:
+`SNAPSHOT_BLOCK=25986306`:
 
 ```
-order hash    = 0x326cbf176a77740c199c19d21d13234cdff67d5bdbc71cf92a1d142a37b594d8
-espnAsk       = 6279726801165000000000   (6,279.726801165 ESPN)
-redemptionAsk = 31398634005825000000000  (31,398.634005825 REDEMPTION)
+order hash    = 0xc044de5927c4d3ddc718fa39dfaab16449e5cb26439cc56ef7c5405b246d80c9
+espnAsk       = 6266066582822000000000   (6,266.066582822 ESPN)
+redemptionAsk = 31580975577425000000000  (31,580.975577425 REDEMPTION)
 usdsOffer     = 700000000000000000000000 (700,000 USDS)
 
 denominator = 1000000000
 numerator   = min( floor(yourEspnBalance * denominator / espnAsk),
                     floor(yourRedemptionBalance * denominator / redemptionAsk) )
             = in practice, floor(yourRedemptionBalance * denominator / redemptionAsk)
-              -> you can redeem at most 20% of your ESPN
+              -> you can redeem at most 19.84% of your ESPN
             (the shorthand only equals your ESPN balance for addresses whose REDEMPTION
              balance still equals their ESPN balance, i.e. no REDEMPTION bought or sold
              since the airdrop — see section 4)
@@ -105,12 +105,22 @@ supply) — a fill can never ask for more than 100% of the grid.
 
 ## 4. What "pro-rata" does and does not mean
 
-Capacity is capped at 700,000 USDS and is **first-come-first-served**, not a guaranteed
-per-holder entitlement. In practice the pool is unlikely to be exhausted:
+Capacity is capped at 700,000 USDS and is nominally **first-come-first-served**, not a
+guaranteed per-holder entitlement — but at the current 5.04:1 ratio, ex-treasury capacity is
+already below the 700,000 offer (see the shortfall note below), so in practice every
+eligible holder can redeem their full 19.84% cap with USDS left unclaimed. This was not
+true at the prior 5:1 ratio, where capacity slightly exceeded the offer:
 
-- Theoretical ex-treasury capacity at this snapshot: **704,395.92 USDS** (`usableRedemption`) — only ~0.6% headroom over the 700,000 offer.
-- Reachable capacity, further excluding contract holders (LP pairs above all — REDEMPTION held by an address that cannot call `approve`/`fulfillAdvancedOrder` is permanently stranded): **635,251.45 USDS** (`reachableRedemption`).
-- Each holder is capped at 20% of their ESPN by the 5:1 REDEMPTION ratio.
+- Theoretical ex-treasury capacity at this snapshot: **698,651.20 USDS** (`usableRedemption`) — this is *below* the 700,000 offer; see the shortfall note below.
+- Reachable capacity, further excluding contract holders (LP pairs above all — REDEMPTION held by an address that cannot call `approve`/`fulfillAdvancedOrder` is permanently stranded): **631,174.56 USDS** (`reachableRedemption`).
+- Each holder is capped at 19.84% of their ESPN by the 5.04:1 REDEMPTION ratio.
+
+**Shortfall:** at the 5.04:1 ratio, theoretical ex-treasury capacity (698,651.20 USDS) is
+now ~1,348.80 USDS *short* of the 700,000 USDS offer (was ~0.6% headroom *over* it at the
+5:1 ratio). The order cannot be exhausted even in the best case — every eligible holder
+redeeming their full REDEMPTION balance still leaves the offer under-filled. Not a script
+bug: `usdsOffer` is a fixed target from `settings.json`, independent of capacity: confirm
+this is the intended trade-off before proposing.
 
 REDEMPTION is a plain, freely-transferable ERC20, and the order is `PARTIAL_OPEN` with no
 zone. Anyone — including non-holders who buy REDEMPTION from apathetic holders and ESPN
