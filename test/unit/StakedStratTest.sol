@@ -90,8 +90,8 @@ contract StakedStratTest is Test {
     function test_Constructor() public view {
         assertEq(address(stakedStrat.stratToken()), address(stratToken));
         assertEq(address(stakedStrat.rewardToken()), address(rewardToken));
-        assertEq(stakedStrat.name(), "Staked STRAT v2");
-        assertEq(stakedStrat.symbol(), "sSTRAT-v2");
+        assertEq(stakedStrat.name(), "Staked EARN");
+        assertEq(stakedStrat.symbol(), "sEARN");
         assertEq(stakedStrat.decimals(), 18);
         assertEq(stakedStrat.totalStaked(), 0);
         assertEq(stakedStrat.rewardsPerShare(), 0);

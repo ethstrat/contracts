@@ -1,0 +1,22 @@
+{
+  "espnv3": {
+    "targetRedemptionUsd": "700000000000000000000000",
+    "redemptionRatioX100": 504,
+    "fillGrid": 1000000000,
+    "basisPriceUsd": 100,
+    "expectedSeaportCounter": 0,
+    "orderStartTime": "1789606800",
+    "orderEndTime": "1790211600",
+    "orderSalt": "espnv3-redemption-1",
+    "finalYieldAmount": "0",
+    "excludedAddresses": [
+      "0x000000000004444c5dc75cB358380D2e3dE08A90",
+      "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D"
+    ],
+    "merkl": {
+      "campaignType": 18,
+      "duration": "604800",
+      "blacklist": []
+    }
+  }
+}

@@ -1,6 +1,15 @@
 #!/usr/bin/env node
-// Propose a batch of Safe multisig transactions from a plain, reviewable JSON config.
+// Propose a batch of Safe multisig transactions from a JSON config.
 // Usage: node script/safe/propose-batch.mjs <path-to-batch.json>
+//
+// Accepts two batch JSON schemas, auto-detected:
+//   - "plain" (script/safe/batches/*.json): { safeAddress, chainId, transactions: [{ to,
+//     contractName, signature, args, label? }] } — calldata is encoded here via ethers Interface.
+//   - "tx-builder" (Safe{Wallet} Transaction Builder format, e.g. written by
+//     script/deployments/1/lib/SafeBatchLib.sol): { chainId, meta: { createdFromSafeAddress },
+//     transactions: [{ to, value, data }] } — data is raw calldata, already encoded upstream
+//     (e.g. by a Foundry script against precise on-chain config) and is used as-is, never
+//     re-encoded.
 //
 // Required env vars:
 //   RPC_URL                    - mainnet (or target chain) RPC endpoint
@@ -75,8 +84,17 @@ try {
     fail(`could not read/parse batch file "${batchPath}": ${err.message}`);
 }
 
-if (!batch.safeAddress) fail('batch config missing "safeAddress"');
+// Schema detection: plain schema always carries a top-level safeAddress; tx-builder schema
+// (Safe{Wallet} Transaction Builder format) never does — it carries meta.createdFromSafeAddress
+// instead.
+const isTxBuilderSchema = !batch.safeAddress;
+const safeAddress = isTxBuilderSchema ? batch.meta?.createdFromSafeAddress : batch.safeAddress;
+if (!safeAddress) {
+    fail('batch config missing "safeAddress" (plain schema) or "meta.createdFromSafeAddress" (tx-builder schema)');
+}
 if (!batch.chainId) fail('batch config missing "chainId"');
+const chainId = Number(batch.chainId);
+if (!Number.isInteger(chainId) || chainId <= 0) fail(`batch config has an invalid "chainId": ${JSON.stringify(batch.chainId)}`);
 if (!Array.isArray(batch.transactions) || batch.transactions.length === 0) {
     fail('batch config missing a non-empty "transactions" array');
 }
@@ -91,33 +109,54 @@ function checkPlaceholders(value, path) {
     if (Array.isArray(value)) value.forEach((v, i) => checkPlaceholders(v, `${path}[${i}]`));
 }
 
+const HEX_DATA_RE = /^0x[0-9a-fA-F]+$/;
+
 batch.transactions.forEach((tx, i) => {
-    for (const field of ["to", "contractName", "signature", "args"]) {
-        if (tx[field] === undefined) fail(`transactions[${i}] missing "${field}"`);
+    if (isTxBuilderSchema) {
+        if (tx.to === undefined) fail(`transactions[${i}] missing "to"`);
+        if (typeof tx.data !== "string" || !HEX_DATA_RE.test(tx.data) || tx.data.length % 2 !== 0) {
+            fail(`transactions[${i}].data is not valid hex calldata: ${JSON.stringify(tx.data)}`);
+        }
+        checkPlaceholders(tx.to, `transactions[${i}].to`);
+    } else {
+        for (const field of ["to", "contractName", "signature", "args"]) {
+            if (tx[field] === undefined) fail(`transactions[${i}] missing "${field}"`);
+        }
+        checkPlaceholders(tx.to, `transactions[${i}].to`);
+        checkPlaceholders(tx.args, `transactions[${i}].args`);
     }
-    checkPlaceholders(tx.to, `transactions[${i}].to`);
-    checkPlaceholders(tx.args, `transactions[${i}].args`);
 });
 
-const metaTransactions = batch.transactions.map((tx) => {
-    const fnName = tx.signature.split("(")[0];
-    let data;
-    try {
-        data = new Interface([`function ${tx.signature}`]).encodeFunctionData(fnName, tx.args);
-    } catch (err) {
-        fail(`failed to encode transactions[${batch.transactions.indexOf(tx)}] (${tx.signature}): ${err.message}`);
-    }
-    return { to: tx.to, value: "0", data };
-});
+// tx-builder schema: data is raw calldata, already encoded upstream — used as-is, never
+// re-encoded, so it can never drift from what produced it.
+// plain schema: calldata is encoded here from signature/args, exactly as before.
+const metaTransactions = isTxBuilderSchema
+    ? batch.transactions.map((tx) => ({ to: tx.to, value: tx.value ?? "0", data: tx.data }))
+    : batch.transactions.map((tx) => {
+          const fnName = tx.signature.split("(")[0];
+          let data;
+          try {
+              data = new Interface([`function ${tx.signature}`]).encodeFunctionData(fnName, tx.args);
+          } catch (err) {
+              fail(
+                  `failed to encode transactions[${batch.transactions.indexOf(tx)}] (${tx.signature}): ${err.message}`,
+              );
+          }
+          return { to: tx.to, value: "0", data };
+      });
 
-console.log(`Batch: ${batch.description ?? "(no description)"}`);
-console.log(`Safe:  ${batch.safeAddress} (chainId ${batch.chainId})`);
+console.log(`Batch: ${batch.description ?? batch.meta?.description ?? batch.meta?.name ?? "(no description)"}`);
+console.log(`Safe:  ${safeAddress} (chainId ${chainId})`);
 console.log(`${batch.transactions.length} transaction(s):\n`);
 batch.transactions.forEach((tx, i) => {
-    const fnName = tx.signature.split("(")[0];
-    console.log(`  [${i}] ${tx.label ?? fnName}`);
-    console.log(`      contract: ${tx.contractName} (${tx.to})`);
-    console.log(`      call:     ${fnName}(${tx.args.map((a) => JSON.stringify(a)).join(", ")})`);
+    if (isTxBuilderSchema) {
+        console.log(`  [${i}] ${tx.to} ${tx.data.slice(0, 10)}`);
+    } else {
+        const fnName = tx.signature.split("(")[0];
+        console.log(`  [${i}] ${tx.label ?? fnName}`);
+        console.log(`      contract: ${tx.contractName} (${tx.to})`);
+        console.log(`      call:     ${fnName}(${tx.args.map((a) => JSON.stringify(a)).join(", ")})`);
+    }
 });
 console.log("");
 
@@ -137,7 +176,7 @@ async function signWithKeystore(protocolKit, safeTransaction) {
     const safeVersion = protocolKit.getContractVersion();
     const chainId = Number(await protocolKit.getChainId());
     const typedData = generateTypedData({
-        safeAddress: batch.safeAddress,
+        safeAddress,
         safeVersion,
         chainId,
         data: safeTransaction.data,
@@ -175,7 +214,7 @@ try {
     const protocolKit = await Safe.init({
         provider: RPC_URL,
         signer: hasPrivateKey ? SAFE_PROPOSER_PRIVATE_KEY : undefined,
-        safeAddress: batch.safeAddress,
+        safeAddress,
     });
 
     const safeTransaction = await protocolKit.createTransaction({ transactions: metaTransactions });
@@ -195,18 +234,18 @@ try {
     const senderSignature = signedSafeTransaction.getSignature(senderAddress)?.data;
     if (!senderSignature) fail("failed to produce a signature for the proposer address");
 
-    const apiKit = new SafeApiKit({ chainId: BigInt(batch.chainId), apiKey: SAFE_API_KEY });
+    const apiKit = new SafeApiKit({ chainId: BigInt(chainId), apiKey: SAFE_API_KEY });
     await apiKit.proposeTransaction({
-        safeAddress: batch.safeAddress,
+        safeAddress,
         safeTransactionData: signedSafeTransaction.data,
         safeTxHash,
         senderAddress,
         senderSignature,
     });
 
-    const prefix = SAFE_WALLET_CHAIN_PREFIX[batch.chainId] ?? batch.chainId;
+    const prefix = SAFE_WALLET_CHAIN_PREFIX[chainId] ?? chainId;
     console.log(`Proposed. Safe transaction hash: ${safeTxHash}`);
-    console.log(`Review at: https://app.safe.global/transactions/tx?safe=${prefix}:${batch.safeAddress}&id=${safeTxHash}`);
+    console.log(`Review at: https://app.safe.global/transactions/tx?safe=${prefix}:${safeAddress}&id=${safeTxHash}`);
 } catch (err) {
     fail(`Safe SDK error: ${err.message ?? err}`);
 }
