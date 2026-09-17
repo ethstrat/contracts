@@ -71,7 +71,7 @@ Figures below are from the real `BuildOrder.s.sol` / `Verify.s.sol` run against
 `SNAPSHOT_BLOCK=25986306`:
 
 ```
-order hash    = 0xc044de5927c4d3ddc718fa39dfaab16449e5cb26439cc56ef7c5405b246d80c9
+order hash    = 0x061cff56deabd5b61152c8da0ebe2a1e4b75d6c0e5eee516031829d9c19ed9c0
 espnAsk       = 6266066582822000000000   (6,266.066582822 ESPN)
 redemptionAsk = 31580975577425000000000  (31,580.975577425 REDEMPTION)
 usdsOffer     = 700000000000000000000000 (700,000 USDS)
