@@ -26,7 +26,8 @@ contract BuildOrder is Script {
     ISeaportMinimal internal seaport;
     address internal treasury;
     uint256 internal fillGrid;
-    uint256 internal redemptionRatio;
+    // x100 fixed point: 504 = ratio of 5.04 (REDEMPTION consumed per ESPN redeemed).
+    uint256 internal redemptionRatioX100;
     uint256 internal orderStartTime;
     uint256 internal orderEndTime;
     string internal orderSalt;
@@ -92,7 +93,7 @@ contract BuildOrder is Script {
         seaport = ISeaportMinimal(ConfigLib.addr("externalAddresses.json", ".opensea.seaport"));
         treasury = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
         fillGrid = ConfigLib.num("settings.json", ".espnv3.fillGrid");
-        redemptionRatio = ConfigLib.num("settings.json", ".espnv3.redemptionRatio");
+        redemptionRatioX100 = ConfigLib.num("settings.json", ".espnv3.redemptionRatioX100");
         orderStartTime = ConfigLib.num("settings.json", ".espnv3.orderStartTime");
         orderEndTime = ConfigLib.num("settings.json", ".espnv3.orderEndTime");
         orderSalt = ConfigLib.str("settings.json", ".espnv3.orderSalt");
@@ -106,7 +107,7 @@ contract BuildOrder is Script {
     {
         uint256 targetRedemptionUsd = ConfigLib.num("settings.json", ".espnv3.targetRedemptionUsd");
         (usdsOffer, espnAsk, redemptionAsk, navPerEspn) = BuildOrderLib.deriveAmounts(
-            targetRedemptionUsd, redemptionRatio, fillGrid, espn.totalAssets(), espn.totalSupply()
+            targetRedemptionUsd, redemptionRatioX100, fillGrid, espn.totalAssets(), espn.totalSupply()
         );
 
         require(usds.balanceOf(treasury) >= usdsOffer, "BuildOrder: treasury USDS balance too low");
@@ -168,12 +169,15 @@ contract BuildOrder is Script {
             reachableRedemption = reachableRedemption > bal ? reachableRedemption - bal : 0;
         }
 
+        // ratio is x100 fixed point (504 = 5.04): multiply by 100 before dividing by the scaled
+        // ratio, equivalent to dividing by the true ratio but without truncating it to an integer.
         console2.log(
-            "usable capacity (ex-treasury, ex-excluded), USDS:", usableRedemption / redemptionRatio * navPerEspn / 1e18
+            "usable capacity (ex-treasury, ex-excluded), USDS:",
+            usableRedemption * 100 / redemptionRatioX100 * navPerEspn / 1e18
         );
         console2.log(
             "reachable capacity (ex-contract holders too), USDS:",
-            reachableRedemption / redemptionRatio * navPerEspn / 1e18
+            reachableRedemption * 100 / redemptionRatioX100 * navPerEspn / 1e18
         );
     }
 

@@ -6,7 +6,7 @@ import {BuildOrderLib} from "../../script/deployments/1/003-espn-redemption/Buil
 
 contract BuildOrderLibTest is Test {
     uint256 internal constant FILL_GRID = 1_000_000_000;
-    uint256 internal constant REDEMPTION_RATIO = 5;
+    uint256 internal constant REDEMPTION_RATIO_X100 = 504; // 5.04
     uint256 internal constant TARGET_REDEMPTION_USD = 700_000e18;
 
     // Block-25,800,591 figures from the design spec / plan.
@@ -15,7 +15,7 @@ contract BuildOrderLibTest is Test {
 
     function test_deriveAmounts_atSnapshotFigures() public pure {
         (uint256 usdsOffer, uint256 espnAsk, uint256 redemptionAsk, uint256 navPerEspn) = BuildOrderLib.deriveAmounts(
-            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO_X100, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
         );
 
         assertEq(navPerEspn, 111469817424243522517);
@@ -23,7 +23,13 @@ contract BuildOrderLibTest is Test {
         assertEq(usdsOffer % FILL_GRID, 0);
         assertEq(espnAsk % FILL_GRID, 0);
         assertEq(redemptionAsk % FILL_GRID, 0);
-        assertEq(redemptionAsk, espnAsk * REDEMPTION_RATIO);
+        // Hand-computed from these exact inputs (espnAskRaw = 6279726801165077551256;
+        // redemptionAskRaw = espnAskRaw * 504 / 100 = 31649823077871990858330; both snapped down
+        // to the nearest FILL_GRID). Not espnAsk * RATIO / 100 re-snapped — espnAsk is itself
+        // already snapped, so that reimplementation silently disagrees with the raw-then-snap path
+        // deriveAmounts actually takes once the ratio isn't a clean multiple of 100.
+        assertEq(espnAsk, 6279726801165000000000);
+        assertEq(redemptionAsk, 31649823077871000000000);
     }
 
     function test_deriveAmounts_snapsToGrid_awkwardNavs() public pure {
@@ -38,20 +44,19 @@ contract BuildOrderLibTest is Test {
 
     function _assertSnapped(uint256 totalAssets, uint256 totalSupply, uint256 target) internal pure {
         (uint256 usdsOffer, uint256 espnAsk, uint256 redemptionAsk,) =
-            BuildOrderLib.deriveAmounts(target, REDEMPTION_RATIO, FILL_GRID, totalAssets, totalSupply);
+            BuildOrderLib.deriveAmounts(target, REDEMPTION_RATIO_X100, FILL_GRID, totalAssets, totalSupply);
         assertEq(usdsOffer % FILL_GRID, 0);
         assertEq(espnAsk % FILL_GRID, 0);
         assertEq(redemptionAsk % FILL_GRID, 0);
-        assertEq(redemptionAsk, espnAsk * REDEMPTION_RATIO);
     }
 
     /// @dev With equal ESPN and REDEMPTION balances, the REDEMPTION leg always binds (redemptionAsk
-    /// == 5 * espnAsk), and the numerator the formula returns must be one the holder can actually
+    /// ~= 5.04 * espnAsk), and the numerator the formula returns must be one the holder can actually
     /// afford on both legs.
     function testFuzz_deriveNumerator_redemptionBoundAndAffordable(uint256 balance) public pure {
         balance = bound(balance, 0, 1e30);
         (, uint256 espnAsk, uint256 redemptionAsk,) = BuildOrderLib.deriveAmounts(
-            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO_X100, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
         );
 
         uint256 n = BuildOrderLib.deriveNumerator(balance, balance, espnAsk, redemptionAsk, FILL_GRID);
@@ -74,7 +79,7 @@ contract BuildOrderLibTest is Test {
         espnBalance = bound(espnBalance, 0, 1e30);
         redemptionBalance = bound(redemptionBalance, 0, 1e30);
         (, uint256 espnAsk, uint256 redemptionAsk,) = BuildOrderLib.deriveAmounts(
-            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO_X100, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
         );
 
         uint256 n = BuildOrderLib.deriveNumerator(espnBalance, redemptionBalance, espnAsk, redemptionAsk, FILL_GRID);
@@ -94,10 +99,10 @@ contract BuildOrderLibTest is Test {
     /// caught even if a fuzz run happens not to land on it.
     function test_deriveNumerator_bothBranchesCanBind() public pure {
         (, uint256 espnAsk, uint256 redemptionAsk,) = BuildOrderLib.deriveAmounts(
-            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO_X100, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
         );
 
-        // Equal balances: REDEMPTION binds (redemptionAsk == 5x espnAsk).
+        // Equal balances: REDEMPTION binds (redemptionAsk ~= 5.04x espnAsk).
         uint256 nRedemptionBound = BuildOrderLib.deriveNumerator(1e18, 1e18, espnAsk, redemptionAsk, FILL_GRID);
         assertEq(nRedemptionBound, 1e18 * FILL_GRID / redemptionAsk);
 
@@ -111,7 +116,7 @@ contract BuildOrderLibTest is Test {
     function testFuzz_gridInvariant_holdsForAnyNumerator(uint256 n) public pure {
         n = bound(n, 1, FILL_GRID);
         (uint256 usdsOffer, uint256 espnAsk, uint256 redemptionAsk,) = BuildOrderLib.deriveAmounts(
-            TARGET_REDEMPTION_USD, REDEMPTION_RATIO, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
+            TARGET_REDEMPTION_USD, REDEMPTION_RATIO_X100, FILL_GRID, REAL_TOTAL_ASSETS, REAL_TOTAL_SUPPLY
         );
 
         assertEq(usdsOffer * n % FILL_GRID, 0);

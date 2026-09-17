@@ -129,7 +129,8 @@ library BuildOrderLib {
     /// offer IS the target (no round-trip through espnAsk); see Task 4 Step 18(a).
     function deriveAmounts(
         uint256 targetRedemptionUsd,
-        uint256 redemptionRatio,
+        // x100 fixed point: 504 = ratio of 5.04 (REDEMPTION consumed per ESPN redeemed).
+        uint256 redemptionRatioX100,
         uint256 fillGrid,
         uint256 totalAssets,
         uint256 totalSupply
@@ -138,7 +139,7 @@ library BuildOrderLib {
 
         uint256 usdsOfferRaw = targetRedemptionUsd;
         uint256 espnAskRaw = targetRedemptionUsd * 1e18 / navPerEspn;
-        uint256 redemptionAskRaw = espnAskRaw * redemptionRatio;
+        uint256 redemptionAskRaw = espnAskRaw * redemptionRatioX100 / 100;
 
         usdsOffer = (usdsOfferRaw / fillGrid) * fillGrid;
         espnAsk = (espnAskRaw / fillGrid) * fillGrid;
@@ -146,7 +147,7 @@ library BuildOrderLib {
     }
 
     /// @notice The holder's fill numerator. REDEMPTION binds, not ESPN — REDEMPTION is airdropped
-    /// 1:1 with ESPN but the order consumes `redemptionRatio` REDEMPTION per ESPN, so the
+    /// 1:1 with ESPN but the order consumes `redemptionRatioX100 / 100` REDEMPTION per ESPN, so the
     /// REDEMPTION leg is (in practice) always the smaller term. See Task 4 Step 18(c). Clamped to
     /// `fillGrid`: a holder owning more than the whole order (either leg) would otherwise get a
     /// numerator exceeding the denominator, which Seaport rejects with `BadFraction`.

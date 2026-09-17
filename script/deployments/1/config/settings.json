@@ -1,7 +1,7 @@
 {
   "espnv3": {
     "targetRedemptionUsd": "700000000000000000000000",
-    "redemptionRatio": 5,
+    "redemptionRatioX100": 504,
     "fillGrid": 1000000000,
     "basisPriceUsd": 100,
     "expectedSeaportCounter": 0,
