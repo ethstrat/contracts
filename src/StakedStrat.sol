@@ -15,7 +15,7 @@ import {TripwireGuard} from "./lib/TripwireGuard.sol";
  *      Synthetix-style linear reward streaming.
  *
  *      When reward tokens are sent to this contract, syncRewards() detects the balance increase
- *      and begins a REWARD_DURATION (7-day) linear drip rather than distributing immediately.
+ *      and begins a REWARD_DURATION (28-day) linear drip rather than distributing immediately.
  *      Any undistributed tokens from an active stream are blended into the new period. This
  *      prevents frontrunning: an attacker who stakes just before rewards arrive and exits
  *      immediately captures nothing; they must hold for the full period to earn a proportional
@@ -33,7 +33,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     uint256 private constant PRECISION = 1e18;
 
     /// @dev Duration over which each detected reward batch is linearly streamed
-    uint256 public constant REWARD_DURATION = 7 days;
+    uint256 public constant REWARD_DURATION = 28 days;
 
     IERC20 public immutable stratToken;
     IERC20 public immutable rewardToken;
@@ -157,7 +157,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
      *      linear stream, merging with any remaining undistributed tokens.
      *
      *      The new period length is a value-weighted average of the remaining stream time and
-     *      REWARD_DURATION. A full-size batch gets close to a 7-day window (anti-frontrunning),
+     *      REWARD_DURATION. A full-size batch gets close to a 28-day window (anti-frontrunning),
      *      while a dust deposit barely perturbs the ongoing stream (griefing mitigation).
      */
     function syncRewards() public whenNotTripped {
