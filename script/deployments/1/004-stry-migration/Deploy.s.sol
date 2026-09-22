@@ -43,7 +43,7 @@ contract Deploy is Script {
         console2.log("New StakedStrat (STRY/USDS) deployed:");
         console2.log(address(stakedStrat));
         console2.log("Facts of the contract:");
-        console2.log("- REWARD_DURATION = 7 days; syncRewards() is permissionless.");
+        console2.log("- REWARD_DURATION = 28 days; syncRewards() is permissionless.");
         console2.log("- The staked position token is non-transferable: transfer/transferFrom/approve all revert.");
         console2.log("  Holders approve STRY for the staking contract, never the position token.");
         console2.log("- Constructor reverts on a zero _stratToken/_rewardToken or on the two being equal.");

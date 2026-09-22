@@ -5,7 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 
 /// @notice Writes Safe Transaction Builder JSON batches using the raw-calldata transaction form
 /// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol
-/// and WeeklyYield.s.sol.
+/// and PeriodicYield.s.sol.
 library SafeBatchLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -56,7 +56,7 @@ library SafeBatchLib {
     }
 
     /// @dev The exact path `write` writes to. Exposed so a repeatable batch producer
-    /// (004-stry-migration/WeeklyYield.s.sol) can scan for the first free index using the same
+    /// (004-stry-migration/PeriodicYield.s.sol) can scan for the first free index using the same
     /// derivation as the writer -- `write` ends in vm.writeFile, which overwrites silently.
     function path(address safe, string memory operation, uint256 index) internal pure returns (string memory) {
         return string.concat(

@@ -19,13 +19,11 @@ import {PeriodicYield} from "./PeriodicYield.s.sol";
 
 /// @notice Track B mainnet-fork Verify script. Same harness as Track A: vm.startPrank, not
 /// vm.startBroadcast, so no config or Safe batch file is written. Calls the other scripts'
-/// internal entry points, never their run()s. WeeklyYield's batch is exercised by building it via
-/// weeklyYield() and then executing the returned txs as calls from the Safe under prank -- the
-/// same shape a Safe signer's execution would take, without ever writing a batch file.
+/// internal entry points, never their run()s. PeriodicYield's batch is exercised by building it
+/// via periodicYield() and then executing the returned txs as calls from the Safe under prank --
+/// the same shape a Safe signer's execution would take, without ever writing a batch file.
 contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, Deploy, PeriodicYield {
     uint256 internal constant ZERO_STAKER_DEPOSIT = 1_000e18;
-    uint256 internal constant WEEKLY_DEPOSIT = 1_000e18;
-    uint256 internal constant CLAIM_TOLERANCE = 1e6;
 
     function run() external override(StopEspnYield, Distribute, Deploy, PeriodicYield) {
         // Same derivation as 003-espn-redemption/Verify.s.sol: the holders file is named after the
@@ -138,53 +136,59 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         uint256 stakeGas = stakeGasBefore - gasleft();
         vm.stopPrank();
 
-        // Item 6: WeeklyYield, including its totalStaked > 0 guard. weeklyYield() builds the same
-        // Tx[] batch run() would write to a Safe Transaction Builder file; _executeBatch runs it
-        // as calls from the redemption Safe under prank, mirroring what a Safe signer's execution
-        // would do.
-        if (IERC20(usds).balanceOf(safe) < WEEKLY_DEPOSIT) deal(usds, safe, WEEKLY_DEPOSIT);
-        uint256 notifiedBeforeWeekly = stakedStrat.totalNotifiedRewards();
-        SafeBatchLib.Tx[] memory weeklyTxs = weeklyYield(safe, usds, address(stakedStrat), WEEKLY_DEPOSIT);
+        // Item 6: PeriodicYield, including its totalStaked > 0 guard. periodicYield() builds the
+        // same Tx[] batch run() would write to a Safe Transaction Builder file; _executeBatch runs
+        // it as calls from the redemption Safe under prank, mirroring what a Safe signer's
+        // execution would do. amount is computed, not passed in -- see periodicYieldAmount().
+        uint256 amount = periodicYieldAmount(stakedStrat);
+        if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
+        uint256 notifiedBeforePeriod = stakedStrat.totalNotifiedRewards();
+        SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat));
         uint256 syncGasBefore = gasleft();
-        _executeBatch(safe, weeklyTxs);
+        _executeBatch(safe, periodTxs);
         uint256 syncGas = syncGasBefore - gasleft();
         assertEq(
             stakedStrat.periodFinish(),
-            block.timestamp + 7 days,
-            "Verify: periodFinish does not describe a 7-day stream"
+            block.timestamp + 28 days,
+            "Verify: periodFinish does not describe a 28-day stream"
         );
         assertEq(
             stakedStrat.rewardRate(),
-            WEEKLY_DEPOSIT / 7 days,
-            "Verify: rewardRate does not describe a 7-day stream of the deposit"
+            amount / 28 days,
+            "Verify: rewardRate does not describe a 28-day stream of the deposit"
         );
         assertEq(
             stakedStrat.totalNotifiedRewards(),
-            notifiedBeforeWeekly + WEEKLY_DEPOSIT,
+            notifiedBeforePeriod + amount,
             "Verify: totalNotifiedRewards did not increase by the deposit"
         );
 
-        // Item 7: warp 7 days -> claim. Sole staker => the full week's deposit, minus stream
+        // Item 7: warp 28 days -> claim. Sole staker => the full period's deposit, minus stream
         // rounding dust.
-        vm.warp(block.timestamp + 7 days);
+        vm.warp(block.timestamp + 28 days);
         uint256 usdsBeforeClaim = IERC20(usds).balanceOf(holder);
         vm.prank(holder);
         uint256 claimGasBefore = gasleft();
         stakedStrat.claim();
         uint256 claimGas = claimGasBefore - gasleft();
         uint256 claimedFull = IERC20(usds).balanceOf(holder) - usdsBeforeClaim;
+        // Tolerance = REWARD_DURATION: StakedStrat streams via rewardRate = amount / REWARD_DURATION
+        // (integer division), so max truncation dust is REWARD_DURATION - 1 wei. Derived from the
+        // live contract value so this never goes stale if REWARD_DURATION changes again.
         assertApproxEqAbs(
-            claimedFull, WEEKLY_DEPOSIT, CLAIM_TOLERANCE, "Verify: claimed reward far from the full week's deposit"
+            claimedFull,
+            amount,
+            stakedStrat.REWARD_DURATION(),
+            "Verify: claimed reward far from the full period's deposit"
         );
 
         // Item 8: unstake the full staked balance -> STRY returned and the auto-claim runs. Item 7
         // just claimed everything as of periodFinish, so unstaking immediately after would
         // auto-claim zero and never exercise unstake's `if (claimable > 0)` branch
-        // (src/StakedStrat.sol:228). Notify a second reward and warp partway through its stream
-        // first so real rewards are pending at unstake time.
-        uint256 secondYieldAmount = WEEKLY_DEPOSIT / 2;
-        deal(usds, safe, secondYieldAmount);
-        SafeBatchLib.Tx[] memory secondTxs = weeklyYield(safe, usds, address(stakedStrat), secondYieldAmount);
+        // (src/StakedStrat.sol:228). Fund and run a second PeriodicYield period, then warp
+        // partway through it, so real rewards are pending at unstake time.
+        if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
+        SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat));
         _executeBatch(safe, secondTxs);
         vm.warp(block.timestamp + 1 days);
 
@@ -202,7 +206,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
 
         // Item 9: gas (informational).
         console2.log("stake execution gas:", stakeGas);
-        console2.log("weeklyYield execution gas:", syncGas);
+        console2.log("periodicYield execution gas:", syncGas);
         console2.log("claim execution gas:", claimGas);
         console2.log("unstake execution gas:", unstakeGas);
     }
