@@ -4,6 +4,7 @@
     "redemptionRatioX100": 504,
     "fillGrid": 1000000000,
     "basisPriceUsd": 100,
+    "annualDividendRatioX100": 1500,
     "expectedSeaportCounter": 0,
     "orderStartTime": "1789606800",
     "orderEndTime": "1790211600",

@@ -15,19 +15,19 @@ import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 import {StopEspnYield} from "./StopEspnYield.s.sol";
 import {Distribute} from "./Distribute.s.sol";
 import {Deploy} from "./Deploy.s.sol";
-import {WeeklyYield} from "./WeeklyYield.s.sol";
+import {PeriodicYield} from "./PeriodicYield.s.sol";
 
 /// @notice Track B mainnet-fork Verify script. Same harness as Track A: vm.startPrank, not
 /// vm.startBroadcast, so no config or Safe batch file is written. Calls the other scripts'
 /// internal entry points, never their run()s. WeeklyYield's batch is exercised by building it via
 /// weeklyYield() and then executing the returned txs as calls from the Safe under prank -- the
 /// same shape a Safe signer's execution would take, without ever writing a batch file.
-contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, Deploy, WeeklyYield {
+contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, Deploy, PeriodicYield {
     uint256 internal constant ZERO_STAKER_DEPOSIT = 1_000e18;
     uint256 internal constant WEEKLY_DEPOSIT = 1_000e18;
     uint256 internal constant CLAIM_TOLERANCE = 1e6;
 
-    function run() external override(StopEspnYield, Distribute, Deploy, WeeklyYield) {
+    function run() external override(StopEspnYield, Distribute, Deploy, PeriodicYield) {
         // Same derivation as 003-espn-redemption/Verify.s.sol: the holders file is named after the
         // snapshot block, so SNAPSHOT_BLOCK alone pins both the fork and the snapshot.
         uint256 snapshotBlockTarget = vm.envUint("SNAPSHOT_BLOCK");
