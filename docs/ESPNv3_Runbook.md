@@ -13,7 +13,7 @@ mainnet — none are retired: Track B yield is distributed through the on-chain
 Four of them gate the schedule itself:
 
 - [ ] 1. **Treasury/redemption/offerer multisig = `0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D`.** Reused from the prior STRAT ragequit. **UNCONFIRMED for this project.** Wrong address ⇒ every script's offerer/recipient is wrong.
-- [ ] 2. **Reward token for the weekly `StakedStrat` reward stream = USDS.** Founder sign-off on USDS as the yield token: **still open.**
+- [ ] 2. **Reward token for the 28-day `StakedStrat` reward stream = USDS.** Founder sign-off on USDS as the yield token: **still open.**
 - [ ] 3. **"Stop yield" semantics.** `StopEspnYield.s.sol` makes one final `increaseAssetsPerShare()` call, after which no more calls are made from this project. Three things this does **not** give you, all needing confirmation:
   - `increaseAssetsPerShare` is external with **no access control** — anyone can keep raising NAV afterwards, including while the redemption order is live. This is a policy stop, not an on-chain state change.
   - The deployed `withdrawalsDisabled` is **`false`**, not `true`. Withdrawals are blocked today only by the vault's ~0.005 USDS balance, not by policy: **if `ESPN.manager()` ever returns USDS to the vault, holders can withdraw at NAV and bypass both tracks.** Confirm whether `setWithdrawalsDisabled(true)` should be called — this needs the **ESPN owner** (`0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8`, the *main* multisig), **not** the redemption multisig used everywhere else in this document.
@@ -44,7 +44,7 @@ Running these out of order silently prices the two airdrops off two different NA
 | 4 | Track B `Distribute.s.sol` | B |
 | 5 | Track A `BuildOrder.s.sol` (Safe batch: approve + validate) | A |
 | 6 | Holders fulfil, FCFS, until `endTime` or capacity exhausted | A |
-| 7 | Track B `WeeklyYield.s.sol` (Safe batch: `transfer` + `syncRewards`), weekly, from step 4 onward | B |
+| 7 | Track B `PeriodicYield.s.sol` (Safe batch: `transfer` + `syncRewards`), every 28 days, from step 4 onward | B |
 | 8 | `Cancel.s.sol` after `endTime` (cancel + revoke USDS approval) | A |
 
 Step 1 must precede step 5: `usdsOffer` is pinned at `targetRedemptionUsd` regardless of
@@ -139,7 +139,7 @@ From `SNAPSHOT_BLOCK=25800912 yarn verify:migration`:
 | Operation | Execution gas |
 |---|---|
 | Track B `mintBatch` (113 holders) | 2,808,622 (2,865,782 total estimated) |
-| `USDS.transfer` + `StakedStrat.syncRewards` (weekly) | TODO: re-measure — the prior figure here was for the retired Merkl `createCampaign` call and does not apply |
+| `USDS.transfer` + `StakedStrat.syncRewards` (every 28 days) | TODO: re-measure — the prior figure here was for the retired Merkl `createCampaign` call and does not apply |
 
 **Caveat:** `gasBefore - gasleft()` inside a script frame measures *execution* gas only.
 It excludes each transaction's 21,000 intrinsic cost and its calldata cost. For Track A's
@@ -162,7 +162,7 @@ they each write a Safe Transaction Builder JSON batch to
 - `script/deployments/1/multisig/003-espn-redemption/001-0x0cbe9bDD-multisig.json` — `BuildOrder.s.sol`
 - `script/deployments/1/multisig/003-espn-redemption/002-0x0cbe9bDD-multisig.json` — `Cancel.s.sol`
 - `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json` — `StopEspnYield.s.sol` (payer is `.protocol.multisigs.redemption`, the same address and prefix as the two Track A batches above)
-- `script/deployments/1/multisig/004-stry-migration/<NNN>-0x0cbe9bDD-multisig.json`, `NNN ≥ 002` — `WeeklyYield.s.sol`, one new file per weekly run. The index is **allocated by the script as the first free one** (`001` belongs to `StopEspnYield.s.sol`); it is never an env var and an existing weekly batch is never overwritten. To redo a week whose batch was generated but not yet signed, delete that file first. `WeeklyYield.s.sol`'s only env is `WEEKLY_YIELD_AMOUNT` (plain decimal wei, changes every run) — there is no index var and no start-time var. The batch itself is two on-chain transactions, `USDS.transfer(stakedEarn, amount)` then `StakedStrat.syncRewards()`; there is no off-chain registration step and no dependency on any external API. The script hard-reverts before writing the batch if `StakedStrat.totalStaked() == 0` — funding the stream before anyone has staked would permanently destroy the deposit — or if the Safe's USDS balance is below `amount`.
+- `script/deployments/1/multisig/004-stry-migration/<NNN>-0x0cbe9bDD-multisig.json`, `NNN ≥ 002` — `PeriodicYield.s.sol`, one new file per 28-day period. The index is **allocated by the script as the first free one** (`001` belongs to `StopEspnYield.s.sol`); it is never an env var and an existing period's batch is never overwritten. To redo a period whose batch was generated but not yet signed, delete that file first. `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed on-chain from EARN's total supply and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in. The batch itself is two on-chain transactions, `USDS.transfer(stakedEarn, amount)` then `StakedStrat.syncRewards()`; there is no off-chain registration step and no dependency on any external API. The script hard-reverts before writing the batch if `StakedStrat.totalStaked() == 0` — funding the stream before anyone has staked would permanently destroy the deposit — or if the Safe's USDS balance is below `amount`.
 
 Every transaction in every batch is written as **raw calldata**: `"data": "0x…"`,
 `"contractMethod": null`. The Transaction Builder therefore shows **no decoded
@@ -182,7 +182,7 @@ Execution order within each batch matters and is fixed by the order the script w
    700k allowance to Seaport after the window is an unnecessary standing risk.
 3. **`StopEspnYield.s.sol` batch:** `USDS.approve(ESPN, finalYieldAmount)` **then**
    `ESPN.increaseAssetsPerShare(finalYieldAmount)`.
-4. **`WeeklyYield.s.sol` batch:** `USDS.transfer(stakedEarn, amount)` **then**
+4. **`PeriodicYield.s.sol` batch:** `USDS.transfer(stakedEarn, amount)` **then**
    `StakedStrat.syncRewards()`. Always exactly two transactions, no `approve()` step — this
    is a direct `transfer`, not a `transferFrom`.
 
@@ -228,9 +228,9 @@ document, not two to keep in sync.
 | 5 | `003-espn-redemption/BuildOrder.s.sol` | `HOLDERS_FILE` |
 | 8 | `003-espn-redemption/Cancel.s.sol` | `USDS_OFFER`, `ESPN_ASK`, `REDEMPTION_ASK`, `EXPECTED_ORDER_HASH` — the four values step 5 printed |
 
-Steps 1, 5, 7, 8 (`StopEspnYield`, `BuildOrder`, `WeeklyYield`, `Cancel`) never broadcast —
+Steps 1, 5, 7, 8 (`StopEspnYield`, `BuildOrder`, `PeriodicYield`, `Cancel`) never broadcast —
 each writes a Safe batch instead (see section 6). Steps 3 and 4 broadcast directly from the
-deployer's own key: the two `Distribute` scripts mint and airdrop. `WeeklyYield.s.sol`
+deployer's own key: the two `Distribute` scripts mint and airdrop. `PeriodicYield.s.sol`
 writes a Safe batch that the redemption Safe executes — it never broadcasts and never moves
 USDS itself.
 
@@ -265,13 +265,13 @@ record that decision.
 - **Claim directly from `StakedStrat`.** Call `claim()` to withdraw pending USDS rewards,
   or `unstake()` to withdraw staked EARN, which auto-claims first. There is no Merkl
   campaign, no external claim site, and no proofs to fetch.
-- **Timing.** Each weekly `syncRewards()` call folds that week's USDS into a
-  Synthetix-style per-second linear stream over `REWARD_DURATION` (currently 7 days) —
+- **Timing.** Each `syncRewards()` call, every 28 days, folds that period's USDS into a
+  Synthetix-style per-second linear stream over `REWARD_DURATION` (currently 28 days) —
   rewards accrue continuously to every staker proportional to `staked[user]/totalStaked`,
   not in a lump sum at claim time.
 - **Contracts that hold sEARN and cannot call `claim`** accrue rewards they can never
   collect, the same risk any ERC20 reward-stream position carries for a non-EOA holder.
-- **No protocol fee.** The full amount `WeeklyYield.s.sol` transfers reaches the reward
+- **No protocol fee.** The full amount `PeriodicYield.s.sol` transfers reaches the reward
   stream; there is no Merkl-style fee deduction.
 - **`$100 is a nominal basis price, not a redemption guarantee.`** EARN nominally claims
   the full ESPN backing at the snapshot; it is not backed to the extent Track A's 700,000
