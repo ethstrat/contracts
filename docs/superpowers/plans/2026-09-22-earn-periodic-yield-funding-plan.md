@@ -656,7 +656,7 @@ Tasks 1 and 2 are fully parallel: disjoint file lists, and neither imports the o
 
 ---
 
-- [ ] **Step 12: Edit `script/deployments/1/lib/SafeBatchLib.sol` — rename the two `WeeklyYield.s.sol` mentions**
+- [x] **Step 12: Edit `script/deployments/1/lib/SafeBatchLib.sol` — rename the two `WeeklyYield.s.sol` mentions**
 
   Change:
   ```solidity
@@ -684,7 +684,7 @@ Tasks 1 and 2 are fully parallel: disjoint file lists, and neither imports the o
       /// derivation as the writer -- `write` ends in vm.writeFile, which overwrites silently.
   ```
 
-- [ ] **Step 13: Edit `script/deployments/1/004-stry-migration/Deploy.s.sol` — fix the stale cadence in the operator doc line**
+- [x] **Step 13: Edit `script/deployments/1/004-stry-migration/Deploy.s.sol` — fix the stale cadence in the operator doc line**
 
   Change:
   ```solidity
@@ -695,7 +695,7 @@ Tasks 1 and 2 are fully parallel: disjoint file lists, and neither imports the o
           console2.log("- REWARD_DURATION = 28 days; syncRewards() is permissionless.");
   ```
 
-- [ ] **Step 14: Rewrite `script/deployments/1/004-stry-migration/Verify.s.sol` in full**
+- [x] **Step 14: Rewrite `script/deployments/1/004-stry-migration/Verify.s.sol` in full**
 
   Per the "Deviations" section above, `amount` is computed locally via `periodicYieldAmount(stakedStrat)` — there is no `PERIOD_DEPOSIT` constant, and the second call in Item 8 reuses the same computed `amount` rather than a hardcoded half. The import, inheritance list, and `override(...)` list below already match Task 2's Step 9 fix (`WeeklyYield` → `PeriodicYield`); this step's full-file replacement is what changes the remaining `7 days` literals, prose, `WEEKLY_DEPOSIT`→`PERIOD_DEPOSIT`, and `weeklyYield(...)`→`periodicYield(...)` call sites. Complete file:
 
@@ -948,7 +948,7 @@ Tasks 1 and 2 are fully parallel: disjoint file lists, and neither imports the o
   }
   ```
 
-- [ ] **Step 15: Run the fast checks**
+- [x] **Step 15: Run the fast checks**
 
   ```
   forge build
@@ -958,7 +958,7 @@ Tasks 1 and 2 are fully parallel: disjoint file lists, and neither imports the o
 
   Expected: `forge build` succeeds; the full `test/unit` suite passes (including Tasks 1 and 2's changes); `forge fmt --check` prints nothing. This does not yet exercise `Verify.s.sol` itself — it isn't part of `test/unit` and needs a fork (Step 16).
 
-- [ ] **Step 16: Run the mainnet-fork check — required, not skippable (Review Focus item 5)**
+- [x] **Step 16: Run the mainnet-fork check — required, not skippable (Review Focus item 5)**
 
   ```
   SNAPSHOT_BLOCK=25800912 yarn verify:migration
@@ -966,7 +966,7 @@ Tasks 1 and 2 are fully parallel: disjoint file lists, and neither imports the o
 
   Expected: passes end to end through all 9 items, printing `periodicYield execution gas:` (not `weeklyYield`) and asserting the `28 days` figures. This is the only check that exercises `Verify.s.sol`'s literals at all — `forge test`/`yarn test` never runs this file. If this step cannot run in the current environment (no fork RPC egress), say so explicitly rather than treating Step 15's green result as sufficient; hand off to a reviewer or CI run that has network access before merging.
 
-- [ ] **Step 17: Commit**
+- [x] **Step 17: Commit**
 
   ```bash
   git add script/deployments/1/lib/SafeBatchLib.sol \
