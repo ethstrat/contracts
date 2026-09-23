@@ -1,0 +1,14 @@
+{
+  "description": "Set ESPN (EthStrategyPerpetualNote) deposit cap to 0 to stop further ESPN minting ahead of the redemption.",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Close ESPN deposits (setDepositCap to 0)",
+      "to": "0xb250C9E0F7bE4cfF13F94374C993aC445A1385fE",
+      "contractName": "EthStrategyPerpetualNote",
+      "signature": "setDepositCap(uint256)",
+      "args": [0]
+    }
+  ]
+}
