@@ -24,5 +24,6 @@ emv-*-certora*
 
 .DS_Store
 
-tmp/
+tmp/*
+!tmp/.gitkeep
 .obsidian
