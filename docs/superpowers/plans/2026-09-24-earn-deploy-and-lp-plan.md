@@ -19,7 +19,8 @@
 - **No agent broadcasts anything.** No `--broadcast`, no `yarn safe:propose`, no Safe UI action. Task 6 is a checklist the human operator runs.
 - **Never read `.env` or any secret file.** `yarn safe:propose` loads `.env` itself; only the operator runs it.
 - Commit subjects: lowercase conventional commits, checked by husky + `@commitlint/config-conventional`. Never `--no-verify`. Header ≤ 100 chars, body lines ≤ 100 chars.
-- Implementer commits end with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
+- Implementer commits end with the attribution trailer the implementer's harness supplies. The `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` line in the commit blocks below is a placeholder for it: replace it with the harness line, never add both.
+- Commit blocks below are indented 2 spaces for markdown. Strip that indent when running them (commitlint `body-max-line-length` is 100 and counts it).
 - Before each task, `git log --oneline -5` and `git status`: this branch has had parallel commits. If a task's files changed since this plan's commit, stop and report to the controller.
 
 ## Already landed (not part of this plan's tasks)
@@ -35,7 +36,7 @@ Verified at `cbf3d6ea`. Implementers treat these as given.
 | N6 `Deploy.s.sol` comments | `18519a6b` | |
 | Docs: runbook Assumption 10, step-4 Distribute notes (`--slow`, dry run, freshness), section 9 supply note; help lines 1–2; release-notes supply and yield-base bullets | `cbf3d6ea` | Task 5 adds the rest |
 
-Prototype check of this plan's remaining code on top of `cbf3d6ea` (scratch copy): `yarn test` 313 pass, `forge fmt --check` clean, `SNAPSHOT_BLOCK=26043909 yarn verify:migration` and `yarn verify:lp` pass, `ProposeLp.run()` passed on a latest-block fork with an etched EARN.
+Prototype check of this plan's remaining code on top of `cbf3d6ea` (scratch copy): `yarn test` 313 pass, `forge fmt --check` clean, `SNAPSHOT_BLOCK=26043909 yarn verify:migration` and `yarn verify:lp` pass, `ProposeLp.run()` passed on a latest-block fork with an etched EARN. After the gate-review fold (poolId, key and amountMax log lines; config-free batch description): `forge build`, `forge fmt --check` and `verify:lp` re-run clean on the same scratch copy.
 
 ## Global Constraints
 
@@ -205,7 +206,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   V0 checks at mainnet block <V0 block>:
   - PoolManager, PositionManager, Permit2, StateView: non-empty code
-  - PositionManager.poolManager() == StateView.poolManager() == 0x0000...4444c5dc75cB358380D2e3dE08A90
+  - PositionManager.poolManager() == StateView.poolManager() == 0x000000000004444c...8A90
   - PositionManager.permit2() == 0x000000000022D473030F116dDEE9F6B43aC78BA3
   - Permit2.DOMAIN_SEPARATOR() nonzero
   lp block: 250k USDS + 2.5k EARN full range, 250k USDS bid wall 50-100 USDS/EARN, fee 3000,
@@ -220,7 +221,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 ## Task 2: move `_executeBatch` into `SafeBatchLib.execute`
 
 **Files:**
-- Modify: `script/deployments/1/lib/SafeBatchLib.sol` (add `execute`)
+- Modify: `script/deployments/1/lib/SafeBatchLib.sol` (add `execute`; header's user list)
 - Modify: `script/deployments/1/004-stry-migration/Verify.s.sol` (use it, delete `_executeBatch`)
 
 **Interfaces:**
@@ -235,7 +236,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
       /// @dev Executes a batch's txs, in order, as calls from `safe` -- the same shape a Safe signer's
       /// execution takes once the emitted JSON is imported and run. startPrank's two-argument form
       /// also sets tx.origin. Fork-only: used by the Verify scripts and ProposeLp's pre-write
-      /// simulation. Moved unchanged from 004-stry-migration/Verify.s.sol's _executeBatch.
+      /// simulation. Moved from 004 Verify (revert prefix changed).
       function execute(address safe, Tx[] memory txs) internal {
           vm.startPrank(safe, safe);
           for (uint256 i = 0; i < txs.length; i++) {
@@ -269,6 +270,20 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Delete the whole `_executeBatch` function and its 4-line `/// @dev` comment (from `/// @dev Executes a Safe Transaction Builder batch's txs` to the function's closing brace, plus the blank line after it).
 
+- [ ] **Step 2b: Update the `SafeBatchLib` header's list of users**
+
+  Change lines 7–8 of `script/deployments/1/lib/SafeBatchLib.sol`:
+  ```solidity
+  /// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol
+  /// and PeriodicYield.s.sol.
+  ```
+  to:
+  ```solidity
+  /// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol,
+  /// PeriodicYield.s.sol and 005-earn-lp/ProposeLp.s.sol; `execute` also by the Verify scripts.
+  ```
+  Comment edit only.
+
 - [ ] **Step 3: Run the checks**
 
   ```bash
@@ -278,7 +293,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   git grep -n "_executeBatch" script/ test/
   ```
 
-  Expected: build succeeds; unit suite green; fmt prints nothing; `git grep` prints nothing.
+  Expected: build succeeds; unit suite green; fmt prints nothing; `git grep` prints nothing (the `execute` doc comment says "004 Verify", not the old function name).
 
 - [ ] **Step 4: Run the fork check — required (only `Verify.s.sol` exercises the moved code)**
 
@@ -1011,7 +1026,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
               "005-earn-lp",
               1,
               "EARN/USDS V4 LP",
-              "Mints 2,500 EARN to this Safe, approves USDS and EARN to Permit2 and PositionManager, initializes the EARN/USDS v4 pool at 100 USDS per EARN, and mints a full-range position plus a 50-100 USDS/EARN bid wall owned by this Safe. Execute the transactions in the order listed.",
+              "Mints the LP EARN to this Safe, approves USDS and EARN to Permit2 and PositionManager, initializes the EARN/USDS v4 pool, and mints a full-range position plus a USDS-only bid wall owned by this Safe. Amounts, price, ticks and poolId are in the ProposeLp log. Execute the transactions in the order listed.",
               txs
           );
           console2.log("Simulation passed; batch written:", SafeBatchLib.path(safe, "005-earn-lp", 1));
@@ -1249,7 +1264,11 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
           console2.log(p.earnIsC0 ? "Case A: EARN is currency0" : "Case B: USDS is currency0");
           console2.log("EARN:", p.earn);
           console2.log("Safe:", p.safe);
-          console2.log("fee / tickSpacing:", p.key.fee, uint256(int256(p.key.tickSpacing)));
+          console2.log("key currency0 / currency1:", p.key.currency0, p.key.currency1);
+          console2.log("key fee / tickSpacing:", p.key.fee, uint256(int256(p.key.tickSpacing)));
+          console2.log("key hooks:", p.key.hooks);
+          console2.log("poolId (StateView.getSlot0 argument):");
+          console2.logBytes32(p.poolId);
           console2.log("sqrtPriceX96:", p.sqrtPriceX96);
           console2.log("currentTick:", p.currentTick);
           console2.log("full range lower tick:", p.fullLower);
@@ -1258,6 +1277,12 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
           console2.log("bid wall upper tick:", p.bandUpper);
           console2.log("liqFull / liqBand:", p.liqFull, p.liqBand);
           console2.log("mint EARN / USDS approve:", p.fullRangeEarn, p.fullRangeUsds + p.singleSidedUsds);
+          // amount0Max / amount1Max per position, in currency0/currency1 order as the calldata decodes.
+          (uint256 full0, uint256 full1) =
+              p.earnIsC0 ? (p.fullRangeEarn, p.fullRangeUsds) : (p.fullRangeUsds, p.fullRangeEarn);
+          (uint256 band0, uint256 band1) = p.earnIsC0 ? (uint256(0), p.singleSidedUsds) : (p.singleSidedUsds, 0);
+          console2.log("full range amount0Max / amount1Max:", full0, full1);
+          console2.log("bid wall amount0Max / amount1Max:", band0, band1);
           for (uint256 i; i < txs.length; ++i) {
               console2.log("tx", i, txs[i].to);
               console.logBytes4(bytes4(txs[i].data));
@@ -1282,13 +1307,18 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   SNAPSHOT_BLOCK=26043909 yarn verify:lp
   ```
 
-  Expected: `Script ran successfully.` Logs include, in order: `Case A ordering passed at 0x0000000000000000000000000000000000010000`; `Case B ordering passed at 0xfFfffFFFfffFFfFFFFffFFFFffffFfFFFFff0000`; for each run `sqrtPriceX96: 792281625142643375935439503360` (Case A) or `7922816251426433759354395033` (Case B), `liqFull / liqBand: 25000000000000000000135 85830483191952473195169`, `USDS spent: 499999999999999999999992`; a `swap: protocolFee / lpFee / EARN out:` line; and `Fork EARN hit Case A` or `Case B`. If the RPC is unreachable, say so explicitly.
+  Expected: `Script ran successfully.` Logs include, in order: `Case A ordering passed at 0x0000000000000000000000000000000000010000`; `Case B ordering passed at 0xfFfffFFFfffFFfFFFFffFFFFffffFfFFFFff0000`; for each run `sqrtPriceX96: 792281625142643375935439503360` (Case A) or `7922816251426433759354395033` (Case B), `liqFull / liqBand: 25000000000000000000135 85830483191952473195169`, a `poolId` bytes32 line, `USDS spent: 499999999999999999999992`; a `swap: protocolFee / lpFee / EARN out:` line; and `Fork EARN hit Case A` or `Case B`. If the RPC is unreachable, say so explicitly.
 
 - [ ] **Step 7: Smoke `ProposeLp.run()` on a latest-block fork (Review Focus 3). Nothing from this step is committed.**
 
   EARN does not exist on mainnet yet, so a throwaway script etches a StryToken owned by the Safe at `0x10000` and points `.stry` at it.
 
+  Guard first: this step rewrites `.stry` and deletes `multisig/005-earn-lp/`. It must never run once the real EARN address or the real batch exists (after Op 3 / Op 5).
+
   ```bash
+  grep -q '"stry": "0x0000000000000000000000000000000000000000"' script/deployments/1/config/deploymentAddresses.json \
+    && [ ! -e script/deployments/1/multisig/005-earn-lp ] \
+    || { echo "STOP: real .stry or 005 batch present; skip this smoke"; exit 1; }
   mkdir -p script/smoke-tmp
   cat > script/smoke-tmp/Smoke.s.sol <<'EOF'
   // SPDX-License-Identifier: MIT
@@ -1366,7 +1396,18 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   | 5 | Track A `BuildOrder.s.sol` (Safe batch: approve + validate) | A |
   ```
 
-- [ ] **Step 2: Runbook section 6 — PeriodicYield base, LP batch file, batch order, nested signing**
+  And in row 7, change `every 28 days, from step 4 onward` to `every 28 days, from step 4a onward` (PeriodicYield needs sEARN deployed).
+
+- [ ] **Step 2: Runbook section 6 — intro, PeriodicYield base, LP batch file, batch order, nested signing**
+
+  Change the intro sentence:
+  ```markdown
+  `BuildOrder.s.sol`, `Cancel.s.sol` and `StopEspnYield.s.sol` cannot broadcast from a Safe —
+  ```
+  to:
+  ```markdown
+  `BuildOrder.s.sol`, `Cancel.s.sol`, `StopEspnYield.s.sol`, `PeriodicYield.s.sol` and `ProposeLp.s.sol` cannot broadcast from a Safe —
+  ```
 
   Change (inside the `PeriodicYield.s.sol` bullet):
   ```markdown
@@ -1393,11 +1434,17 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   **Signing the LP batch (nested Safe).** The redemption Safe is 1-of-1 and its owner is the main multisig.
   Main-multisig signers approve the redemption Safe's inner transaction hash through the Safe UI nested-Safe
   flow and see only that hash approval. Before signing: (1) run the Safe UI Tenderly simulation of the inner
-  batch; (2) compare the decoded values with the `ProposeLp` log (`sqrtPriceX96`, ticks, liquidity, amounts);
-  (3) re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0`.
+  batch; (2) compare the decoded values with the `ProposeLp` log (pool key, `sqrtPriceX96`, ticks, liquidity,
+  amount0Max/amount1Max per position); (3) re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0`, using the
+  `poolId` the `ProposeLp` log prints.
   ```
 
-- [ ] **Step 3: Runbook section 7 — `verify:lp` and the ProposeLp command**
+- [ ] **Step 3: Runbook section 7 — broadcast table, `verify:lp` and the ProposeLp command**
+
+  Change the broadcast-scripts heading `**Broadcast scripts (steps 1, 3, 4, 5, 8)**` to `**Broadcast scripts (steps 1, 3, 4, 4a, 5, 8)**`, and after the table row `| 4 | \`004-stry-migration/Distribute.s.sol\` | \`HOLDERS_FILE\` |` add:
+  ```markdown
+  | 4a | `004-stry-migration/Deploy.s.sol` | none |
+  ```
 
   Directly after the fenced block that ends with `yarn verify:migration`, add:
   ```markdown
@@ -1407,7 +1454,8 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   At the end of section 7 (after the paragraph that ends `never moves USDS itself.`), add:
   ```markdown
   `005-earn-lp/ProposeLp.s.sol` needs no env var and never broadcasts:
-  `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}" -vvv`.
+  `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "$RPC_URL" -vvv`.
+  Use the operator's own `$RPC_URL`, not the public gateway: the pre-write simulation is only as trustworthy as the RPC it forks.
   ```
 
 - [ ] **Step 4: Runbook section 8 — the yield-base placeholder**
@@ -1428,6 +1476,15 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   No other edits to that file.
 
 - [ ] **Step 6: Add the spec's remaining two lines to `docs/help/claim-earn-yield.md`** (lines 1–2 landed in `cbf3d6ea`)
+
+  Bring line 2 to the spec wording. Change:
+  ```markdown
+  The 28-day yield is sized on the original airdrop supply. EARN minted later does not change the yield amount.
+  ```
+  to:
+  ```markdown
+  The 28-day yield is sized on the original airdrop supply. EARN minted later, including the pool's EARN, does not change the yield amount.
+  ```
 
   Append at the end of the file:
   ```markdown
@@ -1506,13 +1563,13 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
 **Pre-conditions:** Tasks 1–5 on the branch the operator runs from; `SNAPSHOT_BLOCK=26043909 yarn verify:migration` and `SNAPSHOT_BLOCK=26043909 yarn verify:lp` pass; `git status` clean; `deploymentAddresses.json` shows `"stry": "0x0000000000000000000000000000000000000000"` and `"earn-airdrop-supply": "0"`. `$RPC_URL` = a mainnet RPC. `<signer flag>` = the operator's usual one (for example `--ledger`).
 
-- [ ] **Op 1: StopEspnYield (runbook step 1).** `forge script script/deployments/1/004-stry-migration/StopEspnYield.s.sol --rpc-url $RPC_URL`. It writes `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json`. `finalYieldAmount` is `"0"`, so the batch is a no-op unless the amount is set first (spec O7). Propose with `yarn safe:propose <that file>`, sign in the Safe UI.
+- [ ] **Op 1: StopEspnYield (runbook step 1).** `forge script script/deployments/1/004-stry-migration/StopEspnYield.s.sol --rpc-url $RPC_URL`. It writes `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json`. Keep `finalYieldAmount = "0"` (spec O7): the batch is then a no-op. Do not set a nonzero amount: the snapshot at 26043909 is already taken, a nonzero `increaseAssetsPerShare` raises ESPN `totalAssets`, and Op 3's `Distribute.run()` then refuses ("ESPN totalAssets drifted since snapshot (NAV moved)"), forcing a new snapshot and a re-plan. Propose with `yarn safe:propose <that file>`, sign in the Safe UI.
 - [ ] **Op 2: Snapshot.** Already taken and committed: `espn-holders-26043909.json`. No action. `Distribute.run()` refuses if live ESPN supply or NAV moved since this snapshot; if it refuses, a new snapshot is needed (stop and re-plan).
 - [ ] **Op 3: Distribute EARN (deployer EOA, runbook step 4).** `HOLDERS_FILE=script/deployments/1/config/espn-holders-26043909.json forge script script/deployments/1/004-stry-migration/Distribute.s.sol --rpc-url $RPC_URL --broadcast --slow <signer flag>`. Then check on-chain: `cast call <EARN> "owner()(address)" --rpc-url $RPC_URL` = `0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D`; `cast call <EARN> "totalSupply()(uint256)" --rpc-url $RPC_URL` = `.earn-airdrop-supply` in `deploymentAddresses.json` (~29,366 EARN); every receipt status 1 in `broadcast/Distribute.s.sol/1/run-latest.json`. Commit `deploymentAddresses.json` (`chore(config): record earn address and airdrop supply`). No push without the user's go.
-- [ ] **Op 4: Deploy sEARN (deployer EOA, runbook step 4a).** `forge script script/deployments/1/004-stry-migration/Deploy.s.sol --rpc-url $RPC_URL --broadcast <signer flag>`. Writes `.staked-earn`. Commit it.
-- [ ] **Op 5: Build + simulate the LP batch, no broadcast (runbook step 4b).** `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}" -vvv`. Must print `Simulation passed; batch written: script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`. Keep the log (Case A/B, `sqrtPriceX96`, ticks, `liqFull / liqBand`, amounts). Commit the batch file.
+- [ ] **Op 4: Deploy sEARN (deployer EOA, runbook step 4a).** `forge script script/deployments/1/004-stry-migration/Deploy.s.sol --rpc-url $RPC_URL --broadcast <signer flag>`. No dry run first: `Deploy.run()` writes `.staked-earn` on every run, dry runs included. Before committing, check `.staked-earn` in `deploymentAddresses.json` against the chain (`cast code <sEARN> --rpc-url $RPC_URL` non-empty; every receipt status 1 in `broadcast/Deploy.s.sol/1/run-latest.json`). Commit it.
+- [ ] **Op 5: Build + simulate the LP batch, no broadcast (runbook step 4b).** `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "$RPC_URL" -vvv` (the operator's RPC, same as Ops 1, 3, 4; not the public gateway). Must print `Simulation passed; batch written: script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`. Keep the log (Case A/B, pool key, `poolId`, `sqrtPriceX96`, ticks, `liqFull / liqBand`, amount0Max/amount1Max per position). Commit the batch file.
 - [ ] **Op 6: Propose.** `yarn safe:propose script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`.
-- [ ] **Op 7: Safe sign + execute (main-multisig signers, nested Safe).** Before signing: run the Safe UI Tenderly simulation of the inner batch; compare decoded values with the Op 5 log; re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0` and Safe USDS ≥ 500,000. After execution: both position NFTs owned by the Safe; Safe USDS down by ~500,000; ~115,087 USDS left for PeriodicYield (spec SO1). If the key was squatted (the batch reverts): follow SO3 — set `lp.tickSpacing` to 30, delete the 005 batch file, re-run Op 5.
+- [ ] **Op 7: Safe sign + execute (main-multisig signers, nested Safe).** Before signing: run the Safe UI Tenderly simulation of the inner batch; compare decoded values with the Op 5 log; re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0` (`cast call 0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227 "getSlot0(bytes32)(uint160,int24,uint24,uint24)" <poolId from the Op 5 log> --rpc-url $RPC_URL`) and Safe USDS ≥ 500,000. After execution: both position NFTs owned by the Safe; Safe USDS down by ~500,000; ~115,087 USDS left for PeriodicYield (spec SO1). If the key was squatted (the batch reverts): follow SO3 — set `lp.tickSpacing` to 30, re-run `SNAPSHOT_BLOCK=26043909 yarn verify:lp` (must pass), delete the 005 batch file, re-run Op 5.
 
 ---
 
@@ -1521,7 +1578,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 - `forge --version` = 1.8.0; `forge build` succeeds; `yarn test` green (adds 10 `ProposeLpTest` tests); `forge fmt --check` clean.
 - `SNAPSHOT_BLOCK=26043909 yarn verify:migration` passes (uses `SafeBatchLib.execute`).
 - `SNAPSHOT_BLOCK=26043909 yarn verify:lp` passes: both orderings, both squat reverts, both refusals, third-party EARN on the Safe, swap check.
-- `git grep -n "_executeBatch" script/` returns nothing.
+- `git grep -n "_executeBatch" script/ test/` returns nothing.
 - `git diff --stat cbf3d6ea -- src/ lib/ script/safe/ script/deployments/1/003-espn-redemption/ script/deployments/1/004-stry-migration/StopEspnYield.s.sol script/deployments/1/004-stry-migration/Distribute.s.sol script/deployments/1/004-stry-migration/PeriodicYield.s.sol script/deployments/1/004-stry-migration/Deploy.s.sol test/unit/StryTokenTest.sol` is empty.
 - `shasum -a 256 script/deployments/1/005-earn-lp/lib/*.sol` matches Task 3 Step 1.
 - `docs/RELEASE-NOTES.md` `## Pending` has the EARN launch and pool (with how-to link) bullets next to the landed supply and yield-base bullets.
