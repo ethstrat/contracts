@@ -261,7 +261,7 @@ Two orderings. `B = basisPriceUsd` (100), `Lo = bandLowerUsd` (50), `Hi = bandUp
 - `BAND_LOWER = floorToSpacing(tick(Lo))`. For Lo = 50: `tick = 39122` → `39120` (price 49.99).
 - Equality case: `BAND_UPPER == currentTick` is allowed (`>=`), position is still USDS-only.
 - `FULL_LOWER = -887220`, `FULL_UPPER = 887220` (MIN/MAX_TICK ±887272 rounded inward to a multiple of 60).
-- Full-range liquidity: `liqFull = LiquidityAmounts.getLiquidityForAmounts(sqrtP, sqrtAt(FULL_LOWER), sqrtAt(FULL_UPPER), amount0 = fullRangeEarn, amount1 = fullRangeUsds)` = `min(L0, L1)`. At P = 100, both L0 and L1 floor to exactly 25000e18 (N7). Both sides settle at exactly 2,500e18 EARN and 250,000e18 USDS.
+- Full-range liquidity: `liqFull = LiquidityAmounts.getLiquidityForAmounts(sqrtP, sqrtAt(FULL_LOWER), sqrtAt(FULL_UPPER), amount0 = fullRangeEarn, amount1 = fullRangeUsds)` = `min(L0, L1)`. Measured at P = 100: `liqFull = 25000000000000000000135`. Settled: 2,499.999999999999998655 EARN and 249,999.999999999999999992 USDS. Mint amounts are maxima; the dust stays in the Safe.
 - Band liquidity: `liqBand = getLiquidityForAmount1(sqrtAt(BAND_LOWER), sqrtAt(BAND_UPPER), singleSidedUsds)`.
 - amountMax: position 1 `(fullRangeEarn, fullRangeUsds)`; position 2 `(0, singleSidedUsds)`.
 
@@ -276,7 +276,7 @@ Two orderings. `B = basisPriceUsd` (100), `Lo = bandLowerUsd` (50), `Hi = bandUp
 - `BAND_UPPER = ceilToSpacing(tick(1/Lo))`. For Lo = 50: `tick(0.02) = -39123` → `-39120` (price 1/49.99).
 - Equality case: `BAND_LOWER == currentTick` is NOT USDS-only (it is in range). The `+= s` above handles it. `buildBatch` still requires `currentTick < BAND_LOWER` after rounding.
 - `FULL_LOWER/UPPER` as Case A.
-- `liqFull = getLiquidityForAmounts(sqrtP, sqrtAt(FULL_LOWER), sqrtAt(FULL_UPPER), amount0 = fullRangeUsds, amount1 = fullRangeEarn)` = 25000e18 − 1 (N7). The settled amounts are ≤ the configured amounts.
+- `liqFull = getLiquidityForAmounts(sqrtP, sqrtAt(FULL_LOWER), sqrtAt(FULL_UPPER), amount0 = fullRangeUsds, amount1 = fullRangeEarn)` = 25000000000000000000135 (measured, same as Case A). The settled amounts are ≤ the configured amounts; mint amounts are maxima and the dust stays in the Safe.
 - `liqBand = getLiquidityForAmount0(sqrtAt(BAND_LOWER), sqrtAt(BAND_UPPER), singleSidedUsds)`.
 - amountMax: position 1 `(fullRangeUsds, fullRangeEarn)`; position 2 `(singleSidedUsds, 0)`.
 
@@ -305,7 +305,7 @@ Reference values (B = 100, Lo = 50, Hi = 100, s = 60). The review recomputed the
 | `BAND_UPPER` | 46020 | -39120 |
 | USDS/EARN at band edges | 49.99 – 99.66 | 99.66 – 49.99 |
 | `FULL_LOWER/UPPER` | -887220 / 887220 | -887220 / 887220 |
-| `liqFull` | 25000e18 | 25000e18 − 1 |
+| `liqFull` | 25000000000000000000135 | 25000000000000000000135 |
 
 ## 7. Config
 
@@ -386,7 +386,7 @@ Fork at `SNAPSHOT_BLOCK`. Same harness as 004 (`vm.startPrank`, `deal`, `SafeBat
 7. Assert `getSlot0(poolId).sqrtPriceX96 == expected sqrtPriceX96` (exact) and `tick == expected currentTick`.
 8. Assert `PositionManager.ownerOf(tokenId1) == safe` and `ownerOf(tokenId2) == safe`. Token ids = `nextTokenId()` read before execution, then +1.
 9. Assert `getPositionLiquidity(tokenId1) == liqFull` and `getPositionLiquidity(tokenId2) == liqBand`.
-10. Assert `usdsBefore - USDS.balanceOf(safe)` is within `1e12` of `500,000e18` (S3; no underflow). Assert `earn.balanceOf(safe) <= 1e12`. The 1e12 tolerance is 1e-6 of a token of dust; rounding is bounded by wei per position.
+10. Assert `usdsBefore - USDS.balanceOf(safe)` is within `1e12` of `500,000e18` (S3; no underflow). Assert `earn.balanceOf(safe) <= earnBefore + DUST` (relative, `DUST = 1e12`), so EARN sent to the Safe by a third party before the batch cannot block it; Verify pins this by dealing 1 EARN to the Safe first (plan Deviation 6). The 1e12 tolerance is 1e-6 of a token of dust; rounding is bounded by wei per position.
 11. Assert position 2 took zero EARN: `earn.balanceOf(safe)` is dust after minting exactly `fullRangeEarn`, and position 1 alone accounts for the EARN pulled.
 12. Assert `Permit2.allowance(safe, USDS, PositionManager).amount <= 1e12` and same for EARN.
 13. Negative test: re-run `buildBatch` after execution → must revert on the pool-already-initialized preflight.
