@@ -24,16 +24,16 @@ contract PeriodicYieldHarness is PeriodicYield {
         return _periodicYieldAmountPure(totalSupply_, basisPriceUsd, annualDividendRatioX100);
     }
 
-    function exposedAmount(StakedStrat stakedEarn) external view returns (uint256) {
-        return periodicYieldAmount(stakedEarn);
+    function exposedAmount(uint256 airdropSupply) external view returns (uint256) {
+        return periodicYieldAmount(airdropSupply);
     }
 
-    function exposedYield(address safe, address usds, address stakedEarnAddr)
+    function exposedYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply)
         external
         view
         returns (SafeBatchLib.Tx[] memory)
     {
-        return periodicYield(safe, usds, stakedEarnAddr);
+        return periodicYield(safe, usds, stakedEarnAddr, airdropSupply);
     }
 }
 
@@ -53,6 +53,7 @@ contract PeriodicYieldTest is Test {
     address internal guardian = address(0x9);
     address internal safe = address(0xA11CE);
     address internal holder = address(0xB0B);
+    uint256 internal constant AIRDROP = 1_000_000e18;
 
     function setUp() public {
         harness = new PeriodicYieldHarness();
@@ -99,12 +100,35 @@ contract PeriodicYieldTest is Test {
         assertEq(harness.exposedAmountPure(earn.totalSupply(), BASIS_PRICE_USD, ANNUAL_DIVIDEND_RATIO_X100), expected);
     }
 
-    function test_periodicYieldAmount_matchesRealConfig() public {
-        _deployStakedStrat(1_000_000e18);
+    function test_periodicYieldAmount_matchesRealConfig() public view {
         assertEq(
-            harness.exposedAmount(stakedStrat),
-            harness.exposedAmountPure(earn.totalSupply(), BASIS_PRICE_USD, ANNUAL_DIVIDEND_RATIO_X100)
+            harness.exposedAmount(1_000_000e18),
+            harness.exposedAmountPure(1_000_000e18, BASIS_PRICE_USD, ANNUAL_DIVIDEND_RATIO_X100)
         );
+    }
+
+    function test_periodicYieldAmount_ignoresPostAirdropMint() public {
+        _deployStakedStrat(AIRDROP);
+        _stakeAll();
+        usds.mint(safe, 1_000_000_000e18);
+        bytes memory before = harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP)[0].data;
+
+        // A later Safe mint (e.g. the LP's 2,500 EARN) must not move the yield base (D22).
+        address[] memory to = new address[](1);
+        to[0] = safe;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 2_500e18;
+        earn.mintBatch(to, amounts);
+
+        assertEq(harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP)[0].data, before);
+    }
+
+    function test_periodicYield_revertsOnZeroAirdropSupply() public {
+        _deployStakedStrat(AIRDROP);
+        _stakeAll();
+        usds.mint(safe, 1_000_000_000e18);
+        vm.expectRevert(bytes("PeriodicYield: airdropSupply == 0"));
+        harness.exposedYield(safe, address(usds), address(stakedStrat), 0);
     }
 
     function test_periodicYieldAmount_revertsBelowRatioFloor() public {
@@ -134,25 +158,25 @@ contract PeriodicYieldTest is Test {
                 "PeriodicYield: totalStaked() == 0 -- funding now permanently destroys the deposit, see src/StakedStrat.sol syncRewards()"
             )
         );
-        harness.exposedYield(safe, address(usds), address(stakedStrat));
+        harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP);
     }
 
     function test_periodicYield_revertsWhenSafeBalanceBelowAmount() public {
         _deployStakedStrat(1_000_000e18);
         _stakeAll();
-        uint256 amount = harness.exposedAmount(stakedStrat);
+        uint256 amount = harness.exposedAmount(AIRDROP);
         usds.mint(safe, amount - 1);
         vm.expectRevert(bytes("PeriodicYield: Safe USDS balance < computed amount"));
-        harness.exposedYield(safe, address(usds), address(stakedStrat));
+        harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP);
     }
 
     function test_periodicYield_returnsExactTwoTxBatch() public {
         _deployStakedStrat(1_000_000e18);
         _stakeAll();
-        uint256 amount = harness.exposedAmount(stakedStrat);
+        uint256 amount = harness.exposedAmount(AIRDROP);
         usds.mint(safe, amount); // exactly the guard boundary -- must succeed, not revert
 
-        SafeBatchLib.Tx[] memory txs = harness.exposedYield(safe, address(usds), address(stakedStrat));
+        SafeBatchLib.Tx[] memory txs = harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP);
 
         assertEq(txs.length, 2, "expected exactly 2 transactions");
         assertEq(txs[0].to, address(usds));

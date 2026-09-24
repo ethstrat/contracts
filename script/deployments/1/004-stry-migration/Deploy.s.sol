@@ -19,14 +19,13 @@ contract Deploy is Script {
         // Assumption 4: no deployed TripwireController is recorded anywhere in this repo.
         // TripwireGuard's constructor reverts a bare InvalidController() on a zero-or-codeless
         // controller, which is opaque -- fail with something the operator can act on instead.
-        // This guards the mainnet broadcast only; it does not gate fork verification, which
-        // deploys its own TripwireController (see Verify.s.sol).
+        // Fork verification (Verify.s.sol) uses the same live controller.
         require(
             controller.code.length > 0,
             string.concat(
                 "Assumption 4 unresolved: no TripwireController deployed at ",
                 vm.toString(controller),
-                ". Track B cannot be BROADCAST until one exists. Deploying a controller is unscoped work. (yarn verify:migration is unaffected -- it deploys its own controller on the fork.)"
+                ". Track B cannot be BROADCAST until one exists. Deploying a controller is unscoped work."
             )
         );
         require(
@@ -56,8 +55,8 @@ contract Deploy is Script {
     }
 
     /// @dev `stratToken` and `controller` are explicit arguments -- not read from committed config
-    /// inside this function -- so Verify.s.sol can pass the fork-fresh, uncommitted STRY mint and a
-    /// fork-local TripwireController without ever writing to deploymentAddresses.json. The
+    /// inside this function -- so Verify.s.sol can pass the fork-fresh, uncommitted STRY mint
+    /// without ever writing to deploymentAddresses.json. The
     /// mainnet-broadcast pre-condition on Assumption 4 lives in run() above, not here.
     function deploy(address stratToken, address controller, address guardian)
         internal

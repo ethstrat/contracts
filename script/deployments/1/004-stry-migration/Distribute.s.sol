@@ -11,9 +11,16 @@ import {HoldersLib} from "../lib/HoldersLib.sol";
 /// sized so totalSupply(STRY) * basisPriceUsd == the included holders' share of ESPN's live USDS
 /// backing. $100/STRY is a nominal basis price, not a redemption guarantee (Assumption 7/option 2)
 /// -- both tracks lay claim to the same ESPN backing.
+/// Ownership is transferred to the redemption Safe (not renounced), so the Safe can mint more EARN
+/// later: EARN supply is not fixed. OZ Ownable is single-step, so a wrong target is unrecoverable.
 contract Distribute is Script {
     function run() external virtual {
         string memory holdersFile = vm.envString("HOLDERS_FILE");
+
+        require(
+            ConfigLib.num("deploymentAddresses.json", ".earn-airdrop-supply") == 0,
+            "Distribute: airdrop supply already recorded; refusing to overwrite"
+        );
 
         address deployer = msg.sender;
         vm.startBroadcast();
@@ -21,6 +28,13 @@ contract Distribute is Script {
         vm.stopBroadcast();
 
         ConfigLib.writeDeployedAddress(".stry", address(stry));
+        // Only mintBatch has minted at this point (the Safe cannot act inside this script), so
+        // totalSupply is the airdrop total -- PeriodicYield's fixed yield base.
+        vm.writeJson(
+            string.concat('"', vm.toString(stry.totalSupply()), '"'),
+            string.concat(ConfigLib.configRoot(), "deploymentAddresses.json"),
+            ".earn-airdrop-supply"
+        );
     }
 
     /// @dev Items 1-3 and the calibration assertion. `writeDeployedAddress` stays out of here and
@@ -38,6 +52,8 @@ contract Distribute is Script {
         uint256 totalAssets_ = espn.totalAssets();
         uint256 totalSupply_ = espn.totalSupply();
         uint256 basisPriceUsd = ConfigLib.num("settings.json", ".espnv3.basisPriceUsd");
+        address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
+        require(safe != address(0) && safe.code.length > 0, "Distribute: redemption Safe unset or has no code");
 
         uint256[] memory stryAmounts = new uint256[](includedCount);
         for (uint256 i; i < includedCount; ++i) {
@@ -55,7 +71,13 @@ contract Distribute is Script {
             "mintBatch total estimated (execution + 21000 intrinsic + calldata):", executionGas + calldataGasEstimate
         );
 
-        stry.renounceOwnership();
+        // No excluded snapshot holder (PoolManager, redemption Safe, Seaport) may get airdrop EARN.
+        address[] memory excluded = ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses");
+        for (uint256 i; i < excluded.length; ++i) {
+            require(stry.balanceOf(excluded[i]) == 0, "Distribute: excluded address received EARN");
+        }
+
+        stry.transferOwnership(safe);
 
         // Calibration -- each per-holder division truncates up to 1 wei of STRY; multiplied back
         // by basisPriceUsd, that is up to basisPriceUsd wei of USDS per holder. Truncation only
