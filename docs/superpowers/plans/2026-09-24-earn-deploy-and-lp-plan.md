@@ -2,170 +2,101 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make EARN ownable by the redemption Safe with a recorded, immutable airdrop-supply yield base, and produce one fork-simulated redemption-Safe batch that mints 2,500 EARN, initializes the EARN/USDS v4 pool at 100 USDS per EARN, and mints a full-range position and a 50–100 USDS/EARN bid wall owned by the Safe.
+**Goal:** Produce one fork-simulated redemption-Safe batch that mints 2,500 EARN, initializes the EARN/USDS Uniswap v4 pool at 100 USDS per EARN, and mints a full-range position and a 50–100 USDS/EARN bid wall owned by the Safe; finish the docs; hand the operator an ordered mainnet checklist.
 
-**Architecture:** `004-stry-migration` changes in place: `Distribute` transfers ownership to the Safe and records `.earn-airdrop-supply` once; `PeriodicYield` takes that value as its base; `Verify` uses the live TripwireController. A new `005-earn-lp` directory holds `ProposeLp.s.sol` (preflight, tick/liquidity math, 6-tx batch, pre-write fork simulation), minimal v4 interfaces, seven vendored MIT Uniswap math libraries, and a fork `Verify.s.sol` that runs both currency orderings, the squatted-pool revert, and a swap check. `SafeBatchLib` gains `execute`, moved out of 004's Verify so ProposeLp can use it.
+**Architecture:** A new `script/deployments/1/005-earn-lp/` directory holds `ProposeLp.s.sol` (preflight, tick/liquidity math, 6-tx batch, pre-write fork simulation), minimal v4 interfaces, seven vendored MIT Uniswap math libraries, and a fork `Verify.s.sol` that runs both currency orderings, the squatted-pool revert, the refusal paths and a swap check. `SafeBatchLib` gains `execute`, moved out of 004's `Verify.s.sol` so ProposeLp can use it. The 004 changes the spec asks for (EARN owned by the Safe, `.earn-airdrop-supply`, airdrop-supply yield base, live TripwireController) already landed on this branch; see "Already landed".
 
-**Tech Stack:** Foundry v1.8.0 (`forge test`, `forge script`, `cast`), forge-std, OpenZeppelin (vendored), Uniswap v4-core `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` and v4-periphery `9969eec44cfdf07e24b41de47f40276a58401976` library sources (vendored, MIT), existing repo libs `ConfigLib`/`HoldersLib`/`SafeBatchLib`.
+**Tech Stack:** Foundry v1.8.0 (`forge test`, `forge script`, `cast`), forge-std, OpenZeppelin (vendored), Uniswap v4-core `46c6834698c48bc4a463a86d8420f4eb1d7f3b75` and v4-periphery `9969eec44cfdf07e24b41de47f40276a58401976` library sources (vendored, MIT), repo libs `ConfigLib`/`HoldersLib`/`SafeBatchLib`.
 
 **Spec:** [`../specs/2026-09-24-earn-deploy-and-lp-design.md`](../specs/2026-09-24-earn-deploy-and-lp-design.md). Sign-offs SO1–SO6 accepted by the user on 2026-09-24; Safe address confirmed (SO6).
 
 ## Execution rules (from the user's standing instructions)
 
-- Every task that writes or edits code (Tasks 1–6) is run by a subagent with **`/ponytail:ponytail` active** (the dispatch prompt says "invoke /ponytail:ponytail" or "ponytail mode").
+- Every task that writes or edits code (Tasks 1–4) is run by a subagent with **`/ponytail:ponytail` active** (the dispatch prompt says "invoke /ponytail:ponytail" or "ponytail mode").
 - The controller pins code tasks to **Sonnet 5, high effort** (dispatch through `Workflow` `agent()`, which honors `model`). Review gates run on Opus 5, high effort.
 - **The controller, not the implementers, ticks this file's checkboxes**, after a task passes both spec-compliance and code-quality review, and commits the ticks (folded into the task's last commit, or `chore(plan): mark task N complete`). Implementers never edit this file.
 - **No `git push` anywhere in this plan.** The user says go before any push.
-- **No agent broadcasts anything.** No `--broadcast`, no `yarn safe:propose`, no Safe UI action. Task 8 is a checklist the human operator runs.
+- **No agent broadcasts anything.** No `--broadcast`, no `yarn safe:propose`, no Safe UI action. Task 6 is a checklist the human operator runs.
 - **Never read `.env` or any secret file.** `yarn safe:propose` loads `.env` itself; only the operator runs it.
 - Commit subjects: lowercase conventional commits, checked by husky + `@commitlint/config-conventional`. Never `--no-verify`. Header ≤ 100 chars, body lines ≤ 100 chars.
 - Implementer commits end with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
+- Before each task, `git log --oneline -5` and `git status`: this branch has had parallel commits. If a task's files changed since this plan's commit, stop and report to the controller.
+
+## Already landed (not part of this plan's tasks)
+
+Verified at `cbf3d6ea`. Implementers treat these as given.
+
+| Spec item | Commit | Notes |
+|---|---|---|
+| Snapshot `espn-holders-26043909.json`, Seaport exclusion, live controller `0x328a…4064854` committed | `7a0a6a96` | `ScriptLibsTest` updated to 3 excluded addresses in `18519a6b` |
+| D8/D9 `transferOwnership(safe)`, Safe code check; D22 `.earn-airdrop-supply` placeholder, refusal and write; D23 excluded-holder `require` in `distribute()` | `18519a6b`, `d8e70dfa` | `Distribute.run()` writes config only under `vm.isContext(ScriptBroadcast)` (a dry run leaves the file untouched) and refuses on ESPN supply/NAV drift since the snapshot (`EarnDistributeSnapshotFreshnessTest`) |
+| D22 `PeriodicYield` base = `airdropSupply` argument | `18519a6b` | Zero base reverts `"PeriodicYield: airdropSupply == 0"`; tests `test_periodicYieldAmount_ignoresPostAirdropMint`, `test_periodicYield_revertsOnZeroAirdropSupply` |
+| V1 `004-stry-migration/Verify.s.sol`: owner == Safe, excluded-holder loop, live controller, post-airdrop mint leaves the yield amount unchanged | `18519a6b` | `_executeBatch` still lives here; Task 2 moves it |
+| N6 `Deploy.s.sol` comments | `18519a6b` | |
+| Docs: runbook Assumption 10, step-4 Distribute notes (`--slow`, dry run, freshness), section 9 supply note; help lines 1–2; release-notes supply and yield-base bullets | `cbf3d6ea` | Task 5 adds the rest |
+
+Prototype check of this plan's remaining code on top of `cbf3d6ea` (scratch copy): `yarn test` 313 pass, `forge fmt --check` clean, `SNAPSHOT_BLOCK=26043909 yarn verify:migration` and `yarn verify:lp` pass, `ProposeLp.run()` passed on a latest-block fork with an etched EARN.
 
 ## Global Constraints
 
 - Foundry pinned `v1.8.0` (`forge --version` must print `forge Version: 1.8.0`).
-- `forge fmt --check` clean after every task (CI gate). Vendored `005-earn-lp/lib/*.sol` are excluded via `foundry.toml` `[profile.default.fmt] ignore` (Task 5).
-- Unit tests: `yarn test` (= `forge test --fuzz-runs 20`, `test/unit`, no fork). Must be green after every task.
-- Fork runs use the `package.json` default RPC: `${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}`. Snapshot block `26043909` (`SNAPSHOT_BLOCK=26043909`).
-- Redemption Safe `0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D` (`internalAddresses.json` `.protocol.multisigs.redemption`), confirmed by the user (SO6). Safe 1.4.1, 1-of-1, owner = main multisig `0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8`.
+- `forge fmt --check` clean after every task (CI gate). Vendored `005-earn-lp/lib/*.sol` are excluded via `foundry.toml` `[profile.default.fmt] ignore` (Task 3).
+- Unit tests: `yarn test` (= `forge test --fuzz-runs 20`, `test/unit`, no fork). Green after every task.
+- Fork runs use the `package.json` default RPC: `${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}`. Snapshot block `26043909`.
+- Redemption Safe `0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D` (`internalAddresses.json` `.protocol.multisigs.redemption`). Safe 1.4.1, 1-of-1, owner = main multisig `0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8`.
 - EARN initial price = `settings.json` `.espnv3.basisPriceUsd` = `100` (unscaled). Not duplicated in `lp`.
 - `lp` block: `fullRangeUsds "250000000000000000000000"`, `singleSidedUsds "250000000000000000000000"`, `bandLowerUsd 50`, `bandUpperUsd 100`, `fee 3000`, `tickSpacing 60`. `fullRangeEarn = fullRangeUsds / basisPriceUsd` (2,500e18), derived.
 - Pool key: `(min(EARN,USDS), max(EARN,USDS), fee 3000, tickSpacing 60, hooks address(0))`. Currency order decided at runtime.
-- v4 mainnet addresses: PoolManager `0x000000000004444c5dc75cB358380D2e3dE08A90`, PositionManager `0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e`, Permit2 `0x000000000022D473030F116dDEE9F6B43aC78BA3`, StateView `0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227`. Written to `externalAddresses.json` only after the V0 `cast` checks pass (Task 2).
-- Live TripwireController `0x328aED8F7a01f45A959c187F3cb97eC508064854` (`internalAddresses.json` `.protocol.tripwire.controller`).
-- Permit2 `expiration = type(uint48).max`; `modifyLiquidities` `deadline = type(uint256).max`. Exact approve amounts, never max.
+- v4 mainnet addresses: PoolManager `0x000000000004444c5dc75cB358380D2e3dE08A90`, PositionManager `0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e`, Permit2 `0x000000000022D473030F116dDEE9F6B43aC78BA3`, StateView `0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227`. Written to `externalAddresses.json` only after the V0 `cast` checks pass (Task 1).
+- Batch: 6 txs, order `EARN.mintBatch`, `USDS.approve(Permit2)`, `EARN.approve(Permit2)`, `Permit2.approve(USDS→PositionManager)`, `Permit2.approve(EARN→PositionManager)`, `PositionManager.multicall([initializePool, modifyLiquidities])`. Exact amounts, never max.
+- Permit2 `expiration = type(uint48).max`; `modifyLiquidities` `deadline = type(uint256).max`.
 - Action constants: `MINT_POSITION = 0x02`, `SETTLE_PAIR = 0x0d`.
-- Dust tolerance `1e12` wei (USDS spent vs 500,000e18, EARN left on Safe, Permit2 residual allowances).
-- `.earn-airdrop-supply`: quoted decimal wei string in `deploymentAddresses.json`, placeholder `"0"`, written only by `Distribute.run()`, refused if already nonzero.
-- **Do not modify:** `src/StryToken.sol`, `src/StakedStrat.sol`, `004-stry-migration/StopEspnYield.s.sol`, `lib/*` (git submodules), `script/safe/*`, anything under `003-espn-redemption/`, `test/unit/StryTokenTest.sol` (spec O5: renounce test kept).
+- Dust tolerance `1e12` wei (USDS spent vs 500,000e18, EARN left on the Safe, Permit2 residual allowances).
+- **Do not modify:** `src/StryToken.sol`, `src/StakedStrat.sol`, `004-stry-migration/{StopEspnYield,Distribute,PeriodicYield,Deploy}.s.sol`, `lib/*` (git submodules), `script/safe/*`, anything under `003-espn-redemption/`, `test/unit/StryTokenTest.sol` (spec O5).
 - Out of scope (D21): ETH pairs, hooks, staking LP, frontend, Track A, LP fee collection.
 
 ## Deviations from the spec's literal wording, with reasons
 
-All code in this plan was prototyped in a scratch copy of the repo before the plan was written: `yarn test` (309 pass), `forge fmt --check`, `yarn verify:migration` and `yarn verify:lp` at block 26043909, and `ProposeLp.run()` on a latest-block fork all passed. The deviations below come from that run.
-
-1. **Excluded-holder check (D23) is a `require` inside `Distribute.distribute()`, not two `assertEq` loops in the two Verify files.** Both Verify scripts call `distribute()` before anything else, so both still check it before the LP batch, and the check also guards the real mainnet broadcast. One loop instead of two.
-2. **`buildBatch(address earn)` returns `(SafeBatchLib.Tx[] txs, LpPlan p)` and reads config itself; `_simulateAndCheck(LpPlan p, Tx[] txs)`.** `LpPlan` carries every derived value (key, poolId, ticks, liquidity, amounts) so the simulation and Verify assert against the same numbers the batch was built from.
-3. **`liqFull` reference value is `25000e18 + 135` in both orderings, not `25000e18` / `25000e18 − 1` (spec N7).** Measured with the pinned TickMath/LiquidityAmounts. Settled amounts are still ≤ the configured ones: full range takes 2,499.999999999999998655 EARN and 249,999.999999999999999992 USDS; the bid wall takes exactly 250,000 USDS (`liqBand = 85830483191952473195169`). No `liq -= 1` needed.
-4. **Swap check (V2 step 15) uses a 30-line `V4SwapSanity` unlock-callback contract in `Verify.s.sol`, not v4-core's `PoolSwapTest`.** `PoolSwapTest` pulls in ~10 more v4 files; the spec's own skip clause allows this.
-5. **Step 13 (buildBatch refuses an initialized pool) uses a `BuildBatchProbe` contract.** forge refuses `this.f()` in a script ("Usage of `address(this)` detected in script contract").
-6. **Step 14 (squatted pool) executes txs 1–5, then calls tx 6 directly and checks the revert selector.** Avoids a self-call. In the real batch, `propose-batch.mjs` produces one MultiSend, which reverts atomically.
-7. **EARN dust check is `earn.balanceOf(safe) <= earnBefore + 1e12`, not `<= 1e12`.** A third party sending EARN to the Safe before step 5 cannot block ProposeLp.
-8. **Extra preflight `PositionManager.permit2() == permit2`** (spec V0 check 2 as a runtime require; the interface already lists `permit2()`).
-9. **Vendored libraries stay byte-identical:** `LiquidityAmounts.sol` imports `@uniswap/v4-core/src/libraries/...`; a one-line remapping resolves it, and `foundry.toml` excludes the directory from `forge fmt` (forge fmt would rewrap their comments under `wrap_comments = true`, and lint-staged runs `forge fmt` on commit).
-10. **`verify:lp` passes `--tc Verify`:** `005-earn-lp/Verify.s.sol` holds three contracts.
-11. **`SafeBatchLib.execute` no-reason revert string is `"SafeBatchLib: batch tx reverted with no reason"`** (was `"Verify: ..."`). Body otherwise unchanged.
-12. **`test/unit/ScriptLibsTest.sol` `test_ConfigLib_addrArray_excludedAddresses` is updated to 3 addresses.** Committing the pending Seaport exclusion breaks it otherwise.
-13. **Protocol fee:** at block 26043909 a freshly initialized 3000/60 key had `slot0.protocolFee == 0`. The swap check reads `slot0` and applies whatever value is there (spec R12/S6 unchanged in substance).
-14. **Verify order:** both `deployCodeTo` orderings and both squat tests run on state snapshots *before* the real batch executes, so the Safe still holds ≥ 500,000 USDS for each.
-15. **Runbook section 2 gets rows `4a`/`4b`** instead of renumbering, so the step numbers other sections cite (1, 5, 7, 8) stay valid.
+1. **`buildBatch(address earn)` returns `(SafeBatchLib.Tx[] txs, LpPlan p)` and reads config itself; `_simulateAndCheck(LpPlan p, Tx[] txs)`.** `LpPlan` carries every derived value (key, poolId, ticks, liquidity, amounts), so the simulation and Verify assert against the numbers the batch was built from.
+2. **`liqFull` is `25000e18 + 135` in both orderings, not `25000e18` / `25000e18 − 1` (spec N7).** Measured with the pinned TickMath/LiquidityAmounts. Settled amounts stay ≤ the configured ones: full range takes 2,499.999999999999998655 EARN and 249,999.999999999999999992 USDS; the bid wall takes exactly 250,000 USDS (`liqBand = 85830483191952473195169`). No `liq -= 1` needed.
+3. **Swap check (V2 step 15) uses a 30-line `V4SwapSanity` unlock-callback contract in `Verify.s.sol`, not v4-core's `PoolSwapTest`.** `PoolSwapTest` pulls in ~10 more v4 files; the spec's skip clause allows this.
+4. **Refusal checks (V2 step 13 and the low-USDS case) go through a `BuildBatchProbe` contract.** forge refuses `this.f()` in a script ("Usage of `address(this)` detected in script contract").
+5. **Squat test (V2 step 14) executes txs 1–5, then calls tx 6 directly and checks the revert selector.** Avoids a self-call. The real batch is one MultiSend (`propose-batch.mjs`), which reverts atomically.
+6. **EARN dust check is `earn.balanceOf(safe) <= earnBefore + 1e12`, not `<= 1e12`.** A third party sending EARN to the Safe before step 5 cannot block ProposeLp. Verify pins this by dealing 1 EARN to the Safe before the real batch.
+7. **Extra preflight `PositionManager.permit2() == permit2`** (spec V0 check 2 as a runtime require; the interface already lists `permit2()`).
+8. **Vendored libraries stay byte-identical:** `LiquidityAmounts.sol` imports `@uniswap/v4-core/src/libraries/...`; a one-line remapping resolves it, and `foundry.toml` excludes the directory from `forge fmt` (it would rewrap their comments under `wrap_comments = true`, and lint-staged runs `forge fmt` on commit).
+9. **`verify:lp` passes `--tc Verify`:** `005-earn-lp/Verify.s.sol` holds three contracts.
+10. **`SafeBatchLib.execute` no-reason revert string is `"SafeBatchLib: batch tx reverted with no reason"`** (was `"Verify: ..."`). Body otherwise unchanged.
+11. **Protocol fee:** at block 26043909 a freshly initialized 3000/60 key had `slot0.protocolFee == 0`. The swap check reads `slot0` and applies whatever value is there.
+12. **Verify order:** both `deployCodeTo` orderings, both squat tests and the low-USDS refusal run on state snapshots *before* the real batch executes, so the Safe still holds ≥ 500,000 USDS for each.
+13. **Runbook section 2 gets rows `4a`/`4b`** instead of renumbering, so the step numbers other sections cite (1, 3, 4, 5, 7, 8) stay valid.
 
 ## Review Focus
 
-1. **A dry run of `Distribute.s.sol` (no `--broadcast`) writes `.stry` and `.earn-airdrop-supply` into `deploymentAddresses.json`,** so the real broadcast then refuses with "airdrop supply already recorded". Confirmed in the prototype. Expected: the operator restores the file (`git checkout -- script/deployments/1/config/deploymentAddresses.json`) before the broadcast. Pinned by Task 4 Step 9 (fork smoke: first run writes, second run refuses) and stated in Task 8.
-2. **Mainnet EARN's address is unknown until step 3, so the pool may be Case A or Case B.** Expected: both work. Pinned by Task 5's unit tests (reference table for both cases) and Task 6's `_checkOrderingAt` at `0x10000` (Case A) and `type(uint160).max - 0xffff` (Case B), each running the full batch and all V2 step 6–12 checks.
-3. **Someone initializes the `(EARN, USDS, 3000, 60, 0)` key at a wrong price between step 3 and step 7.** Expected: the batch reverts `MaximumAmountExceeded`, nothing is minted, no funds move. Pinned by Task 6 `_assertSquatReverts` at 2× and 0.5×.
-4. **ProposeLp is re-run after the batch file exists or after the pool is live.** Expected: refuse, never overwrite a batch mid-signature. Pinned by Task 6 Step 7 (second smoke run refuses on the existing file) and Verify step 13 (probe refuses with "ProposeLp: pool already initialized").
-5. **PeriodicYield is run before Distribute has recorded the supply (placeholder `"0"`).** Expected: hard revert, no zero-amount batch. Pinned by Task 3 `test_periodicYield_revertsOnZeroAirdropSupply`.
+1. **Mainnet EARN's address is unknown until step 3, so the pool may be Case A or Case B.** Expected: both work. Pinned by Task 3's unit tests (reference values for both cases, equality case, Hi < B) and Task 4's `_checkOrderingAt` at `0x10000` (Case A) and `type(uint160).max - 0xffff` (Case B), each running the full batch and every V2 step 6–12 check.
+2. **Someone initializes the `(EARN, USDS, 3000, 60, 0)` key at a wrong price between step 3 and step 7.** Expected: the batch reverts `MaximumAmountExceeded`, nothing is minted, no funds move. Pinned by Task 4 `_assertSquatReverts` at 2× and 0.5×.
+3. **ProposeLp is re-run after the batch file exists or after the pool is live.** Expected: refuse; never overwrite a batch mid-signature. Pinned by Task 4 Step 7 (second smoke run refuses on the existing file) and Verify step 13 (`"ProposeLp: pool already initialized"`).
+4. **A third party sends EARN to the Safe before ProposeLp runs.** Expected: the batch still builds and the dust check still passes. Pinned by Task 4 Verify (`deal(address(earn), safe, 1e18)` before the real batch).
+5. **The Safe holds less than 500,000 USDS when ProposeLp runs** (PeriodicYield or anything else spent it). Expected: refuse before simulating or writing. Pinned by Task 4 Verify (`_assertBuildBatchReverts` with Safe USDS = total − 1).
 
 ---
 
 ## Task dependency order
 
 ```
-Task 1 (commit pending config: snapshot, Seaport exclusion, live controller; fix ScriptLibsTest)  -- first
-Task 2 (V0 on-chain checks -> externalAddresses.json uniswap-v4; settings.json lp block)            -- after Task 1 (settings.json)
-Task 3 (PeriodicYield airdrop-supply base + tests + 004 Verify call sites)                           -- after Task 1
-Task 4 (Distribute ownership + supply record + excluded require; 004 Verify; SafeBatchLib.execute)   -- after Task 3
-Task 5 (vendored v4 libs, IV4Minimal, ProposeLp math + unit tests)                                   -- after Task 1
-Task 6 (ProposeLp buildBatch/simulate/run + 005 Verify + verify:lp)                                  -- after Tasks 2, 4, 5
-Task 7 (docs: runbook, old spec, help, how-to, release notes)                                        -- after Task 6
-Task 8 (operator checklist: human-run mainnet steps, no agent action)                                -- after Task 7 and user go
+Task 1 (V0 on-chain checks -> externalAddresses.json uniswap-v4; settings.json lp block)   -- independent
+Task 2 (SafeBatchLib.execute, moved from 004 Verify; re-run verify:migration)                -- independent
+Task 3 (vendored v4 libs, IV4Minimal, ProposeLp math + unit tests)                          -- independent
+Task 4 (ProposeLp buildBatch/simulate/run + 005 Verify + verify:lp)                         -- after Tasks 1, 2, 3
+Task 5 (docs: runbook LP steps, old-spec note, help lines, how-to, release notes)           -- after Task 4
+Task 6 (operator checklist: human-run mainnet steps, no agent action)                       -- after Task 5 and the user's go
 ```
 
-Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, but one controller and one commit stream is simpler.
+Run tasks in number order. Tasks 1–3 touch disjoint files but one commit stream is simpler.
 
 ---
 
-## Task 1: commit the pending config edits
-
-**Files:**
-- Commit (already edited in the working tree): `script/deployments/1/config/settings.json` (Seaport added to `.espnv3.excludedAddresses`), `script/deployments/1/config/internalAddresses.json` (`.protocol.tripwire.controller`), `script/deployments/1/config/espn-holders-26043909.json` (untracked snapshot)
-- Modify: `test/unit/ScriptLibsTest.sol:36-41`
-
-**Interfaces:**
-- Consumes: nothing.
-- Produces: committed `.protocol.tripwire.controller = 0x328aED8F7a01f45A959c187F3cb97eC508064854` (Task 4), committed snapshot file `espn-holders-26043909.json` (Tasks 4, 6), `excludedAddresses` of length 3 (Task 4's `distribute()` require).
-
-- [ ] **Step 1: Confirm the three pending edits are exactly what the spec says**
-
-  ```bash
-  git diff script/deployments/1/config/settings.json script/deployments/1/config/internalAddresses.json
-  git status --porcelain script/deployments/1/config/
-  ```
-
-  Expected: `settings.json` adds only `"0x0000000000000068F116a894984e2DB1123eB395"` as the third `excludedAddresses` entry; `internalAddresses.json` changes only `.protocol.tripwire.controller` from the zero address to `0x328aED8F7a01f45A959c187F3cb97eC508064854`; `?? script/deployments/1/config/espn-holders-26043909.json`. Anything else: stop and report to the controller.
-
-- [ ] **Step 2: Confirm the live controller has code at the snapshot block**
-
-  ```bash
-  cast code 0x328aED8F7a01f45A959c187F3cb97eC508064854 --rpc-url "${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}" -b 26043909 | wc -c
-  ```
-
-  Expected: a number well above `3` (non-empty bytecode).
-
-- [ ] **Step 3: Run the unit tests to see the expected failure**
-
-  ```bash
-  yarn test --match-test test_ConfigLib_addrArray_excludedAddresses
-  ```
-
-  Expected: FAIL `assertion failed: 3 != 2` (the test still pins the old 2-address list).
-
-- [ ] **Step 4: Update the test in `test/unit/ScriptLibsTest.sol`**
-
-  Change:
-  ```solidity
-          assertEq(excluded.length, 2);
-          assertEq(excluded[0], 0x000000000004444c5dc75cB358380D2e3dE08A90); // V4 PoolManager singleton
-          assertEq(excluded[1], 0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D); // redemption Safe/treasury
-  ```
-  to:
-  ```solidity
-          assertEq(excluded.length, 3);
-          assertEq(excluded[0], 0x000000000004444c5dc75cB358380D2e3dE08A90); // V4 PoolManager singleton
-          assertEq(excluded[1], 0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D); // redemption Safe/treasury
-          assertEq(excluded[2], 0x0000000000000068F116a894984e2DB1123eB395); // Seaport 1.6
-  ```
-
-- [ ] **Step 5: Run the checks**
-
-  ```bash
-  yarn test
-  forge fmt --check
-  ```
-
-  Expected: all unit tests pass; `forge fmt --check` prints nothing.
-
-- [ ] **Step 6: Commit**
-
-  ```bash
-  git add script/deployments/1/config/settings.json \
-          script/deployments/1/config/internalAddresses.json \
-          script/deployments/1/config/espn-holders-26043909.json \
-          test/unit/ScriptLibsTest.sol
-  git commit -m "chore(config): commit snapshot 26043909, seaport exclusion and live tripwire controller
-
-  Snapshot taken at block 26043909 (2026-09-24 11:00 Sydney). Seaport holds 0 ESPN
-  at the snapshot and is excluded going forward. The tripwire controller is the live
-  0x328aED8F7a01f45A959c187F3cb97eC508064854, which has code at the snapshot block.
-
-  Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
-  ```
-
----
-
-## Task 2: verify the Uniswap v4 addresses on-chain, then add them and the `lp` settings block
+## Task 1: verify the Uniswap v4 addresses on-chain, then add them and the `lp` settings block
 
 **Files:**
 - Modify: `script/deployments/1/config/externalAddresses.json` (add `uniswap-v4` block)
@@ -173,7 +104,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces, read by Task 6 via `ConfigLib`: `externalAddresses.json` `.uniswap-v4.poolManager`, `.uniswap-v4.positionManager`, `.uniswap-v4.permit2`, `.uniswap-v4.stateView`; `settings.json` `.lp.fullRangeUsds`, `.lp.singleSidedUsds` (quoted wei strings), `.lp.bandLowerUsd`, `.lp.bandUpperUsd`, `.lp.fee`, `.lp.tickSpacing` (integers).
+- Produces, read by Task 4 via `ConfigLib`: `externalAddresses.json` `.uniswap-v4.poolManager`, `.uniswap-v4.positionManager`, `.uniswap-v4.permit2`, `.uniswap-v4.stateView`; `settings.json` `.lp.fullRangeUsds`, `.lp.singleSidedUsds` (quoted wei strings), `.lp.bandLowerUsd`, `.lp.bandUpperUsd`, `.lp.fee`, `.lp.tickSpacing` (integers).
 
 - [ ] **Step 1: Run the V0 checks (read-only `cast`) and save the output (spec section 8, V0). Do not edit any file before every check passes.**
 
@@ -285,444 +216,18 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 ---
 
-## Task 3: PeriodicYield yield base = recorded airdrop supply (D22)
+
+## Task 2: move `_executeBatch` into `SafeBatchLib.execute`
 
 **Files:**
-- Modify (TDD, test first): `test/unit/PeriodicYieldTest.sol`
-- Modify: `script/deployments/1/004-stry-migration/PeriodicYield.s.sol`
-- Modify (call sites only, to keep `forge build` green): `script/deployments/1/004-stry-migration/Verify.s.sol`
-
-**Interfaces:**
-- Consumes: `ConfigLib.num(string,string) returns (uint256)` (existing).
-- Produces, for Tasks 4 and 6:
-  - `PeriodicYield.periodicYieldAmount(uint256 airdropSupply) internal view returns (uint256)` — reverts `"PeriodicYield: airdropSupply == 0 -- .earn-airdrop-supply not recorded"` on 0.
-  - `PeriodicYield.periodicYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply) internal view returns (SafeBatchLib.Tx[] memory)`.
-  - `PeriodicYield._periodicYieldAmountPure(uint256 supplyBase, uint256 basisPriceUsd, uint256 annualDividendRatioX100) internal pure returns (uint256)` (renamed first argument only).
-  - `PeriodicYield.run()` reads `deploymentAddresses.json` `.earn-airdrop-supply` (the key is added by Task 4).
-
-- [ ] **Step 1: Replace `test/unit/PeriodicYieldTest.sol` with the complete file below**
-
-  Changes vs. the current file: harness wrappers take `airdropSupply`; `test_periodicYieldAmount_matchesRealConfig` passes an explicit base; new `test_periodicYield_revertsOnZeroAirdropSupply` and `test_periodicYieldAmount_ignoresPostAirdropMint`. The base is passed as the literal `1_000_000e18`, never as `earn.totalSupply()` inside a call that follows `vm.expectRevert` — that external call would consume the expectRevert.
-
-  ```solidity
-  // SPDX-License-Identifier: MIT
-  pragma solidity ^0.8.24;
-
-  import {Test} from "forge-std/Test.sol";
-  import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-  import {StryToken} from "../../src/StryToken.sol";
-  import {StakedStrat} from "../../src/StakedStrat.sol";
-  import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
-  import {TripwireController} from "../../src/lib/TripwireController.sol";
-  import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
-  import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
-  import {PeriodicYield} from "../../script/deployments/1/004-stry-migration/PeriodicYield.s.sol";
-
-  /// @dev periodicYield/periodicYieldAmount/_periodicYieldAmountPure are `internal` on the
-  /// PeriodicYield Script contract -- a plain forge-std Test can't call them across instances.
-  /// This harness inherits PeriodicYield and re-exports what the tests need as `external`
-  /// wrappers. No fork, no Script/Test diamond-inheritance risk.
-  contract PeriodicYieldHarness is PeriodicYield {
-      function exposedAmountPure(uint256 supplyBase, uint256 basisPriceUsd, uint256 annualDividendRatioX100)
-          external
-          pure
-          returns (uint256)
-      {
-          return _periodicYieldAmountPure(supplyBase, basisPriceUsd, annualDividendRatioX100);
-      }
-
-      function exposedAmount(uint256 airdropSupply) external view returns (uint256) {
-          return periodicYieldAmount(airdropSupply);
-      }
-
-      function exposedYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply)
-          external
-          view
-          returns (SafeBatchLib.Tx[] memory)
-      {
-          return periodicYield(safe, usds, stakedEarnAddr, airdropSupply);
-      }
-  }
-
-  contract PeriodicYieldTest is Test {
-      // Mirrors settings.json's real .espnv3.basisPriceUsd / .annualDividendRatioX100 -- kept in
-      // sync by test_periodicYieldAmount_matchesRealConfig, the one test allowed to depend on the
-      // committed file.
-      uint256 internal constant BASIS_PRICE_USD = 100;
-      uint256 internal constant ANNUAL_DIVIDEND_RATIO_X100 = 1500;
-
-      PeriodicYieldHarness internal harness;
-      StakedStrat internal stakedStrat;
-      StryToken internal earn;
-      MintableBurnableToken internal usds;
-      ITripwireController internal ctrl;
-
-      address internal guardian = address(0x9);
-      address internal safe = address(0xA11CE);
-      address internal holder = address(0xB0B);
-
-      function setUp() public {
-          harness = new PeriodicYieldHarness();
-          ctrl = ITripwireController(address(new TripwireController()));
-          usds = new MintableBurnableToken("USDS stand-in", "USDS", address(this), ctrl, address(this));
-          usds.manageMinter(address(this), true);
-      }
-
-      function _deployStakedStrat(uint256 totalSupply_) internal {
-          earn = new StryToken(address(this));
-          address[] memory to = new address[](1);
-          to[0] = holder;
-          uint256[] memory amounts = new uint256[](1);
-          amounts[0] = totalSupply_;
-          earn.mintBatch(to, amounts);
-
-          stakedStrat = new StakedStrat(address(earn), address(usds), ctrl, guardian);
-      }
-
-      function _stakeAll() internal {
-          uint256 balance = earn.balanceOf(holder);
-          vm.startPrank(holder);
-          earn.approve(address(stakedStrat), balance);
-          stakedStrat.stake(balance);
-          vm.stopPrank();
-      }
-
-      // ---------------------------------------------------------------------
-      // Amount formula
-      // ---------------------------------------------------------------------
-
-      function test_periodicYieldAmount_exact_roundSupply() public {
-          _deployStakedStrat(1_000_000e18);
-          uint256 expected = 1_000_000e18 * BASIS_PRICE_USD * ANNUAL_DIVIDEND_RATIO_X100 * 28 / 100 / 100 / 365;
-          assertEq(harness.exposedAmountPure(earn.totalSupply(), BASIS_PRICE_USD, ANNUAL_DIVIDEND_RATIO_X100), expected);
-      }
-
-      function test_periodicYieldAmount_exact_nonRoundSupply() public {
-          // Not a multiple of 3,650,000 -- exercises real truncation in the chained divisions,
-          // not just a magnitude that happens to divide evenly.
-          uint256 totalSupply_ = 7_777_777e18 + 1;
-          _deployStakedStrat(totalSupply_);
-          uint256 expected = totalSupply_ * BASIS_PRICE_USD * ANNUAL_DIVIDEND_RATIO_X100 * 28 / 100 / 100 / 365;
-          assertEq(harness.exposedAmountPure(earn.totalSupply(), BASIS_PRICE_USD, ANNUAL_DIVIDEND_RATIO_X100), expected);
-      }
-
-      function test_periodicYieldAmount_matchesRealConfig() public view {
-          assertEq(
-              harness.exposedAmount(1_000_000e18),
-              harness.exposedAmountPure(1_000_000e18, BASIS_PRICE_USD, ANNUAL_DIVIDEND_RATIO_X100)
-          );
-      }
-
-      function test_periodicYield_revertsOnZeroAirdropSupply() public {
-          _deployStakedStrat(1_000_000e18);
-          _stakeAll();
-          usds.mint(safe, 1_000_000_000e18);
-          vm.expectRevert(bytes("PeriodicYield: airdropSupply == 0 -- .earn-airdrop-supply not recorded"));
-          harness.exposedYield(safe, address(usds), address(stakedStrat), 0);
-      }
-
-      function test_periodicYieldAmount_ignoresPostAirdropMint() public {
-          _deployStakedStrat(1_000_000e18);
-          _stakeAll();
-          uint256 airdropSupply = earn.totalSupply();
-          uint256 amount = harness.exposedAmount(airdropSupply);
-          usds.mint(safe, amount);
-
-          // The owner mints more EARN after the airdrop (the LP's 2,500, or any later Safe mint).
-          address[] memory to = new address[](1);
-          to[0] = safe;
-          uint256[] memory amounts = new uint256[](1);
-          amounts[0] = 2_500e18;
-          earn.mintBatch(to, amounts);
-          assertEq(earn.totalSupply(), airdropSupply + 2_500e18);
-
-          SafeBatchLib.Tx[] memory txs = harness.exposedYield(safe, address(usds), address(stakedStrat), airdropSupply);
-          assertEq(txs[0].data, abi.encodeCall(IERC20.transfer, (address(stakedStrat), amount)));
-      }
-
-      function test_periodicYieldAmount_revertsBelowRatioFloor() public {
-          vm.expectRevert(bytes("PeriodicYield: implausible annualDividendRatioX100"));
-          harness.exposedAmountPure(1_000_000e18, BASIS_PRICE_USD, 0);
-      }
-
-      function test_periodicYieldAmount_revertsAboveRatioCeiling() public {
-          vm.expectRevert(bytes("PeriodicYield: implausible annualDividendRatioX100"));
-          harness.exposedAmountPure(1_000_000e18, BASIS_PRICE_USD, 3001);
-      }
-
-      function test_periodicYieldAmount_succeedsAtRatioCeiling() public view {
-          // Boundary is inclusive -- 3000 itself must not revert.
-          harness.exposedAmountPure(1_000_000e18, BASIS_PRICE_USD, 3000);
-      }
-
-      // ---------------------------------------------------------------------
-      // Safe-batch construction
-      // ---------------------------------------------------------------------
-
-      function test_periodicYield_revertsWhenNoStakers() public {
-          _deployStakedStrat(1_000_000e18);
-          usds.mint(safe, 1_000_000_000e18);
-          vm.expectRevert(
-              bytes(
-                  "PeriodicYield: totalStaked() == 0 -- funding now permanently destroys the deposit, see src/StakedStrat.sol syncRewards()"
-              )
-          );
-          harness.exposedYield(safe, address(usds), address(stakedStrat), 1_000_000e18);
-      }
-
-      function test_periodicYield_revertsWhenSafeBalanceBelowAmount() public {
-          _deployStakedStrat(1_000_000e18);
-          _stakeAll();
-          uint256 amount = harness.exposedAmount(1_000_000e18);
-          usds.mint(safe, amount - 1);
-          vm.expectRevert(bytes("PeriodicYield: Safe USDS balance < computed amount"));
-          harness.exposedYield(safe, address(usds), address(stakedStrat), 1_000_000e18);
-      }
-
-      function test_periodicYield_returnsExactTwoTxBatch() public {
-          _deployStakedStrat(1_000_000e18);
-          _stakeAll();
-          uint256 amount = harness.exposedAmount(1_000_000e18);
-          usds.mint(safe, amount); // exactly the guard boundary -- must succeed, not revert
-
-          SafeBatchLib.Tx[] memory txs = harness.exposedYield(safe, address(usds), address(stakedStrat), 1_000_000e18);
-
-          assertEq(txs.length, 2, "expected exactly 2 transactions");
-          assertEq(txs[0].to, address(usds));
-          assertEq(txs[0].data, abi.encodeCall(IERC20.transfer, (address(stakedStrat), amount)));
-          assertEq(txs[1].to, address(stakedStrat));
-          assertEq(txs[1].data, abi.encodeCall(StakedStrat.syncRewards, ()));
-      }
-  }
-  ```
-
-- [ ] **Step 2: Run the tests to verify they fail to compile**
-
-  ```bash
-  forge test --match-path test/unit/PeriodicYieldTest.sol
-  ```
-
-  Expected: compile error — `periodicYieldAmount` takes a `StakedStrat` and `periodicYield` takes 3 arguments.
-
-- [ ] **Step 3: Replace `script/deployments/1/004-stry-migration/PeriodicYield.s.sol` with the complete file below**
-
-  Changes: the lines 10–13 comment no longer says "fixed forever after mintBatch + renounceOwnership()"; `run()` reads `.earn-airdrop-supply`; `periodicYieldAmount`/`periodicYield` take `airdropSupply`, require it > 0, and no longer read `stratToken().totalSupply()`; `_periodicYieldAmountPure`'s first argument is renamed `supplyBase`.
-
-  ```solidity
-  // SPDX-License-Identifier: MIT
-  pragma solidity ^0.8.24;
-
-  import "forge-std/Script.sol";
-  import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-  import {StakedStrat} from "src/StakedStrat.sol";
-  import {ConfigLib} from "../lib/ConfigLib.sol";
-  import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
-
-  /// @notice Repeatable, manually triggered -- NOT one-time automation. No cron, keeper, or CI
-  /// schedule. The per-period amount is computed from the recorded airdrop total
-  /// (deploymentAddresses.json .earn-airdrop-supply, written once by Distribute.s.sol) and
-  /// settings.json's basisPriceUsd/annualDividendRatioX100 -- not an env var, and not live
-  /// totalSupply(): the redemption Safe owns EARN and can mint more (the 2,500 LP EARN, any later
-  /// mint), and those mints do not change the yield base.
-  ///
-  /// Never broadcasts: the payer is the redemption Safe. Each run emits a Safe Transaction Builder
-  /// batch -- USDS.transfer(stakedEarn, amount), StakedStrat.syncRewards() -- funding the existing
-  /// StakedStrat instance's 28-day reward stream. No approve() step: transfer, not transferFrom.
-  contract PeriodicYield is Script {
-      /// @dev Fat-finger guard on settings.json's annualDividendRatioX100 -- nothing upstream of
-      /// this function validates that config value. Caps at 30% annual.
-      uint256 internal constant MAX_ANNUAL_DIVIDEND_RATIO_X100 = 3000;
-
-      function run() external virtual {
-          address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
-          address usds = ConfigLib.addr("externalAddresses.json", ".sky-money.USDS");
-          address stakedEarn = ConfigLib.addr("deploymentAddresses.json", ".staked-earn");
-          uint256 airdropSupply = ConfigLib.num("deploymentAddresses.json", ".earn-airdrop-supply");
-
-          SafeBatchLib.Tx[] memory txs = periodicYield(safe, usds, stakedEarn, airdropSupply);
-
-          SafeBatchLib.write(
-              safe,
-              "004-stry-migration",
-              _firstFreeBatchIndex(safe),
-              "28-day EARN yield",
-              "Transfers USDS to the StakedStrat contract and calls syncRewards() to start a new 28-day reward stream. Execute the transactions in the order listed.",
-              txs
-          );
-      }
-
-      /// @dev Pure guarded math, split out from periodicYieldAmount so it is testable without
-      /// touching the committed settings.json file: test/unit/PeriodicYieldTest.sol calls this
-      /// directly with crafted ratios to pin the guard's boundary, and calls periodicYieldAmount
-      /// separately to confirm it reads the real config correctly.
-      function _periodicYieldAmountPure(uint256 supplyBase, uint256 basisPriceUsd, uint256 annualDividendRatioX100)
-          internal
-          pure
-          returns (uint256)
-      {
-          require(
-              annualDividendRatioX100 > 0 && annualDividendRatioX100 <= MAX_ANNUAL_DIVIDEND_RATIO_X100,
-              "PeriodicYield: implausible annualDividendRatioX100"
-          );
-          // Annual target sliced to the exact 28-day period (28/365 of a year), not /12: this
-          // script runs every 28 days (matching REWARD_DURATION exactly), not every calendar
-          // month. All four multiplications happen before any of the three divisions, so this is
-          // exactly equal to a single /3,650,000 division -- no extra truncation loss.
-          return supplyBase * basisPriceUsd * annualDividendRatioX100 * 28 / 100 / 100 / 365;
-      }
-
-      function periodicYieldAmount(uint256 airdropSupply) internal view returns (uint256) {
-          require(airdropSupply > 0, "PeriodicYield: airdropSupply == 0 -- .earn-airdrop-supply not recorded");
-          uint256 basisPriceUsd = ConfigLib.num("settings.json", ".espnv3.basisPriceUsd");
-          uint256 annualDividendRatioX100 = ConfigLib.num("settings.json", ".espnv3.annualDividendRatioX100");
-          return _periodicYieldAmountPure(airdropSupply, basisPriceUsd, annualDividendRatioX100);
-      }
-
-      /// @dev Pure computation plus live pre-condition reads. Writes no file -- run() alone does --
-      /// so `yarn verify:migration`, which calls this directly, leaves `git status` clean.
-      ///
-      /// require(totalStaked() > 0) is a hard revert, first thing -- the whole reason this script
-      /// builds a batch rather than emitting a bare transfer. _currentRewardsPerShare() returns
-      /// early when totalStaked == 0 (src/StakedStrat.sol:137), but syncRewards() has already
-      /// folded the deposit into totalNotifiedRewards and started the clock. Every second elapsed
-      /// with zero stakers accrues to nobody, and those tokens can never be re-notified -- a later
-      /// syncRewards() sees totalDeposited <= totalNotifiedRewards and early-returns. Funding
-      /// before anyone has staked permanently destroys the deposit.
-      function periodicYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply)
-          internal
-          view
-          returns (SafeBatchLib.Tx[] memory txs)
-      {
-          StakedStrat stakedEarn = StakedStrat(stakedEarnAddr);
-          uint256 amount = periodicYieldAmount(airdropSupply);
-          require(
-              stakedEarn.totalStaked() > 0,
-              "PeriodicYield: totalStaked() == 0 -- funding now permanently destroys the deposit, see src/StakedStrat.sol syncRewards()"
-          );
-          require(IERC20(usds).balanceOf(safe) >= amount, "PeriodicYield: Safe USDS balance < computed amount");
-
-          txs = new SafeBatchLib.Tx[](2);
-          txs[0] = SafeBatchLib.Tx({to: usds, data: abi.encodeCall(IERC20.transfer, (stakedEarnAddr, amount))});
-          txs[1] = SafeBatchLib.Tx({to: stakedEarnAddr, data: abi.encodeCall(StakedStrat.syncRewards, ())});
-
-          console2.log("USDS transferred to StakedStrat:", amount);
-          console2.log("StakedStrat address:", stakedEarnAddr);
-      }
-
-      /// @dev This is a repeatable batch producer, and SafeBatchLib.write ends in vm.writeFile,
-      /// which overwrites silently. A stale index would rewrite a previous period's batch in
-      /// place with no error, and a batch mid-signature-collection in the Safe UI would stop
-      /// matching what the next signer diffs against. So there is no index env var and no manual
-      /// counter: 001 is taken by StopEspnYield.s.sol, so start at 2 and take the first free
-      /// index. Redoing a period whose batch was generated but not signed means deleting that
-      /// file first -- a deliberate act on a named path.
-      function _firstFreeBatchIndex(address safe) internal view returns (uint256 index) {
-          for (index = 2;; ++index) {
-              if (!vm.exists(SafeBatchLib.path(safe, "004-stry-migration", index))) return index;
-          }
-      }
-  }
-  ```
-
-- [ ] **Step 4: Update the call sites in `script/deployments/1/004-stry-migration/Verify.s.sol` (minimal, so the build compiles; Task 4 finishes this file)**
-
-  After:
-  ```solidity
-          assertEq(stry.owner(), address(0), "Verify: STRY ownership not renounced");
-  ```
-  add:
-  ```solidity
-          uint256 airdropSupply = stry.totalSupply();
-  ```
-
-  Change:
-  ```solidity
-          uint256 amount = periodicYieldAmount(stakedStrat);
-  ```
-  to:
-  ```solidity
-          uint256 amount = periodicYieldAmount(airdropSupply);
-  ```
-
-  Change:
-  ```solidity
-          SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat));
-  ```
-  to:
-  ```solidity
-          SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
-  ```
-
-  Change:
-  ```solidity
-          SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat));
-  ```
-  to:
-  ```solidity
-          SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
-  ```
-
-- [ ] **Step 5: Run the tests to verify they pass**
-
-  ```bash
-  forge build
-  forge test --match-path test/unit/PeriodicYieldTest.sol -vv
-  yarn test
-  forge fmt --check
-  ```
-
-  Expected: build succeeds; all 11 `PeriodicYieldTest` tests pass (9 existing + 2 new); full suite green; fmt prints nothing.
-
-- [ ] **Step 6: Commit**
-
-  ```bash
-  git add test/unit/PeriodicYieldTest.sol \
-          script/deployments/1/004-stry-migration/PeriodicYield.s.sol \
-          script/deployments/1/004-stry-migration/Verify.s.sol
-  git commit -m "feat(004-stry-migration): size periodic yield on the recorded airdrop supply
-
-  The 28-day amount is computed from deploymentAddresses.json .earn-airdrop-supply
-  instead of live EARN totalSupply(). The redemption Safe will own EARN and can mint
-  (the 2,500 LP EARN, later mints); those mints no longer change the yield. A zero
-  base (placeholder not yet recorded) reverts before any batch is built.
-
-  Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
-  ```
-
----
-
-## Task 4: EARN ownership to the Safe, record the airdrop supply once, live controller in Verify
-
-**Files:**
-- Modify: `script/deployments/1/004-stry-migration/Distribute.s.sol` (whole file below)
-- Modify: `script/deployments/1/config/deploymentAddresses.json` (placeholder)
 - Modify: `script/deployments/1/lib/SafeBatchLib.sol` (add `execute`)
-- Modify: `script/deployments/1/004-stry-migration/Verify.s.sol`
-- Modify (comments and one require message, no logic): `script/deployments/1/004-stry-migration/Deploy.s.sol`
+- Modify: `script/deployments/1/004-stry-migration/Verify.s.sol` (use it, delete `_executeBatch`)
 
 **Interfaces:**
-- Consumes: `periodicYieldAmount(uint256)`, `periodicYield(address,address,address,uint256)` (Task 3); `.protocol.tripwire.controller`, 3-entry `excludedAddresses` (Task 1).
-- Produces:
-  - `SafeBatchLib.execute(address safe, SafeBatchLib.Tx[] memory txs) internal` — `vm.startPrank(safe, safe)`, calls each tx in order, bubbles the revert data, `vm.stopPrank()`. Used by Task 6.
-  - `Distribute.distribute(address deployer, string memory holdersFile) internal returns (StryToken)` — signature unchanged; now ends with `owner() == redemption Safe` and requires every `excludedAddresses` entry to hold 0 EARN. Used by Task 6.
-  - `Distribute.run()` refuses when `.earn-airdrop-supply != 0`, writes `.stry` and `.earn-airdrop-supply` after broadcast.
-  - `deploymentAddresses.json` key `earn-airdrop-supply` = `"0"`.
+- Consumes: nothing new.
+- Produces, for Task 4: `SafeBatchLib.execute(address safe, SafeBatchLib.Tx[] memory txs) internal` — `vm.startPrank(safe, safe)`, calls each tx in order, bubbles the revert data, `vm.stopPrank()`.
 
-- [ ] **Step 1: Add the placeholder to `script/deployments/1/config/deploymentAddresses.json`**
-
-  Change:
-  ```json
-    "stry": "0x0000000000000000000000000000000000000000"
-  }
-  ```
-  to:
-  ```json
-    "stry": "0x0000000000000000000000000000000000000000",
-    "earn-airdrop-supply": "0"
-  }
-  ```
-
-- [ ] **Step 2: Move `_executeBatch` into `script/deployments/1/lib/SafeBatchLib.sol` as `execute`**
+- [ ] **Step 1: Add `execute` to `script/deployments/1/lib/SafeBatchLib.sol`**
 
   Insert immediately before the line `    /// @dev The exact path \`write\` writes to. Exposed so a repeatable batch producer`:
 
@@ -749,65 +254,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
   ```
 
-- [ ] **Step 3: Update `script/deployments/1/004-stry-migration/Verify.s.sol` first (this is the RED side: it asserts the new owner)**
-
-  Delete the import line:
-  ```solidity
-  import {TripwireController} from "src/lib/TripwireController.sol";
-  ```
-
-  Change (this block includes the `airdropSupply` line Task 3 added):
-  ```solidity
-          // Item 2: Distribute STRY (single mintBatch).
-          address stryDeployer = makeAddr("stryDeployer");
-          vm.startPrank(stryDeployer);
-          StryToken stry = distribute(stryDeployer, holdersFile);
-          vm.stopPrank();
-          assertEq(stry.owner(), address(0), "Verify: STRY ownership not renounced");
-          uint256 airdropSupply = stry.totalSupply();
-
-          // Item 3: deploy a TripwireController locally and pass it to Deploy's internal deploy().
-          // TripwireGuard's constructor calls controller.register() itself, permissionlessly -- no
-          // controller-owner transaction is needed.
-          address guardian = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.tripwire-guardian");
-          TripwireController controller = new TripwireController();
-          StakedStrat stakedStrat = deploy(address(stry), address(controller), guardian);
-
-          address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
-          uint256 holderStryBalance = stry.balanceOf(holder);
-  ```
-  to:
-  ```solidity
-          // Item 2: Distribute STRY (single mintBatch). distribute() itself requires that no
-          // excludedAddresses entry received EARN (D23).
-          address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
-          address stryDeployer = makeAddr("stryDeployer");
-          vm.startPrank(stryDeployer);
-          StryToken stry = distribute(stryDeployer, holdersFile);
-          vm.stopPrank();
-          assertEq(stry.owner(), safe, "Verify: EARN owner is not the redemption Safe");
-          uint256 airdropSupply = stry.totalSupply();
-
-          // D22: a post-airdrop Safe mint does not change the PeriodicYield amount. Also proves the
-          // Safe can mint as owner.
-          uint256 amountBeforeMint = periodicYieldAmount(airdropSupply);
-          address[] memory mintTo = new address[](1);
-          mintTo[0] = safe;
-          uint256[] memory mintAmounts = new uint256[](1);
-          mintAmounts[0] = 1e18;
-          vm.prank(safe);
-          stry.mintBatch(mintTo, mintAmounts);
-          assertEq(periodicYieldAmount(airdropSupply), amountBeforeMint, "Verify: yield amount moved with a Safe mint");
-
-          // Item 3: deploy against the live TripwireController (D13). TripwireGuard's constructor
-          // calls controller.register() itself, permissionlessly -- no controller-owner transaction.
-          address guardian = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.tripwire-guardian");
-          address controller = ConfigLib.addr("internalAddresses.json", ".protocol.tripwire.controller");
-          require(controller.code.length > 0, "Verify: live TripwireController has no code at this fork block");
-          StakedStrat stakedStrat = deploy(address(stry), controller, guardian);
-
-          uint256 holderStryBalance = stry.balanceOf(holder);
-  ```
+- [ ] **Step 2: Switch `script/deployments/1/004-stry-migration/Verify.s.sol` to it**
 
   Change:
   ```solidity
@@ -818,234 +265,55 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
           // same Tx[] batch run() would write to a Safe Transaction Builder file; SafeBatchLib.execute runs
   ```
 
-  Replace both `_executeBatch(safe, periodTxs);` and `_executeBatch(safe, secondTxs);` with `SafeBatchLib.execute(safe, periodTxs);` and `SafeBatchLib.execute(safe, secondTxs);`.
+  Replace `_executeBatch(safe, periodTxs);` with `SafeBatchLib.execute(safe, periodTxs);` and `_executeBatch(safe, secondTxs);` with `SafeBatchLib.execute(safe, secondTxs);`.
 
-  Delete the whole `_executeBatch` function and its 4-line `/// @dev` comment (the block starting `/// @dev Executes a Safe Transaction Builder batch's txs` and ending with the function's closing brace).
+  Delete the whole `_executeBatch` function and its 4-line `/// @dev` comment (from `/// @dev Executes a Safe Transaction Builder batch's txs` to the function's closing brace, plus the blank line after it).
 
-- [ ] **Step 4: Run the fork check to verify it fails**
-
-  ```bash
-  SNAPSHOT_BLOCK=26043909 yarn verify:migration
-  ```
-
-  Expected: FAIL at `Verify: EARN owner is not the redemption Safe` (Distribute still renounces).
-
-- [ ] **Step 5: Replace `script/deployments/1/004-stry-migration/Distribute.s.sol` with the complete file below**
-
-  Changes: `run()` refuses when `.earn-airdrop-supply` is already nonzero and writes it after `.stry`; `distribute()` requires the Safe to be a deployed contract, calls `transferOwnership(safe)` instead of `renounceOwnership()`, and requires every `excludedAddresses` entry to hold 0 EARN. `distribute()` keeps its signature.
-
-  ```solidity
-  // SPDX-License-Identifier: MIT
-  pragma solidity ^0.8.24;
-
-  import "forge-std/Script.sol";
-  import {StryToken} from "src/StryToken.sol";
-  import {EthStrategyPerpetualNote} from "src/EthStrategyPerpetualNote.sol";
-  import {ConfigLib} from "../lib/ConfigLib.sol";
-  import {HoldersLib} from "../lib/HoldersLib.sol";
-
-  /// @notice Deploys STRY and mints it to the same snapshot holders as Track A, in one mintBatch,
-  /// sized so totalSupply(STRY) * basisPriceUsd == the included holders' share of ESPN's live USDS
-  /// backing. $100/STRY is a nominal basis price, not a redemption guarantee (Assumption 7/option 2)
-  /// -- both tracks lay claim to the same ESPN backing.
-  contract Distribute is Script {
-      function run() external virtual {
-          string memory holdersFile = vm.envString("HOLDERS_FILE");
-          // D22: the airdrop total is the PeriodicYield base, recorded exactly once.
-          require(
-              ConfigLib.num("deploymentAddresses.json", ".earn-airdrop-supply") == 0,
-              "Distribute: airdrop supply already recorded; refusing to overwrite"
-          );
-
-          address deployer = msg.sender;
-          vm.startBroadcast();
-          StryToken stry = distribute(deployer, holdersFile);
-          vm.stopBroadcast();
-
-          // Only mintBatch has minted at this point: ownership moved to the Safe after it, and the
-          // Safe cannot act inside this script.
-          uint256 airdropSupply = stry.totalSupply();
-          ConfigLib.writeDeployedAddress(".stry", address(stry));
-          vm.writeJson(
-              string.concat('"', vm.toString(airdropSupply), '"'),
-              string.concat(ConfigLib.configRoot(), "deploymentAddresses.json"),
-              ".earn-airdrop-supply"
-          );
-      }
-
-      /// @dev Items 1-3 and the calibration assertion. `writeDeployedAddress` stays out of here and
-      /// only runs from run(), so Verify.s.sol never dirties the committed deploymentAddresses.json.
-      /// `deployer` is taken as an argument (not read via msg.sender) so Verify.s.sol can prank as
-      /// whichever address it likes and pass the same address through as the constructor owner.
-      /// `holdersFile` is likewise an argument, not an env read, so Verify.s.sol can pass the path it
-      /// already derived from SNAPSHOT_BLOCK (same shape as 003-espn-redemption/Distribute.s.sol).
-      function distribute(address deployer, string memory holdersFile) internal returns (StryToken stry) {
-          // D8/D9: EARN ownership goes to the redemption Safe. StryToken is single-step Ownable, so a
-          // wrong target is unrecoverable -- refuse anything that is not a deployed contract.
-          address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
-          require(safe != address(0) && safe.code.length > 0, "Distribute: redemption Safe has no code");
-
-          HoldersLib.Snapshot memory snapshot = HoldersLib.load(holdersFile);
-          (address[] memory addrs, uint256[] memory espnBalances, uint256 includedCount,) = HoldersLib.included(snapshot);
-
-          address espnAddr = ConfigLib.addr("externalAddresses.json", ".eth-strategy.espn");
-          EthStrategyPerpetualNote espn = EthStrategyPerpetualNote(espnAddr);
-          uint256 totalAssets_ = espn.totalAssets();
-          uint256 totalSupply_ = espn.totalSupply();
-          uint256 basisPriceUsd = ConfigLib.num("settings.json", ".espnv3.basisPriceUsd");
-
-          uint256[] memory stryAmounts = new uint256[](includedCount);
-          for (uint256 i; i < includedCount; ++i) {
-              stryAmounts[i] = espnBalances[i] * totalAssets_ / (totalSupply_ * basisPriceUsd);
-          }
-
-          stry = new StryToken(deployer);
-
-          uint256 gasBefore = gasleft();
-          stry.mintBatch(addrs, stryAmounts);
-          uint256 executionGas = gasBefore - gasleft();
-          uint256 calldataGasEstimate = 21000 + includedCount * 20 * 16;
-          console2.log("mintBatch execution gas:", executionGas);
-          console2.log(
-              "mintBatch total estimated (execution + 21000 intrinsic + calldata):", executionGas + calldataGasEstimate
-          );
-
-          stry.transferOwnership(safe);
-
-          // D23: no address in settings.json .espnv3.excludedAddresses receives airdrop EARN.
-          address[] memory excluded = ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses");
-          for (uint256 i; i < excluded.length; ++i) {
-              require(stry.balanceOf(excluded[i]) == 0, "Distribute: excluded address received EARN");
-          }
-
-          // Calibration -- each per-holder division truncates up to 1 wei of STRY; multiplied back
-          // by basisPriceUsd, that is up to basisPriceUsd wei of USDS per holder. Truncation only
-          // undershoots, never overshoots.
-          uint256 espnBackingRepresented = HoldersLib.sum(espnBalances) * totalAssets_ / totalSupply_;
-          require(
-              stry.totalSupply() * basisPriceUsd <= espnBackingRepresented, "Distribute: STRY oversized vs ESPN backing"
-          );
-          require(
-              espnBackingRepresented - stry.totalSupply() * basisPriceUsd <= includedCount * basisPriceUsd,
-              "Distribute: STRY undersized beyond truncation tolerance"
-          );
-
-          console2.log("STRY distributed to included holders:", includedCount);
-          console2.log("NOTE: basisPriceUsd is a nominal basis price, not a redemption guarantee. Both tracks");
-          console2.log("lay claim to the same ESPN backing snapshot: Track A pays out up to 700,000 USDS of");
-          console2.log("it, Track B mints STRY nominally claiming the full amount -- an overstatement of ~18%");
-          console2.log("if both ship off one snapshot.");
-      }
-  }
-  ```
-
-- [ ] **Step 6: Comment-only edits to `script/deployments/1/004-stry-migration/Deploy.s.sol` (spec N6, no logic change)**
-
-  Change:
-  ```solidity
-          // Assumption 4: no deployed TripwireController is recorded anywhere in this repo.
-          // TripwireGuard's constructor reverts a bare InvalidController() on a zero-or-codeless
-          // controller, which is opaque -- fail with something the operator can act on instead.
-          // This guards the mainnet broadcast only; it does not gate fork verification, which
-          // deploys its own TripwireController (see Verify.s.sol).
-  ```
-  to:
-  ```solidity
-          // TripwireGuard's constructor reverts a bare InvalidController() on a zero-or-codeless
-          // controller, which is opaque -- fail with something the operator can act on instead.
-          // internalAddresses.json .protocol.tripwire.controller is the live controller; fork
-          // verification (Verify.s.sol) uses the same address.
-  ```
-
-  Change:
-  ```solidity
-                  ". Track B cannot be BROADCAST until one exists. Deploying a controller is unscoped work. (yarn verify:migration is unaffected -- it deploys its own controller on the fork.)"
-  ```
-  to:
-  ```solidity
-                  ". Track B cannot be BROADCAST until one exists. Deploying a controller is unscoped work."
-  ```
-
-  Change:
-  ```solidity
-      /// inside this function -- so Verify.s.sol can pass the fork-fresh, uncommitted STRY mint and a
-      /// fork-local TripwireController without ever writing to deploymentAddresses.json. The
-      /// mainnet-broadcast pre-condition on Assumption 4 lives in run() above, not here.
-  ```
-  to:
-  ```solidity
-      /// inside this function -- so Verify.s.sol can pass the fork-fresh, uncommitted STRY mint
-      /// without ever writing to deploymentAddresses.json. The controller-has-code pre-condition
-      /// lives in run() above, not here.
-  ```
-
-- [ ] **Step 7: Run the fast checks**
+- [ ] **Step 3: Run the checks**
 
   ```bash
   forge build
   yarn test
   forge fmt --check
+  git grep -n "_executeBatch" script/ test/
   ```
 
-  Expected: build succeeds; full unit suite green (`StryTokenTest` unchanged and passing); fmt prints nothing.
+  Expected: build succeeds; unit suite green; fmt prints nothing; `git grep` prints nothing.
 
-- [ ] **Step 8: Run the fork check — required**
+- [ ] **Step 4: Run the fork check — required (only `Verify.s.sol` exercises the moved code)**
 
   ```bash
   SNAPSHOT_BLOCK=26043909 yarn verify:migration
   ```
 
-  Expected: `Script ran successfully.`; logs include `STRY distributed to included holders: 112` and `USDS transferred to StakedStrat: 33791207369120688986940` (~33,791 USDS per period, spec R8). If the RPC is unreachable, say so explicitly; do not treat Step 7 as sufficient.
+  Expected: `Script ran successfully.`; logs include `USDS transferred to StakedStrat: 33791207369120688986940` twice and `periodicYield execution gas:`. If the RPC is unreachable, say so explicitly.
 
-- [ ] **Step 9: Fork smoke of `Distribute.run()` write-once behaviour (Review Focus 1). Nothing from this step is committed.**
-
-  ```bash
-  RPC="${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}"
-  H=script/deployments/1/config/espn-holders-26043909.json
-  HOLDERS_FILE=$H forge script script/deployments/1/004-stry-migration/Distribute.s.sol --fork-url "$RPC" --fork-block-number 26043909
-  grep -n 'stry\|earn-airdrop-supply' script/deployments/1/config/deploymentAddresses.json
-  HOLDERS_FILE=$H forge script script/deployments/1/004-stry-migration/Distribute.s.sol --fork-url "$RPC" --fork-block-number 26043909 2>&1 | grep '^Error'
-  git checkout -- script/deployments/1/config/deploymentAddresses.json
-  git status --porcelain script/deployments/1/config/deploymentAddresses.json
-  ```
-
-  Expected: first run succeeds and the file now holds a nonzero `.stry` and `"earn-airdrop-supply": "29366168308878694000555"` (a quoted string); the second run prints `Error: script failed: Distribute: airdrop supply already recorded; refusing to overwrite`; after `git checkout` the last command prints nothing. No `--broadcast` anywhere. If `git status --porcelain` shows `broadcast/` files, they are under the gitignored `dry-run/` path; leave them.
-
-- [ ] **Step 10: Commit**
+- [ ] **Step 5: Commit**
 
   ```bash
-  git add script/deployments/1/004-stry-migration/Distribute.s.sol \
-          script/deployments/1/004-stry-migration/Verify.s.sol \
-          script/deployments/1/004-stry-migration/Deploy.s.sol \
-          script/deployments/1/lib/SafeBatchLib.sol \
-          script/deployments/1/config/deploymentAddresses.json
-  git commit -m "feat(004-stry-migration): transfer earn ownership to the redemption safe
+  git add script/deployments/1/lib/SafeBatchLib.sol script/deployments/1/004-stry-migration/Verify.s.sol
+  git commit -m "refactor(script): move safe batch execution into safebatchlib
 
-  Distribute now calls transferOwnership(redemption Safe) instead of renounceOwnership(),
-  after requiring the Safe is a deployed contract (single-step Ownable: a wrong target is
-  unrecoverable). It records the airdrop total once in .earn-airdrop-supply and refuses to
-  run again once recorded, and requires that no excluded address received EARN.
-  Verify.s.sol asserts owner == Safe, deploys sEARN against the live TripwireController,
-  and proves a post-airdrop Safe mint leaves the yield amount unchanged. _executeBatch
-  moves to SafeBatchLib.execute for reuse by the LP batch.
+  004 Verify's _executeBatch becomes SafeBatchLib.execute, unchanged apart from the
+  revert-string prefix, so the 005 LP batch can run the same pre-write simulation.
 
   Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
   ```
 
 ---
 
-## Task 5: vendored v4 math, minimal v4 interfaces, and the tick/liquidity derivation
+## Task 3: vendored v4 math, minimal v4 interfaces, and the tick/liquidity derivation
 
 **Files:**
 - Create (vendored, byte-identical): `script/deployments/1/005-earn-lp/lib/{TickMath,FullMath,FixedPoint96,BitMath,CustomRevert,SafeCast,LiquidityAmounts}.sol`
 - Modify: `remappings.txt` (one line), `foundry.toml` (fmt ignore)
 - Create: `script/deployments/1/005-earn-lp/interfaces/IV4Minimal.sol`
 - Create (TDD, test first): `test/unit/ProposeLpTest.sol`
-- Create: `script/deployments/1/005-earn-lp/ProposeLp.s.sol` (math functions only; Task 6 replaces the whole file)
+- Create: `script/deployments/1/005-earn-lp/ProposeLp.s.sol` (math functions only; Task 4 replaces the whole file)
 
 **Interfaces:**
 - Consumes: OpenZeppelin `Math.sqrt(uint256) returns (uint256)` (floor).
-- Produces, for Task 6:
+- Produces, for Task 4:
   - `ProposeLp.deriveTicks(bool earnIsC0, uint256 basis, uint256 lo, uint256 hi, int24 s) internal pure returns (uint160 sqrtPriceX96, int24 currentTick, int24 bandLower, int24 bandUpper)`
   - `ProposeLp.deriveLiquidity(bool earnIsC0, uint160 sqrtPriceX96, int24 bandLower, int24 bandUpper, int24 s, uint256 fullRangeUsds, uint256 fullRangeEarn, uint256 singleSidedUsds) internal pure returns (uint128 liqFull, uint128 liqBand)`
   - `ProposeLp.floorToSpacing(int24 t, int24 s) internal pure returns (int24)`, `ProposeLp.ceilToSpacing(int24 t, int24 s) internal pure returns (int24)`
@@ -1173,7 +441,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 - [ ] **Step 4: Write the failing test file `test/unit/ProposeLpTest.sol`**
 
-  Reference values were computed with the pinned libraries (spec section 6 table; `liqFull` corrected per Deviation 3).
+  Reference values were computed with the pinned libraries (spec section 6 table; `liqFull` corrected per Deviation 2).
 
   ```solidity
   // SPDX-License-Identifier: MIT
@@ -1441,7 +709,8 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 ---
 
-## Task 6: ProposeLp batch + pre-write simulation, 005 Verify, `verify:lp`
+
+## Task 4: ProposeLp batch + pre-write simulation, 005 Verify, `verify:lp`
 
 **Files:**
 - Replace (whole file): `script/deployments/1/005-earn-lp/ProposeLp.s.sol`
@@ -1449,7 +718,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 - Modify: `package.json` (add `verify:lp`)
 
 **Interfaces:**
-- Consumes: Task 2 config keys; `SafeBatchLib.execute` and `Distribute.distribute` (Task 4); `PeriodicYield.periodicYieldAmount(uint256)` (Task 3); `deriveTicks`, `deriveLiquidity`, `IV4Minimal.sol` (Task 5).
+- Consumes: Task 1 config keys; `SafeBatchLib.execute` (Task 2); `Distribute.distribute(address,string) internal returns (StryToken)` and `PeriodicYield.periodicYieldAmount(uint256) internal view returns (uint256)` (already landed); `deriveTicks`, `deriveLiquidity`, `IV4Minimal.sol` (Task 3).
 - Produces:
   - `ProposeLp.LpPlan` struct (fields: `safe, earn, usds, poolManager, posm, permit2, stateView, earnIsC0, key, poolId, sqrtPriceX96, currentTick, fullLower, fullUpper, bandLower, bandUpper, liqFull, liqBand, fullRangeUsds, fullRangeEarn, singleSidedUsds`).
   - `ProposeLp.buildBatch(address earn) internal view returns (SafeBatchLib.Tx[] memory txs, LpPlan memory p)` — every preflight require; reverts `"ProposeLp: pool already initialized"` when `slot0.sqrtPriceX96 != 0`.
@@ -1465,7 +734,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 - [ ] **Step 2: Create `script/deployments/1/005-earn-lp/Verify.s.sol` (the fork test, written before the code it exercises)**
 
-  Covers spec V2 steps 1–15 and S7. `_simulateAndCheck` (Step 4) carries steps 5–12.
+  Covers spec V2 steps 1–15, S7 and Review Focus 1–5. `_simulateAndCheck` (Step 4) carries steps 5–12.
 
   ```solidity
   // SPDX-License-Identifier: MIT
@@ -1576,23 +845,37 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
           _assertSquatReverts(p, txs, uint160(uint256(p.sqrtPriceX96) * 1414213562 / 1e9));
           _assertSquatReverts(p, txs, uint160(uint256(p.sqrtPriceX96) * 1e9 / 1414213562));
 
+          // Review Focus: EARN sent to the Safe by a third party must not block the batch; the dust
+          // check is relative to the Safe's pre-batch balance. deal() leaves totalSupply unchanged.
+          deal(address(earn), safe, 1e18);
+
+          // Review Focus: a Safe holding less than the LP total is refused before anything is built.
+          uint256 snap = vm.snapshotState();
+          deal(usds, safe, totalUsds - 1);
+          _assertBuildBatchReverts(address(earn), "ProposeLp: Safe USDS balance < fullRangeUsds + singleSidedUsds");
+          vm.revertToState(snap);
+
           // Steps 5-12.
           _simulateAndCheck(p, txs);
           assertEq(earn.totalSupply(), airdropSupply + p.fullRangeEarn, "Verify: supply != airdrop + LP EARN");
           assertEq(periodicYieldAmount(airdropSupply), yieldBefore, "Verify: LP mint moved the yield amount");
 
           // Step 13: buildBatch refuses an initialized pool.
-          BuildBatchProbe probe = new BuildBatchProbe();
-          try probe.probe(address(earn)) {
-              revert("Verify: buildBatch did not refuse an initialized pool");
-          } catch Error(string memory reason) {
-              assertEq(reason, "ProposeLp: pool already initialized");
-          }
+          _assertBuildBatchReverts(address(earn), "ProposeLp: pool already initialized");
 
           // Step 15: swap sanity, informational.
           _swapSanity(p);
 
           console2.log(p.earnIsC0 ? "Fork EARN hit Case A" : "Fork EARN hit Case B");
+      }
+
+      function _assertBuildBatchReverts(address earn, string memory expected) internal {
+          BuildBatchProbe probe = new BuildBatchProbe();
+          try probe.probe(earn) {
+              revert(string.concat("Verify: buildBatch did not revert: ", expected));
+          } catch Error(string memory reason) {
+              assertEq(reason, expected);
+          }
       }
 
       function _checkOrderingAt(address where, bool expectEarnIsC0) internal {
@@ -1662,7 +945,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 - [ ] **Step 4: Replace `script/deployments/1/005-earn-lp/ProposeLp.s.sol` with the complete file below**
 
-  Adds `LpPlan`, `run()`, `buildBatch` (all preflight requires, spec N1), `_txs` (the 6-tx batch, spec section 5), `_simulateAndCheck` and `_log`. The math functions are unchanged from Task 5.
+  Adds `LpPlan`, `run()`, `buildBatch` (all preflight requires, spec N1), `_txs` (the 6-tx batch, spec section 5), `_simulateAndCheck` and `_log`. The math functions are unchanged from Task 3.
 
   ```solidity
   // SPDX-License-Identifier: MIT
@@ -2001,7 +1284,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
   Expected: `Script ran successfully.` Logs include, in order: `Case A ordering passed at 0x0000000000000000000000000000000000010000`; `Case B ordering passed at 0xfFfffFFFfffFFfFFFFffFFFFffffFfFFFFff0000`; for each run `sqrtPriceX96: 792281625142643375935439503360` (Case A) or `7922816251426433759354395033` (Case B), `liqFull / liqBand: 25000000000000000000135 85830483191952473195169`, `USDS spent: 499999999999999999999992`; a `swap: protocolFee / lpFee / EARN out:` line; and `Fork EARN hit Case A` or `Case B`. If the RPC is unreachable, say so explicitly.
 
-- [ ] **Step 7: Smoke `ProposeLp.run()` on a latest-block fork (Review Focus 4). Nothing from this step is committed.**
+- [ ] **Step 7: Smoke `ProposeLp.run()` on a latest-block fork (Review Focus 3). Nothing from this step is committed.**
 
   EARN does not exist on mainnet yet, so a throwaway script etches a StryToken owned by the Safe at `0x10000` and points `.stry` at it.
 
@@ -2056,7 +1339,8 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 ---
 
-## Task 7: docs — runbook, superseded note, help, how-to, release notes
+
+## Task 5: docs — runbook LP steps, old-spec note, help, how-to, release notes
 
 **Files:**
 - Modify: `docs/ESPNv3_Runbook.md`
@@ -2065,20 +1349,9 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 - Create: `docs/help/trade-earn-usds.md`
 - Modify: `docs/RELEASE-NOTES.md`
 
-**Interfaces:** none — doc changes only. Facts used: batch path `script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`, `yarn verify:lp`, `.earn-airdrop-supply`, the 6-tx order from Task 6.
+**Interfaces:** none — doc changes only. Facts used: batch path `script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`, `yarn verify:lp`, `.earn-airdrop-supply`, the 6-tx order from Task 4.
 
-- [ ] **Step 1: Runbook Assumption 10 (`docs/ESPNv3_Runbook.md`, section 1)**
-
-  Change:
-  ```markdown
-  - [ ] 10. `renounceOwnership()` after `mintBatch` for both tokens — no future mint possible. Confirm no further mint is wanted.
-  ```
-  to:
-  ```markdown
-  - [x] 10. EARN: `transferOwnership(redemption Safe)`; the Safe (1-of-1, owned by main multisig `0xC53C…20b8`) can mint without limit. REDEMPTION: renounced (unchanged).
-  ```
-
-- [ ] **Step 2: Runbook section 2 table — add the sEARN deploy and LP steps**
+- [ ] **Step 1: Runbook section 2 table — add the sEARN deploy and LP steps**
 
   Change:
   ```markdown
@@ -2093,9 +1366,9 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   | 5 | Track A `BuildOrder.s.sol` (Safe batch: approve + validate) | A |
   ```
 
-- [ ] **Step 3: Runbook section 6 — batch file list, PeriodicYield base, batch order, signing**
+- [ ] **Step 2: Runbook section 6 — PeriodicYield base, LP batch file, batch order, nested signing**
 
-  Change (the PeriodicYield bullet's amount sentence):
+  Change (inside the `PeriodicYield.s.sol` bullet):
   ```markdown
   `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed on-chain from EARN's total supply and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in.
   ```
@@ -2104,12 +1377,12 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed from the airdrop total recorded once in `deploymentAddresses.json` `.earn-airdrop-supply` and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in. EARN minted later by the Safe, including the LP's 2,500, does not change it.
   ```
 
-  After that bullet (the last `- script/deployments/1/multisig/...` bullet), add:
+  After that bullet (the last `- \`script/deployments/1/multisig/...\`` bullet), add:
   ```markdown
   - `script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json` — `005-earn-lp/ProposeLp.s.sol`, written once. Run it with `--fork-url` mainnet and **without** `--broadcast`: it executes the exact batch as the Safe on a fork of the latest block and writes the file only if every check passes. It refuses if the file already exists or the pool is already initialized.
   ```
 
-  After ordered item `4.` (`**\`PeriodicYield.s.sol\` batch:** ...`), add:
+  After ordered item `4.` (`**\`PeriodicYield.s.sol\` batch:** ...`, ending `is a direct \`transfer\`, not a \`transferFrom\`.`), add:
   ```markdown
   5. **`ProposeLp.s.sol` batch:** `EARN.mintBatch([Safe], [2,500 EARN])`, `USDS.approve(Permit2, 500,000)`,
      `EARN.approve(Permit2, 2,500)`, `Permit2.approve(USDS, PositionManager, 500,000, max)`,
@@ -2124,7 +1397,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   (3) re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0`.
   ```
 
-- [ ] **Step 4: Runbook section 7 — `verify:lp` and the ProposeLp command**
+- [ ] **Step 3: Runbook section 7 — `verify:lp` and the ProposeLp command**
 
   Directly after the fenced block that ends with `yarn verify:migration`, add:
   ```markdown
@@ -2137,18 +1410,16 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}" -vvv`.
   ```
 
-- [ ] **Step 5: Runbook section 8 — airdrop-supply base and the Distribute dry-run hazard**
+- [ ] **Step 4: Runbook section 8 — the yield-base placeholder**
 
   Append at the end of section 8:
   ```markdown
   `deploymentAddresses.json` ships `earn-airdrop-supply = "0"`. Track B `Distribute.s.sol` writes the real
-  airdrop total there once, next to `.stry`, and refuses to run again once it is nonzero. `PeriodicYield.s.sol`
-  reads it as the yield base and reverts while it is `0`. **Any run of `Distribute.s.sol`, including one
-  without `--broadcast`, writes both keys.** After a dry run, restore the file with
-  `git checkout -- script/deployments/1/config/deploymentAddresses.json` before the broadcast run.
+  airdrop total there once, with `--broadcast`, and refuses to run again once it is nonzero.
+  `PeriodicYield.s.sol` reads it as the yield base and reverts while it is `0`.
   ```
 
-- [ ] **Step 6: Superseded line in `docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md`**
+- [ ] **Step 5: Superseded line in `docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md`**
 
   After the line `- **Superseded (in part):** Track B's staking design is superseded by ...`, add:
   ```markdown
@@ -2156,20 +1427,17 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   ```
   No other edits to that file.
 
-- [ ] **Step 7: Add the spec's four lines to `docs/help/claim-earn-yield.md`**
+- [ ] **Step 6: Add the spec's remaining two lines to `docs/help/claim-earn-yield.md`** (lines 1–2 landed in `cbf3d6ea`)
 
   Append at the end of the file:
   ```markdown
 
-  ## Supply and the EARN/USDS pool
+  EARN held in the Uniswap V4 pool positions is not staked and earns no sEARN yield.
 
-  - EARN supply is not fixed. The redemption Safe, controlled by the main multisig, can mint additional EARN; any mint dilutes existing holders.
-  - The 28-day yield is sized on the original airdrop supply. EARN minted later, including the pool's EARN, does not change the yield amount.
-  - EARN held in the Uniswap V4 pool positions is not staked and earns no sEARN yield.
-  - Swaps in the EARN/USDS pool pay a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%.
+  Swaps in the EARN/USDS pool pay a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%.
   ```
 
-- [ ] **Step 8: Create the how-to `docs/help/trade-earn-usds.md`**
+- [ ] **Step 7: Create the how-to `docs/help/trade-earn-usds.md`**
 
   ```markdown
   # Trading EARN for USDS
@@ -2178,7 +1446,7 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
   ## What it does
 
-  The pool opens at 100 USDS per EARN. It holds liquidity across the full price range, plus USDS that buys EARN between 50 and 100 USDS per EARN. Every swap pays a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%. Pool fees go to the pool's liquidity positions, which the redemption Safe owns.
+  The pool opens at 100 USDS per EARN. It holds liquidity across the full price range, plus USDS that buys EARN between 50 and 100 USDS per EARN. Every swap pays a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%. The pool's liquidity positions are owned by the redemption Safe.
 
   ## How to get to it
 
@@ -2191,10 +1459,10 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   3. Check that the route uses the EARN/USDS V4 pool at the 0.30% fee tier.
   4. Enter the amount, review the price and fees, and confirm the swap.
 
-  EARN you keep in your wallet or sell earns no yield. Only staked EARN earns yield — see [How to earn EARN yield](claim-earn-yield.md).
+  EARN in your wallet earns no yield. Only staked EARN earns yield — see [How to earn EARN yield](claim-earn-yield.md).
   ```
 
-- [ ] **Step 9: Release notes (`docs/RELEASE-NOTES.md`)**
+- [ ] **Step 8: Release notes (`docs/RELEASE-NOTES.md`)**
 
   Change:
   ```markdown
@@ -2208,11 +1476,9 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   Append at the end of the `## Pending` list:
   ```markdown
   - Added an EARN/USDS trading pool on Uniswap V4, opening at 100 USDS per EARN. [How to trade EARN for USDS](help/trade-earn-usds.md)
-  - EARN supply is not fixed: the treasury can mint additional EARN.
-  - EARN staking yield is sized on the original airdrop supply; EARN minted later does not change it.
   ```
 
-- [ ] **Step 10: Check links and commit**
+- [ ] **Step 9: Check and commit**
 
   ```bash
   ls docs/help/trade-earn-usds.md docs/help/claim-earn-yield.md docs/superpowers/specs/2026-09-24-earn-deploy-and-lp-design.md
@@ -2220,12 +1486,12 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
   git add docs/ESPNv3_Runbook.md \
           docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md \
           docs/help/claim-earn-yield.md docs/help/trade-earn-usds.md docs/RELEASE-NOTES.md
-  git commit -m "docs: document earn mint authority, lp pool and airdrop-supply yield base
+  git commit -m "docs: document the earn/usds lp batch, signing flow and pool how-to
 
-  Runbook: Assumption 10 reversed for EARN, sEARN deploy and LP steps in the sequence,
-  the 005-earn-lp batch, nested-Safe signing checks, verify:lp, and the Distribute
-  dry-run hazard. Help and release notes: EARN supply is mintable, yield is sized on
-  the airdrop supply, and the new EARN/USDS pool with a how-to.
+  Runbook: sEARN deploy and LP steps in the sequence, the 005-earn-lp batch and its
+  order, nested-Safe signing checks, verify:lp, the ProposeLp command and the
+  .earn-airdrop-supply placeholder. Superseded note on the 2026-08-21 spec. Help,
+  how-to and release notes for the EARN launch and the EARN/USDS pool.
 
   Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
   ```
@@ -2234,30 +1500,29 @@ Run tasks sequentially in number order. Tasks 2, 3 and 5 touch disjoint files, b
 
 ---
 
-## Task 8: operator checklist — human-run mainnet steps (no agent action)
+## Task 6: operator checklist — human-run mainnet steps (no agent action)
 
-**Agents do not run any step in this task.** No `--broadcast`, no `yarn safe:propose`, no Safe UI action, no `git push`. The controller hands this list to the user after Tasks 1–7 pass review and the user has approved. The user ticks these boxes.
+**Agents do not run any step in this task.** No `--broadcast`, no `yarn safe:propose`, no Safe UI action, no `git push`. The controller hands this list to the user after Tasks 1–5 pass review. The user ticks these boxes.
 
-**Pre-conditions:** Tasks 1–7 merged or on the branch the operator runs from; `SNAPSHOT_BLOCK=26043909 yarn verify:migration` and `yarn verify:lp` pass; `git status` clean; `deploymentAddresses.json` shows `"stry": "0x0000000000000000000000000000000000000000"` and `"earn-airdrop-supply": "0"`. `$RPC_URL` = a mainnet RPC. Signer flag = the operator's usual one (for example `--ledger`).
+**Pre-conditions:** Tasks 1–5 on the branch the operator runs from; `SNAPSHOT_BLOCK=26043909 yarn verify:migration` and `SNAPSHOT_BLOCK=26043909 yarn verify:lp` pass; `git status` clean; `deploymentAddresses.json` shows `"stry": "0x0000000000000000000000000000000000000000"` and `"earn-airdrop-supply": "0"`. `$RPC_URL` = a mainnet RPC. `<signer flag>` = the operator's usual one (for example `--ledger`).
 
-- [ ] **Op 1: StopEspnYield (runbook step 1).** `forge script script/deployments/1/004-stry-migration/StopEspnYield.s.sol --rpc-url $RPC_URL`. It writes `multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json`. `finalYieldAmount` is `"0"`, so the batch is a no-op unless the amount is set first (spec O7). Propose with `yarn safe:propose <file>`, sign in the Safe UI.
-- [ ] **Op 2: Snapshot.** Already taken: `espn-holders-26043909.json` (committed in Task 1). No action.
-- [ ] **Op 3: Distribute EARN (deployer EOA).** Do not dry-run first, or restore `deploymentAddresses.json` with `git checkout --` after any dry run. `HOLDERS_FILE=script/deployments/1/config/espn-holders-26043909.json forge script script/deployments/1/004-stry-migration/Distribute.s.sol --rpc-url $RPC_URL --broadcast <signer flag>`. Check on-chain: `cast call <EARN> "owner()(address)"` = `0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D`; `cast call <EARN> "totalSupply()(uint256)"` = the `.earn-airdrop-supply` value written to `deploymentAddresses.json` (~29,366 EARN). Commit `deploymentAddresses.json` (`chore(config): record earn address and airdrop supply`). Do not push without the user's go.
-- [ ] **Op 4: Deploy sEARN (deployer EOA).** `forge script script/deployments/1/004-stry-migration/Deploy.s.sol --rpc-url $RPC_URL --broadcast <signer flag>`. Writes `.staked-earn`. Commit it.
-- [ ] **Op 5: Build + simulate the LP batch (no broadcast).** `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}" -vvv`. Must print `Simulation passed; batch written: script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`. Keep the log (Case A/B, `sqrtPriceX96`, ticks, `liqFull / liqBand`, amounts). Commit the batch file.
+- [ ] **Op 1: StopEspnYield (runbook step 1).** `forge script script/deployments/1/004-stry-migration/StopEspnYield.s.sol --rpc-url $RPC_URL`. It writes `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json`. `finalYieldAmount` is `"0"`, so the batch is a no-op unless the amount is set first (spec O7). Propose with `yarn safe:propose <that file>`, sign in the Safe UI.
+- [ ] **Op 2: Snapshot.** Already taken and committed: `espn-holders-26043909.json`. No action. `Distribute.run()` refuses if live ESPN supply or NAV moved since this snapshot; if it refuses, a new snapshot is needed (stop and re-plan).
+- [ ] **Op 3: Distribute EARN (deployer EOA, runbook step 4).** `HOLDERS_FILE=script/deployments/1/config/espn-holders-26043909.json forge script script/deployments/1/004-stry-migration/Distribute.s.sol --rpc-url $RPC_URL --broadcast --slow <signer flag>`. Then check on-chain: `cast call <EARN> "owner()(address)" --rpc-url $RPC_URL` = `0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D`; `cast call <EARN> "totalSupply()(uint256)" --rpc-url $RPC_URL` = `.earn-airdrop-supply` in `deploymentAddresses.json` (~29,366 EARN); every receipt status 1 in `broadcast/Distribute.s.sol/1/run-latest.json`. Commit `deploymentAddresses.json` (`chore(config): record earn address and airdrop supply`). No push without the user's go.
+- [ ] **Op 4: Deploy sEARN (deployer EOA, runbook step 4a).** `forge script script/deployments/1/004-stry-migration/Deploy.s.sol --rpc-url $RPC_URL --broadcast <signer flag>`. Writes `.staked-earn`. Commit it.
+- [ ] **Op 5: Build + simulate the LP batch, no broadcast (runbook step 4b).** `forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}" -vvv`. Must print `Simulation passed; batch written: script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`. Keep the log (Case A/B, `sqrtPriceX96`, ticks, `liqFull / liqBand`, amounts). Commit the batch file.
 - [ ] **Op 6: Propose.** `yarn safe:propose script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`.
-- [ ] **Op 7: Safe sign + execute (main multisig signers, nested Safe).** Before signing: run the Safe UI Tenderly simulation of the inner batch; compare decoded values with the Op 5 log; re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0` and Safe USDS ≥ 500,000. After execution: both position NFTs owned by the Safe; Safe USDS down by ~500,000; ~115,087 USDS left for PeriodicYield (spec SO1). If the pool key was squatted (batch reverts), follow SO3: set `lp.tickSpacing` to 30, delete the 005 batch file, re-run Op 5.
+- [ ] **Op 7: Safe sign + execute (main-multisig signers, nested Safe).** Before signing: run the Safe UI Tenderly simulation of the inner batch; compare decoded values with the Op 5 log; re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0` and Safe USDS ≥ 500,000. After execution: both position NFTs owned by the Safe; Safe USDS down by ~500,000; ~115,087 USDS left for PeriodicYield (spec SO1). If the key was squatted (the batch reverts): follow SO3 — set `lp.tickSpacing` to 30, delete the 005 batch file, re-run Op 5.
 
 ---
 
 ## Definition of done
 
-- `forge --version` = 1.8.0; `forge build` succeeds; `yarn test` green (adds 2 `PeriodicYieldTest` and 10 `ProposeLpTest` tests); `forge fmt --check` clean.
-- `SNAPSHOT_BLOCK=26043909 yarn verify:migration` passes with EARN owner = Safe and the live TripwireController.
-- `SNAPSHOT_BLOCK=26043909 yarn verify:lp` passes: both orderings, both squat reverts, initialized-pool refusal, swap check.
-- `git grep -n "renounceOwnership" script/deployments/1/004-stry-migration/` returns nothing.
-- `git grep -n "stratToken().totalSupply()" script/` returns nothing.
-- `git diff --stat main -- src/ lib/ script/safe/ script/deployments/1/003-espn-redemption/ script/deployments/1/004-stry-migration/StopEspnYield.s.sol test/unit/StryTokenTest.sol` is empty.
-- `shasum -a 256 script/deployments/1/005-earn-lp/lib/*.sol` matches Task 5 Step 1.
-- `docs/RELEASE-NOTES.md` `## Pending` has the EARN launch, pool (with how-to link), mintable-supply and yield-base bullets.
+- `forge --version` = 1.8.0; `forge build` succeeds; `yarn test` green (adds 10 `ProposeLpTest` tests); `forge fmt --check` clean.
+- `SNAPSHOT_BLOCK=26043909 yarn verify:migration` passes (uses `SafeBatchLib.execute`).
+- `SNAPSHOT_BLOCK=26043909 yarn verify:lp` passes: both orderings, both squat reverts, both refusals, third-party EARN on the Safe, swap check.
+- `git grep -n "_executeBatch" script/` returns nothing.
+- `git diff --stat cbf3d6ea -- src/ lib/ script/safe/ script/deployments/1/003-espn-redemption/ script/deployments/1/004-stry-migration/StopEspnYield.s.sol script/deployments/1/004-stry-migration/Distribute.s.sol script/deployments/1/004-stry-migration/PeriodicYield.s.sol script/deployments/1/004-stry-migration/Deploy.s.sol test/unit/StryTokenTest.sol` is empty.
+- `shasum -a 256 script/deployments/1/005-earn-lp/lib/*.sol` matches Task 3 Step 1.
+- `docs/RELEASE-NOTES.md` `## Pending` has the EARN launch and pool (with how-to link) bullets next to the landed supply and yield-base bullets.
 - No commit was pushed; no agent broadcast anything.
