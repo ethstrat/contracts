@@ -25,7 +25,7 @@ contract StakedStratTest is Test {
     uint256 public constant REWARD_AMOUNT_1 = 10 * 1e18;
     uint256 public constant REWARD_AMOUNT_2 = 5 * 1e18;
 
-    uint256 public constant REWARD_DURATION = 7 days;
+    uint256 public constant REWARD_DURATION = 28 days;
 
     // -------------------------------------------------------------------------
     // Helpers
@@ -90,8 +90,8 @@ contract StakedStratTest is Test {
     function test_Constructor() public view {
         assertEq(address(stakedStrat.stratToken()), address(stratToken));
         assertEq(address(stakedStrat.rewardToken()), address(rewardToken));
-        assertEq(stakedStrat.name(), "Staked STRAT v2");
-        assertEq(stakedStrat.symbol(), "sSTRAT-v2");
+        assertEq(stakedStrat.name(), "Staked EARN");
+        assertEq(stakedStrat.symbol(), "sEARN");
         assertEq(stakedStrat.decimals(), 18);
         assertEq(stakedStrat.totalStaked(), 0);
         assertEq(stakedStrat.rewardsPerShare(), 0);
@@ -277,7 +277,7 @@ contract StakedStratTest is Test {
 
         // Blended rate must exceed the first rate (new tokens added)
         assertGt(stakedStrat.rewardRate(), firstRate);
-        // Weighted-average duration: remainingTime (6 days) < REWARD_DURATION (7 days),
+        // Weighted-average duration: remainingTime (27 days) < REWARD_DURATION (28 days),
         // so the new period is shorter than a fresh REWARD_DURATION window.
         assertLt(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
         assertGt(stakedStrat.periodFinish(), block.timestamp);
@@ -684,16 +684,16 @@ contract StakedStratTest is Test {
         stakedStrat.stake(STAKE_AMOUNT_1);
 
         _sendRewards(REWARD_AMOUNT_1, true);
-        // Capture the original 7-day period end directly from contract state
+        // Capture the original 28-day period end directly from contract state
         uint256 firstPeriodEnd = stakedStrat.periodFinish();
 
         // Midway through, second batch arrives
         vm.warp(block.timestamp + REWARD_DURATION / 2);
         _sendRewards(REWARD_AMOUNT_2, true);
 
-        // Weighted-average duration: remaining ≈ REWARD_AMOUNT_2 and remainingTime = 3.5 days,
-        // so newDuration = (3.5 days + 7 days) / 2 = 5.25 days.
-        // periodFinish is extended beyond the original 7-day end but shorter than a fresh window.
+        // Weighted-average duration: remaining ≈ REWARD_AMOUNT_2 and remainingTime = 14 days,
+        // so newDuration = (14 days + 28 days) / 2 = 21 days.
+        // periodFinish is extended beyond the original 28-day end but shorter than a fresh window.
         assertGt(stakedStrat.periodFinish(), firstPeriodEnd);
         assertLt(stakedStrat.periodFinish(), block.timestamp + REWARD_DURATION);
 
@@ -812,7 +812,7 @@ contract StakedStratTest is Test {
     /**
      * @dev Sending 1 wei mid-stream should have negligible impact on the reward rate and
      *      period end time. Before the weighted-average fix the old code would set
-     *      periodFinish = now + 7 days and rewardRate = remaining/7days (≈rate/2 at midpoint),
+     *      periodFinish = now + 28 days and rewardRate = remaining/28days (≈rate/2 at midpoint),
      *      cutting the effective rate roughly in half each call.
      */
     function test_GriefingMitigation_DustDepositBarelyPerturbsStream() public {
@@ -896,7 +896,7 @@ contract StakedStratTest is Test {
     }
 
     /**
-     * @dev Patient attacker who holds for 1 day captures only ~1/7 of their proportional
+     * @dev Patient attacker who holds for 1 day captures only ~1/28 of their proportional
      *      share — a fraction of the instant capture the pre-streaming code allowed.
      */
     function test_FrontrunAttack_PartialTimeCapture() public {

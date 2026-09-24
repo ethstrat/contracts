@@ -9,7 +9,8 @@ optimizer_runs = 999999 # Etherscan does not support verifying contracts with mo
 solc_version = "0.8.24"
 ffi = true
 fs_permissions = [
-    {access = "write", path = "./tmp/"},
+    {access = "read-write", path = "./tmp/"},
+    {access = "read-write", path = "./script/deployments/"},
 ]
 # Disable network features to avoid system configuration issues in sandbox
 evm_opts = { verbosity = 1 }
