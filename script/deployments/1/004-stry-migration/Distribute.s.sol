@@ -56,6 +56,12 @@ contract Distribute is Script {
         );
     }
 
+    /// @dev Ownable is single-step, so refuse a target that is not a Safe (answers getThreshold() >= 1).
+    function _requireSafeWallet(address safe) internal view {
+        (bool ok, bytes memory ret) = safe.staticcall(abi.encodeWithSignature("getThreshold()"));
+        require(ok && ret.length == 32 && abi.decode(ret, (uint256)) >= 1, "Distribute: owner target is not a Safe");
+    }
+
     /// @dev Items 1-3 and the calibration assertion. `writeDeployedAddress` stays out of here and
     /// only runs from run(), so Verify.s.sol never dirties the committed deploymentAddresses.json.
     /// `deployer` is taken as an argument (not read via msg.sender) so Verify.s.sol can prank as
@@ -96,6 +102,7 @@ contract Distribute is Script {
             require(stry.balanceOf(excluded[i]) == 0, "Distribute: excluded address received EARN");
         }
 
+        _requireSafeWallet(safe);
         stry.transferOwnership(safe);
 
         // Calibration -- each per-holder division truncates up to 1 wei of STRY; multiplied back

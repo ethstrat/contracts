@@ -16,7 +16,6 @@ contract Deploy is Script {
         address controller = ConfigLib.addr("internalAddresses.json", ".protocol.tripwire.controller");
         address guardian = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.tripwire-guardian");
 
-        // Assumption 4: no deployed TripwireController is recorded anywhere in this repo.
         // TripwireGuard's constructor reverts a bare InvalidController() on a zero-or-codeless
         // controller, which is opaque -- fail with something the operator can act on instead.
         // Fork verification (Verify.s.sol) uses the same live controller.

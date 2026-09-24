@@ -99,6 +99,11 @@ contract ProposeLpTest is Test {
         harness.exposedDeriveTicks(false, 100, 50, 200, 60);
     }
 
+    function test_deriveTicks_revertsWhenPriceInputTooLarge() public {
+        vm.expectRevert(bytes("ProposeLp: price input >= 2**64"));
+        harness.exposedDeriveTicks(true, 2 ** 64, 50, 100, 60);
+    }
+
     // Liquidity: both orderings give the same values, and the amounts they settle are <= the
     // configured amounts (checked by the fork runs; values here pin the math).
 

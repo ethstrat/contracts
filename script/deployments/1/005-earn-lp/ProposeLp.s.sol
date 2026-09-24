@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 import {StryToken} from "src/StryToken.sol";
 import {ConfigLib} from "../lib/ConfigLib.sol";
 import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
@@ -150,10 +151,11 @@ contract ProposeLp is Script {
         // full-range position's fixed liquidity needs more than its max of one currency and the
         // whole batch reverts MaximumAmountExceeded (spec R6).
         (uint128 full0, uint128 full1) = p.earnIsC0
-            ? (uint128(p.fullRangeEarn), uint128(p.fullRangeUsds))
-            : (uint128(p.fullRangeUsds), uint128(p.fullRangeEarn));
-        (uint128 band0, uint128 band1) =
-            p.earnIsC0 ? (uint128(0), uint128(p.singleSidedUsds)) : (uint128(p.singleSidedUsds), uint128(0));
+            ? (SafeCast.toUint128(p.fullRangeEarn), SafeCast.toUint128(p.fullRangeUsds))
+            : (SafeCast.toUint128(p.fullRangeUsds), SafeCast.toUint128(p.fullRangeEarn));
+        (uint128 band0, uint128 band1) = p.earnIsC0
+            ? (uint128(0), SafeCast.toUint128(p.singleSidedUsds))
+            : (SafeCast.toUint128(p.singleSidedUsds), uint128(0));
 
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(p.key, p.fullLower, p.fullUpper, uint256(p.liqFull), full0, full1, p.safe, bytes(""));
@@ -174,12 +176,14 @@ contract ProposeLp is Script {
         // expiration max for the same queue reason; Permit2 decrements the amount on spend.
         txs[3] = SafeBatchLib.Tx({
             to: p.permit2,
-            data: abi.encodeCall(IPermit2.approve, (p.usds, address(p.posm), uint160(totalUsds), type(uint48).max))
+            data: abi.encodeCall(
+                IPermit2.approve, (p.usds, address(p.posm), SafeCast.toUint160(totalUsds), type(uint48).max)
+            )
         });
         txs[4] = SafeBatchLib.Tx({
             to: p.permit2,
             data: abi.encodeCall(
-                IPermit2.approve, (p.earn, address(p.posm), uint160(p.fullRangeEarn), type(uint48).max)
+                IPermit2.approve, (p.earn, address(p.posm), SafeCast.toUint160(p.fullRangeEarn), type(uint48).max)
             )
         });
         txs[5] = SafeBatchLib.Tx({to: address(p.posm), data: abi.encodeCall(IPositionManager.multicall, (calls))});
@@ -195,6 +199,8 @@ contract ProposeLp is Script {
         pure
         returns (uint160 sqrtPriceX96, int24 currentTick, int24 bandLower, int24 bandUpper)
     {
+        // The << 192 shifts below must not overflow uint256.
+        require(basis < 2 ** 64 && lo < 2 ** 64 && hi < 2 ** 64, "ProposeLp: price input >= 2**64");
         if (earnIsC0) {
             sqrtPriceX96 = uint160(Math.sqrt(basis << 192));
             currentTick = TickMath.getTickAtSqrtPrice(sqrtPriceX96);
@@ -287,6 +293,10 @@ contract ProposeLp is Script {
         // The Safe minted exactly fullRangeEarn and the bid wall's EARN max is 0, so any EARN left
         // beyond dust means position 1 did not take it all or position 2 took some.
         require(earn.balanceOf(p.safe) <= earnBefore + DUST, "ProposeLp sim: EARN left on Safe beyond dust");
+        require(
+            IERC20(p.usds).allowance(p.safe, p.permit2) <= DUST && earn.allowance(p.safe, p.permit2) <= DUST,
+            "ProposeLp sim: ERC20 allowance to Permit2 left beyond dust"
+        );
         (uint160 usdsAllowance,,) = IPermit2(p.permit2).allowance(p.safe, p.usds, address(p.posm));
         (uint160 earnAllowance,,) = IPermit2(p.permit2).allowance(p.safe, p.earn, address(p.posm));
         require(usdsAllowance <= DUST && earnAllowance <= DUST, "ProposeLp sim: Permit2 allowance left beyond dust");

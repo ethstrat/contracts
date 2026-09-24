@@ -9,6 +9,10 @@ contract EarnDistributeHarness is Distribute {
     function checkSnapshotFreshness(address espn, string memory holdersFile) external view {
         _checkSnapshotFreshness(espn, holdersFile);
     }
+
+    function requireSafeWallet(address safe) external view {
+        _requireSafeWallet(safe);
+    }
 }
 
 /// @notice Track B Distribute.run() must refuse to mint if live ESPN supply or NAV moved since the
@@ -69,5 +73,20 @@ contract EarnDistributeSnapshotFreshnessTest is Test {
         string memory path = _writeFixture(884, 1000e18, ',"totalAssets":"2000000000000000000000"');
         mockEspn.set(1000e18, 2000e18);
         harness.checkSnapshotFreshness(address(mockEspn), path);
+    }
+
+    function test_requireSafeWallet_revertsOnContractWithoutGetThreshold() public {
+        vm.expectRevert("Distribute: owner target is not a Safe");
+        harness.requireSafeWallet(address(mockEspn));
+    }
+
+    function test_requireSafeWallet_revertsOnEoa() public {
+        vm.expectRevert("Distribute: owner target is not a Safe");
+        harness.requireSafeWallet(address(0xBEEF));
+    }
+
+    function test_requireSafeWallet_passesOnThresholdTwo() public {
+        vm.mockCall(address(0xCAFE), abi.encodeWithSignature("getThreshold()"), abi.encode(uint256(2)));
+        harness.requireSafeWallet(address(0xCAFE));
     }
 }

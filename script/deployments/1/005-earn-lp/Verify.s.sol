@@ -101,11 +101,6 @@ contract Verify is Script, StdCheats, StdAssertions, ProposeLp, Distribute, Peri
         (uint160 priceBefore,,,) = p.stateView.getSlot0(p.poolId);
         assertEq(priceBefore, 0, "Verify: pool initialized before the batch");
 
-        // Step 14 (S1): a squatter initializes the key at 2x and at 0.5x the intended price; the
-        // batch must revert on amountMax and mint nothing.
-        _assertSquatReverts(p, txs, uint160(uint256(p.sqrtPriceX96) * 1414213562 / 1e9));
-        _assertSquatReverts(p, txs, uint160(uint256(p.sqrtPriceX96) * 1e9 / 1414213562));
-
         // Review Focus: EARN sent to the Safe by a third party must not block the batch; the dust
         // check is relative to the Safe's pre-batch balance. deal() leaves totalSupply unchanged.
         deal(address(earn), safe, 1e18);
@@ -146,6 +141,10 @@ contract Verify is Script, StdCheats, StdAssertions, ProposeLp, Distribute, Peri
         (SafeBatchLib.Tx[] memory txs, LpPlan memory p) = buildBatch(where);
         assertEq(p.earnIsC0, expectEarnIsC0, "Verify: unexpected currency ordering");
         assertEq(txs.length, 6, "Verify: batch is not 6 txs");
+        // Step 14 (S1): a squatter initializes the key at 2x and at 0.5x the intended price; the
+        // batch must revert on amountMax and mint nothing. Runs for both currency orderings.
+        _assertSquatReverts(p, txs, uint160(uint256(p.sqrtPriceX96) * 1414213562 / 1e9));
+        _assertSquatReverts(p, txs, uint160(uint256(p.sqrtPriceX96) * 1e9 / 1414213562));
         _simulateAndCheck(p, txs);
         console2.log(expectEarnIsC0 ? "Case A ordering passed at" : "Case B ordering passed at", where);
         vm.revertToState(snap);
