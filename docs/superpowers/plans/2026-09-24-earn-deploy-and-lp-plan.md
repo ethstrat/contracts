@@ -228,7 +228,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 - Consumes: nothing new.
 - Produces, for Task 4: `SafeBatchLib.execute(address safe, SafeBatchLib.Tx[] memory txs) internal` — `vm.startPrank(safe, safe)`, calls each tx in order, bubbles the revert data, `vm.stopPrank()`.
 
-- [ ] **Step 1: Add `execute` to `script/deployments/1/lib/SafeBatchLib.sol`**
+- [x] **Step 1: Add `execute` to `script/deployments/1/lib/SafeBatchLib.sol`**
 
   Insert immediately before the line `    /// @dev The exact path \`write\` writes to. Exposed so a repeatable batch producer`:
 
@@ -255,7 +255,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   ```
 
-- [ ] **Step 2: Switch `script/deployments/1/004-stry-migration/Verify.s.sol` to it**
+- [x] **Step 2: Switch `script/deployments/1/004-stry-migration/Verify.s.sol` to it**
 
   Change:
   ```solidity
@@ -270,7 +270,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Delete the whole `_executeBatch` function and its 4-line `/// @dev` comment (from `/// @dev Executes a Safe Transaction Builder batch's txs` to the function's closing brace, plus the blank line after it).
 
-- [ ] **Step 2b: Update the `SafeBatchLib` header's list of users**
+- [x] **Step 2b: Update the `SafeBatchLib` header's list of users**
 
   Change lines 7–8 of `script/deployments/1/lib/SafeBatchLib.sol`:
   ```solidity
@@ -284,7 +284,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   ```
   Comment edit only.
 
-- [ ] **Step 3: Run the checks**
+- [x] **Step 3: Run the checks**
 
   ```bash
   forge build
@@ -295,7 +295,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: build succeeds; unit suite green; fmt prints nothing; `git grep` prints nothing (the `execute` doc comment says "004 Verify", not the old function name).
 
-- [ ] **Step 4: Run the fork check — required (only `Verify.s.sol` exercises the moved code)**
+- [x] **Step 4: Run the fork check — required (only `Verify.s.sol` exercises the moved code)**
 
   ```bash
   SNAPSHOT_BLOCK=26043909 yarn verify:migration
@@ -303,7 +303,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: `Script ran successfully.`; logs include `USDS transferred to StakedStrat: 33791207369120688986940` twice and `periodicYield execution gas:`. If the RPC is unreachable, say so explicitly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add script/deployments/1/lib/SafeBatchLib.sol script/deployments/1/004-stry-migration/Verify.s.sol
