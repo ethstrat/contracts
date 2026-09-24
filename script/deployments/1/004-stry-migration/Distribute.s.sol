@@ -22,18 +22,37 @@ contract Distribute is Script {
             "Distribute: airdrop supply already recorded; refusing to overwrite"
         );
 
+        _checkSnapshotFreshness(ConfigLib.addr("externalAddresses.json", ".eth-strategy.espn"), holdersFile);
+
         address deployer = msg.sender;
         vm.startBroadcast();
         StryToken stry = distribute(deployer, holdersFile);
         vm.stopBroadcast();
 
-        ConfigLib.writeDeployedAddress(".stry", address(stry));
-        // Only mintBatch has minted at this point (the Safe cannot act inside this script), so
-        // totalSupply is the airdrop total -- PeriodicYield's fixed yield base.
-        vm.writeJson(
-            string.concat('"', vm.toString(stry.totalSupply()), '"'),
-            string.concat(ConfigLib.configRoot(), "deploymentAddresses.json"),
-            ".earn-airdrop-supply"
+        // A dry-run (no --broadcast) must leave the committed config untouched, or the real
+        // broadcast afterwards trips the refusal guard above.
+        if (vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)) {
+            ConfigLib.writeDeployedAddress(".stry", address(stry));
+            // Only mintBatch has minted at this point (the Safe cannot act inside this script), so
+            // totalSupply is the airdrop total -- PeriodicYield's fixed yield base.
+            vm.writeJson(
+                string.concat('"', vm.toString(stry.totalSupply()), '"'),
+                string.concat(ConfigLib.configRoot(), "deploymentAddresses.json"),
+                ".earn-airdrop-supply"
+            );
+        }
+    }
+
+    /// @dev Live ESPN supply and NAV must equal the snapshot's (increaseAssetsPerShare is
+    /// permissionless). Strict: a snapshot without `totalAssets` refuses too. run() only --
+    /// Verify moves totalAssets via StopEspnYield before calling distribute().
+    function _checkSnapshotFreshness(address espn, string memory holdersFile) internal view {
+        HoldersLib.Snapshot memory snapshot = HoldersLib.load(holdersFile);
+        EthStrategyPerpetualNote note = EthStrategyPerpetualNote(espn);
+        require(note.totalSupply() == snapshot.totalSupply, "Distribute: ESPN totalSupply drifted since snapshot");
+        require(
+            note.totalAssets() == snapshot.totalAssets,
+            "Distribute: ESPN totalAssets drifted since snapshot (NAV moved)"
         );
     }
 
