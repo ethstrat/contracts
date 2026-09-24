@@ -107,7 +107,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 - Consumes: nothing.
 - Produces, read by Task 4 via `ConfigLib`: `externalAddresses.json` `.uniswap-v4.poolManager`, `.uniswap-v4.positionManager`, `.uniswap-v4.permit2`, `.uniswap-v4.stateView`; `settings.json` `.lp.fullRangeUsds`, `.lp.singleSidedUsds` (quoted wei strings), `.lp.bandLowerUsd`, `.lp.bandUpperUsd`, `.lp.fee`, `.lp.tickSpacing` (integers).
 
-- [ ] **Step 1: Run the V0 checks (read-only `cast`) and save the output (spec section 8, V0). Do not edit any file before every check passes.**
+- [x] **Step 1: Run the V0 checks (read-only `cast`) and save the output (spec section 8, V0). Do not edit any file before every check passes.**
 
   ```bash
   RPC="${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat}"
@@ -131,7 +131,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Any mismatch: stop, write nothing, report to the controller. Keep `$BLOCK` and the outputs for the commit message.
 
-- [ ] **Step 2: Add the `uniswap-v4` block to `script/deployments/1/config/externalAddresses.json`**, between `eth-strategy` and `merkl`:
+- [x] **Step 2: Add the `uniswap-v4` block to `script/deployments/1/config/externalAddresses.json`**, between `eth-strategy` and `merkl`:
 
   Change:
   ```json
@@ -154,7 +154,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
     "merkl": {
   ```
 
-- [ ] **Step 3: Add the top-level `lp` block to `script/deployments/1/config/settings.json`**, after the closing brace of `espnv3`:
+- [x] **Step 3: Add the top-level `lp` block to `script/deployments/1/config/settings.json`**, after the closing brace of `espnv3`:
 
   Change the end of the file:
   ```json
@@ -185,7 +185,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   }
   ```
 
-- [ ] **Step 4: Check the files parse and nothing else moved**
+- [x] **Step 4: Check the files parse and nothing else moved**
 
   ```bash
   node -e 'for (const f of ["externalAddresses","settings"]) JSON.parse(require("fs").readFileSync(`script/deployments/1/config/${f}.json`))' && echo JSON-OK
@@ -196,7 +196,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: `JSON-OK`; diff shows only the two JSON files; tests pass; fmt prints nothing.
 
-- [ ] **Step 5: Commit, recording the V0 block and results (spec V0 step 3)**
+- [x] **Step 5: Commit, recording the V0 block and results (spec V0 step 3)**
 
   Replace `<V0 block>` with the `$BLOCK` value printed in Step 1 before running the command.
 
