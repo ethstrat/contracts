@@ -5,6 +5,7 @@
 - **Status:** Approved design; open decisions listed in Explicit Assumptions must be closed before any non-fork broadcast
 - **Chain:** Ethereum mainnet (chain id 1)
 - **Superseded (in part):** Track B's staking design is superseded by [`2026-09-04-stry-merkl-yield-design.md`](2026-09-04-stry-merkl-yield-design.md).
+- **Superseded (in part):** Assumption 10 for EARN (now `transferOwnership(redemption Safe)`) and the out-of-scope LP item are superseded by [`2026-09-24-earn-deploy-and-lp-design.md`](2026-09-24-earn-deploy-and-lp-design.md).
 
 ## Overview
 

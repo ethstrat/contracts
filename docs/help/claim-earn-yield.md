@@ -19,4 +19,8 @@ Note: wallets that can't call `claim()` — for example some liquidity pool cont
 
 EARN supply is not fixed. The redemption Safe, controlled by the main multisig, can mint additional EARN; any mint dilutes existing holders.
 
-The 28-day yield is sized on the original airdrop supply. EARN minted later does not change the yield amount.
+The 28-day yield is sized on the original airdrop supply. EARN minted later, including the pool's EARN, does not change the yield amount.
+
+EARN held in the Uniswap V4 pool positions is not staked and earns no sEARN yield.
+
+Swaps in the EARN/USDS pool pay a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%.

@@ -41,10 +41,12 @@ Running these out of order silently prices the two airdrops off two different NA
 | 1 | `StopEspnYield.s.sol` — final `increaseAssetsPerShare` | B |
 | 2 | Choose `snapshotBlock` ≥ 64 behind head; run `espn-holders.mjs` | shared |
 | 3 | Track A `Distribute.s.sol` | A |
-| 4 | Track B `Distribute.s.sol` | B |
+| 4 | Track B `Distribute.s.sol` (EARN owner = redemption Safe; records `.earn-airdrop-supply`) | B |
+| 4a | Track B `Deploy.s.sol` (sEARN, live TripwireController) | B |
+| 4b | `005-earn-lp/ProposeLp.s.sol` (Safe batch: mint 2,500 EARN + v4 pool + 2 positions), then propose and sign | B |
 | 5 | Track A `BuildOrder.s.sol` (Safe batch: approve + validate) | A |
 | 6 | Holders fulfil, FCFS, until `endTime` or capacity exhausted | A |
-| 7 | Track B `PeriodicYield.s.sol` (Safe batch: `transfer` + `syncRewards`), every 28 days, from step 4 onward | B |
+| 7 | Track B `PeriodicYield.s.sol` (Safe batch: `transfer` + `syncRewards`), every 28 days, from step 4a onward | B |
 | 8 | `Cancel.s.sol` after `endTime` (cancel + revoke USDS approval) | A |
 
 Step 1 must precede step 5: `usdsOffer` is pinned at `targetRedemptionUsd` regardless of
@@ -155,14 +157,15 @@ chunking; the rule exists for a larger holder set or a future snapshot.
 
 ## 6. Safe batch files
 
-`BuildOrder.s.sol`, `Cancel.s.sol` and `StopEspnYield.s.sol` cannot broadcast from a Safe —
+`BuildOrder.s.sol`, `Cancel.s.sol`, `StopEspnYield.s.sol`, `PeriodicYield.s.sol` and `ProposeLp.s.sol` cannot broadcast from a Safe —
 they each write a Safe Transaction Builder JSON batch to
 `script/deployments/1/multisig/<operation>/<NNN>-<safe-prefix>-multisig.json`:
 
 - `script/deployments/1/multisig/003-espn-redemption/001-0x0cbe9bDD-multisig.json` — `BuildOrder.s.sol`
 - `script/deployments/1/multisig/003-espn-redemption/002-0x0cbe9bDD-multisig.json` — `Cancel.s.sol`
 - `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json` — `StopEspnYield.s.sol` (payer is `.protocol.multisigs.redemption`, the same address and prefix as the two Track A batches above)
-- `script/deployments/1/multisig/004-stry-migration/<NNN>-0x0cbe9bDD-multisig.json`, `NNN ≥ 002` — `PeriodicYield.s.sol`, one new file per 28-day period. The index is **allocated by the script as the first free one** (`001` belongs to `StopEspnYield.s.sol`); it is never an env var and an existing period's batch is never overwritten. To redo a period whose batch was generated but not yet signed, delete that file first. `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed on-chain from EARN's total supply and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in. The batch itself is two on-chain transactions, `USDS.transfer(stakedEarn, amount)` then `StakedStrat.syncRewards()`; there is no off-chain registration step and no dependency on any external API. The script hard-reverts before writing the batch if `StakedStrat.totalStaked() == 0` — funding the stream before anyone has staked would permanently destroy the deposit — or if the Safe's USDS balance is below `amount`.
+- `script/deployments/1/multisig/004-stry-migration/<NNN>-0x0cbe9bDD-multisig.json`, `NNN ≥ 002` — `PeriodicYield.s.sol`, one new file per 28-day period. The index is **allocated by the script as the first free one** (`001` belongs to `StopEspnYield.s.sol`); it is never an env var and an existing period's batch is never overwritten. To redo a period whose batch was generated but not yet signed, delete that file first. `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed from the airdrop total recorded once in `deploymentAddresses.json` `.earn-airdrop-supply` and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in. EARN minted later by the Safe, including the LP's 2,500, does not change it. The batch itself is two on-chain transactions, `USDS.transfer(stakedEarn, amount)` then `StakedStrat.syncRewards()`; there is no off-chain registration step and no dependency on any external API. The script hard-reverts before writing the batch if `StakedStrat.totalStaked() == 0` — funding the stream before anyone has staked would permanently destroy the deposit — or if the Safe's USDS balance is below `amount`.
+- `script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json` — `005-earn-lp/ProposeLp.s.sol`, written once. Run it with `--fork-url` mainnet and **without** `--broadcast`: it executes the exact batch as the Safe on a fork of the latest block and writes the file only if every check passes. It refuses if the file already exists or the pool is already initialized.
 
 Every transaction in every batch is written as **raw calldata**: `"data": "0x…"`,
 `"contractMethod": null`. The Transaction Builder therefore shows **no decoded
@@ -185,6 +188,18 @@ Execution order within each batch matters and is fixed by the order the script w
 4. **`PeriodicYield.s.sol` batch:** `USDS.transfer(stakedEarn, amount)` **then**
    `StakedStrat.syncRewards()`. Always exactly two transactions, no `approve()` step — this
    is a direct `transfer`, not a `transferFrom`.
+5. **`ProposeLp.s.sol` batch:** `EARN.mintBatch([Safe], [2,500 EARN])`, `USDS.approve(Permit2, 500,000)`,
+   `EARN.approve(Permit2, 2,500)`, `Permit2.approve(USDS, PositionManager, 500,000, max)`,
+   `Permit2.approve(EARN, PositionManager, 2,500, max)`, then `PositionManager.multicall([initializePool,
+   modifyLiquidities])`. Six transactions, one MultiSend. If anyone initialized the pool key at another
+   price first, the last call reverts and the whole batch reverts; nothing moves.
+
+**Signing the LP batch (nested Safe).** The redemption Safe is 1-of-1 and its owner is the main multisig.
+Main-multisig signers approve the redemption Safe's inner transaction hash through the Safe UI nested-Safe
+flow and see only that hash approval. Before signing: (1) run the Safe UI Tenderly simulation of the inner
+batch; (2) compare the decoded values with the `ProposeLp` log (pool key, `sqrtPriceX96`, ticks, liquidity,
+amount0Max/amount1Max per position); (3) re-check `StateView.getSlot0(poolId).sqrtPriceX96 == 0`, using the
+`poolId` the `ProposeLp` log prints.
 
 ## 7. Operator env quick-reference
 
@@ -211,13 +226,15 @@ yarn verify:redemption
 yarn verify:migration
 ```
 
+`SNAPSHOT_BLOCK=26043909 yarn verify:lp` runs the EARN LP fork check against `espn-holders-26043909.json`.
+
 Both Verify scripts derive the holders file from `SNAPSHOT_BLOCK` — it is the only env var
 they need. `HOLDERS_FILE` applies to the broadcast scripts below, not to verification.
 
 This section replaces the `script/snapshot/README.md` an earlier draft proposed — one
 document, not two to keep in sync.
 
-**Broadcast scripts (steps 1, 3, 4, 5, 8)**, each run as
+**Broadcast scripts (steps 1, 3, 4, 4a, 5, 8)**, each run as
 `forge script <path> --rpc-url $RPC_URL --broadcast`:
 
 | Step | Script | Required env |
@@ -225,6 +242,7 @@ document, not two to keep in sync.
 | 1 | `004-stry-migration/StopEspnYield.s.sol` | none (reads `settings.json`/`internalAddresses.json`) |
 | 3 | `003-espn-redemption/Distribute.s.sol` | `HOLDERS_FILE` |
 | 4 | `004-stry-migration/Distribute.s.sol` | `HOLDERS_FILE` |
+| 4a | `004-stry-migration/Deploy.s.sol` | none |
 | 5 | `003-espn-redemption/BuildOrder.s.sol` | `HOLDERS_FILE` |
 | 8 | `003-espn-redemption/Cancel.s.sol` | `USDS_OFFER`, `ESPN_ASK`, `REDEMPTION_ASK`, `EXPECTED_ORDER_HASH` — the four values step 5 printed |
 
@@ -240,6 +258,10 @@ each writes a Safe batch instead (see section 6). Steps 3 and 4 broadcast direct
 deployer's own key: the two `Distribute` scripts mint and airdrop. `PeriodicYield.s.sol`
 writes a Safe batch that the redemption Safe executes — it never broadcasts and never moves
 USDS itself.
+
+`005-earn-lp/ProposeLp.s.sol` needs no env var and never broadcasts:
+`forge script script/deployments/1/005-earn-lp/ProposeLp.s.sol --fork-url "$RPC_URL" -vvv`.
+Use the operator's own `$RPC_URL`, not the public gateway: the pre-write simulation is only as trustworthy as the RPC it forks.
 
 ## 8. Resetting placeholder config before broadcast
 
@@ -264,6 +286,10 @@ this value directly into its Safe batch: `USDS.approve(ESPN, finalYieldAmount)` 
 "final top-up" the mandated sequence is built around never happens. Set the real amount
 (Assumption 3) before step 1's batch is generated, or explicitly decide `0` is correct and
 record that decision.
+
+`deploymentAddresses.json` ships `earn-airdrop-supply = "0"`. Track B `Distribute.s.sol` writes the real
+airdrop total there once, with `--broadcast`, and refuses to run again once it is nonzero.
+`PeriodicYield.s.sol` reads it as the yield base and reverts while it is `0`.
 
 ## 9. Track B holder notes
 
