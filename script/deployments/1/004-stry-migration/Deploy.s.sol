@@ -29,7 +29,7 @@ contract Deploy is Script {
         );
         require(
             stratToken.code.length > 0,
-            "Deploy: .stry has no code -- run Distribute.s.sol first to deploy STRY before this new StakedStrat instance."
+            "Deploy: .stry has no code -- run Distribute.s.sol first to deploy EARN before this new StakedStrat instance."
         );
 
         vm.startBroadcast();
@@ -38,16 +38,16 @@ contract Deploy is Script {
 
         ConfigLib.writeDeployedAddress(".staked-earn", address(stakedStrat));
 
-        console2.log("New StakedStrat (STRY/USDS) deployed:");
+        console2.log("New StakedStrat (EARN/USDS) deployed:");
         console2.log(address(stakedStrat));
         console2.log("Facts of the contract:");
         console2.log("- REWARD_DURATION = 28 days; syncRewards() is permissionless.");
         console2.log("- The staked position token is non-transferable: transfer/transferFrom/approve all revert.");
-        console2.log("  Holders approve STRY for the staking contract, never the position token.");
+        console2.log("  Holders approve EARN for the staking contract, never the position token.");
         console2.log("- Constructor reverts on a zero _stratToken/_rewardToken or on the two being equal.");
         console2.log("- Tripwire registration is self-service and permissionless: TripwireGuard's constructor");
         console2.log("  calls controller_.register(address(this), guardian_) itself; no controller-owner tx needed.");
-        console2.log("- unstake() is whenNotTripped: a trip locks stakers' STRY in until untripped.");
+        console2.log("- unstake() is whenNotTripped: a trip locks stakers' EARN in until untripped.");
         console2.log(
             "- _CONTROLLER is immutable and the guardian is fixed at construction; a wrong value means redeploying."
         );
