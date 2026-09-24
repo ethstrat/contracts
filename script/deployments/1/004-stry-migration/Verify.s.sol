@@ -146,7 +146,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         vm.stopPrank();
 
         // Item 6: PeriodicYield, including its totalStaked > 0 guard. periodicYield() builds the
-        // same Tx[] batch run() would write to a Safe Transaction Builder file; _executeBatch runs
+        // same Tx[] batch run() would write to a Safe Transaction Builder file; SafeBatchLib.execute runs
         // it as calls from the redemption Safe under prank, mirroring what a Safe signer's
         // execution would do. amount is computed from airdropSupply -- see periodicYieldAmount().
         uint256 amount = periodicYieldAmount(airdropSupply);
@@ -164,7 +164,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         uint256 notifiedBeforePeriod = stakedStrat.totalNotifiedRewards();
         SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
         uint256 syncGasBefore = gasleft();
-        _executeBatch(safe, periodTxs);
+        SafeBatchLib.execute(safe, periodTxs);
         uint256 syncGas = syncGasBefore - gasleft();
         assertEq(
             stakedStrat.periodFinish(),
@@ -208,7 +208,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         // partway through it, so real rewards are pending at unstake time.
         if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
         SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
-        _executeBatch(safe, secondTxs);
+        SafeBatchLib.execute(safe, secondTxs);
         vm.warp(block.timestamp + 1 days);
 
         uint256 stakedBalance = stakedStrat.staked(holder);
@@ -228,26 +228,6 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         console2.log("periodicYield execution gas:", syncGas);
         console2.log("claim execution gas:", claimGas);
         console2.log("unstake execution gas:", unstakeGas);
-    }
-
-    /// @dev Executes a Safe Transaction Builder batch's txs, in order, as calls from `safe` --
-    /// the same shape a Safe signer's execution would take once the emitted JSON is imported and
-    /// run. startPrank's two-argument form also sets tx.origin, matching how the other Verify
-    /// scripts in this repo simulate Safe execution.
-    function _executeBatch(address safe, SafeBatchLib.Tx[] memory txs) internal {
-        vm.startPrank(safe, safe);
-        for (uint256 i = 0; i < txs.length; i++) {
-            (bool ok, bytes memory ret) = txs[i].to.call(txs[i].data);
-            if (!ok) {
-                if (ret.length > 0) {
-                    assembly {
-                        revert(add(ret, 32), mload(ret))
-                    }
-                }
-                revert("Verify: batch tx reverted with no reason");
-            }
-        }
-        vm.stopPrank();
     }
 
     /// @dev Picks the largest non-contract, non-excluded holder from the committed snapshot at

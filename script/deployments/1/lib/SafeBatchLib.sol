@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {Vm} from "forge-std/Vm.sol";
 
 /// @notice Writes Safe Transaction Builder JSON batches using the raw-calldata transaction form
-/// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol
-/// and PeriodicYield.s.sol.
+/// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol,
+/// PeriodicYield.s.sol and 005-earn-lp/ProposeLp.s.sol; `execute` also by the Verify scripts.
 library SafeBatchLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -53,6 +53,26 @@ library SafeBatchLib {
         );
 
         vm.writeFile(filePath, json);
+    }
+
+    /// @dev Executes a batch's txs, in order, as calls from `safe` -- the same shape a Safe signer's
+    /// execution takes once the emitted JSON is imported and run. startPrank's two-argument form
+    /// also sets tx.origin. Fork-only: used by the Verify scripts and ProposeLp's pre-write
+    /// simulation. Moved from 004 Verify (revert prefix changed).
+    function execute(address safe, Tx[] memory txs) internal {
+        vm.startPrank(safe, safe);
+        for (uint256 i = 0; i < txs.length; i++) {
+            (bool ok, bytes memory ret) = txs[i].to.call(txs[i].data);
+            if (!ok) {
+                if (ret.length > 0) {
+                    assembly {
+                        revert(add(ret, 32), mload(ret))
+                    }
+                }
+                revert("SafeBatchLib: batch tx reverted with no reason");
+            }
+        }
+        vm.stopPrank();
     }
 
     /// @dev The exact path `write` writes to. Exposed so a repeatable batch producer
