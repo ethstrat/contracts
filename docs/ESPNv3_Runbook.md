@@ -24,7 +24,7 @@ Four of them gate the schedule itself:
 - [ ] 7. **Cross-track reconciliation.** Track A pays out ≤700,000 USDS; Track B mints EARN nominally claiming the *full* ESPN backing (~$3.88M at the snapshot used here) off the same snapshot — an ~18% overstatement if both ship as specified. This plan defaults to Option 2 (ship both off one snapshot, state $100 is a nominal basis price, not a redemption guarantee) per the spec. Needs sign-off.
 - [ ] 8. **`depositCap` is wide open at `1e26`.** Anyone can mint new ESPN after the snapshot; it changes `ESPN.totalSupply()`, which both tracks' broadcast-time formulas read. Confirm whether to close deposits (`setDepositCap(0)`, ESPN owner only) before the snapshot, or accept the window as-is.
 - [ ] 9. **`targetRedemptionUsd = 700,000` is the binding cap, not the 5:1 ratio ⇒ first-come-first-served.** Ratio capacity is ~704,396 USDS (ex-treasury) at this snapshot — only ~0.6% headroom. Confirm FCFS is intended, or raise `targetRedemptionUsd` to make the ratio the true cap.
-- [ ] 10. `renounceOwnership()` after `mintBatch` for both tokens — no future mint possible. Confirm no further mint is wanted.
+- [x] 10. EARN: `transferOwnership(redemption Safe)`; the Safe (1-of-1, owned by main multisig `0xC53C…20b8`) can mint without limit. REDEMPTION: renounced (unchanged).
 - [ ] 11. `EspnRedemptionToken` name/symbol (`"ESPN Redemption"` / `"ESPNR"`) — placeholder, unconfirmed.
 - [ ] 12. The staking contract's instance is named "Staked EARN" (sEARN), per `StakedStrat`'s ERC20 constructor args — not "Staked STRAT v2". Not retired: the staking contract is deployed and is how Track B distributes yield. Confirm the naming is final.
 - [ ] 13. Snapshot block choice is operational, ≥64 blocks behind head, same block for both tracks (subject to Assumption 7 option 1, which deliberately breaks this).
@@ -228,6 +228,13 @@ document, not two to keep in sync.
 | 5 | `003-espn-redemption/BuildOrder.s.sol` | `HOLDERS_FILE` |
 | 8 | `003-espn-redemption/Cancel.s.sol` | `USDS_OFFER`, `ESPN_ASK`, `REDEMPTION_ASK`, `EXPECTED_ORDER_HASH` — the four values step 5 printed |
 
+Step 4 (`004-stry-migration/Distribute.s.sol`) specifics:
+
+- Pass `--slow`, so each tx confirms before the next is sent (a failed `mintBatch` must not be followed by `transferOwnership`).
+- `run()` refuses if live ESPN `totalSupply()`/`totalAssets()` differ from the snapshot file, or if `.earn-airdrop-supply` is already non-zero.
+- Config (`.stry`, `.earn-airdrop-supply`) is written only with `--broadcast`; a dry-run leaves `deploymentAddresses.json` untouched.
+- With `--broadcast`, forge writes the config during local simulation, before any tx is sent. Check the file against the chain before committing it: EARN `owner()` = redemption Safe, `totalSupply()` = `.earn-airdrop-supply`, all receipts status 1 in `broadcast/Distribute.s.sol/1/run-latest.json`.
+
 Steps 1, 5, 7, 8 (`StopEspnYield`, `BuildOrder`, `PeriodicYield`, `Cancel`) never broadcast —
 each writes a Safe batch instead (see section 6). Steps 3 and 4 broadcast directly from the
 deployer's own key: the two `Distribute` scripts mint and airdrop. `PeriodicYield.s.sol`
@@ -273,6 +280,9 @@ record that decision.
   collect, the same risk any ERC20 reward-stream position carries for a non-EOA holder.
 - **No protocol fee.** The full amount `PeriodicYield.s.sol` transfers reaches the reward
   stream; there is no Merkl-style fee deduction.
+- **EARN supply is not fixed.** The redemption Safe, controlled by the main multisig, can
+  mint additional EARN; any mint dilutes existing holders. The 28-day yield is sized on the
+  original airdrop supply (`.earn-airdrop-supply`), not live supply.
 - **`$100 is a nominal basis price, not a redemption guarantee.`** EARN nominally claims
   the full ESPN backing at the snapshot; it is not backed to the extent Track A's 700,000
   USDS redemption pool is.
