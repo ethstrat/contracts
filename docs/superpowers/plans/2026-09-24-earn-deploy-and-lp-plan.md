@@ -741,13 +741,13 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   - `ProposeLp.run()` — refuses if `multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json` exists; writes it only after `_simulateAndCheck` passes.
   - `yarn verify:lp`.
 
-- [ ] **Step 1: Add `verify:lp` to `package.json`** (after `verify:migration`):
+- [x] **Step 1: Add `verify:lp` to `package.json`** (after `verify:migration`):
 
   ```json
       "verify:lp": "forge script script/deployments/1/005-earn-lp/Verify.s.sol --tc Verify --fork-url ${FORK_URL:-https://mainnet.gateway.tenderly.co/2ykivsAa1llMFEFYtboaat} --fork-block-number ${SNAPSHOT_BLOCK:?Set SNAPSHOT_BLOCK to the block encoded in the espn-holders snapshot filename} -vvv",
   ```
 
-- [ ] **Step 2: Create `script/deployments/1/005-earn-lp/Verify.s.sol` (the fork test, written before the code it exercises)**
+- [x] **Step 2: Create `script/deployments/1/005-earn-lp/Verify.s.sol` (the fork test, written before the code it exercises)**
 
   Covers spec V2 steps 1–15, S7 and Review Focus 1–5. `_simulateAndCheck` (Step 4) carries steps 5–12.
 
@@ -950,7 +950,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   }
   ```
 
-- [ ] **Step 3: Run the build to verify it fails**
+- [x] **Step 3: Run the build to verify it fails**
 
   ```bash
   forge build
@@ -958,7 +958,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: compile errors — `buildBatch`, `LpPlan` and `_simulateAndCheck` are not defined on `ProposeLp`.
 
-- [ ] **Step 4: Replace `script/deployments/1/005-earn-lp/ProposeLp.s.sol` with the complete file below**
+- [x] **Step 4: Replace `script/deployments/1/005-earn-lp/ProposeLp.s.sol` with the complete file below**
 
   Adds `LpPlan`, `run()`, `buildBatch` (all preflight requires, spec N1), `_txs` (the 6-tx batch, spec section 5), `_simulateAndCheck` and `_log`. The math functions are unchanged from Task 3.
 
@@ -1291,7 +1291,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   }
   ```
 
-- [ ] **Step 5: Run the fast checks**
+- [x] **Step 5: Run the fast checks**
 
   ```bash
   forge build
@@ -1301,7 +1301,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: build succeeds; full unit suite green (including `ProposeLpTest`); fmt prints nothing.
 
-- [ ] **Step 6: Run the LP fork verification — required**
+- [x] **Step 6: Run the LP fork verification — required**
 
   ```bash
   SNAPSHOT_BLOCK=26043909 yarn verify:lp
@@ -1309,7 +1309,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: `Script ran successfully.` Logs include, in order: `Case A ordering passed at 0x0000000000000000000000000000000000010000`; `Case B ordering passed at 0xfFfffFFFfffFFfFFFFffFFFFffffFfFFFFff0000`; for each run `sqrtPriceX96: 792281625142643375935439503360` (Case A) or `7922816251426433759354395033` (Case B), `liqFull / liqBand: 25000000000000000000135 85830483191952473195169`, a `poolId` bytes32 line, `USDS spent: 499999999999999999999992`; a `swap: protocolFee / lpFee / EARN out:` line; and `Fork EARN hit Case A` or `Case B`. If the RPC is unreachable, say so explicitly.
 
-- [ ] **Step 7: Smoke `ProposeLp.run()` on a latest-block fork (Review Focus 3). Nothing from this step is committed.**
+- [x] **Step 7: Smoke `ProposeLp.run()` on a latest-block fork (Review Focus 3). Nothing from this step is committed.**
 
   EARN does not exist on mainnet yet, so a throwaway script etches a StryToken owned by the Safe at `0x10000` and points `.stry` at it.
 
@@ -1350,7 +1350,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: first run prints `Simulation passed; batch written: script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`; `node` prints `EARN/USDS V4 LP 6`; second run prints `Error: script failed: ProposeLp: batch 001 already exists; delete it deliberately to regenerate`; final `git status --porcelain` shows only this task's three files (`package.json`, `ProposeLp.s.sol`, `Verify.s.sol`). If the Safe's live USDS balance is below 500,000e18 the first run instead fails with `ProposeLp: Safe USDS balance < fullRangeUsds + singleSidedUsds`; report that to the controller as a fact for the operator (spec R5), not a code failure.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add package.json \
