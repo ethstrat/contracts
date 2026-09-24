@@ -20,5 +20,13 @@
       "duration": "604800",
       "blacklist": []
     }
+  },
+  "lp": {
+    "fullRangeUsds": "250000000000000000000000",
+    "singleSidedUsds": "250000000000000000000000",
+    "bandLowerUsd": 50,
+    "bandUpperUsd": 100,
+    "fee": 3000,
+    "tickSpacing": 60
   }
 }
