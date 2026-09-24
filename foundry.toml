@@ -20,6 +20,8 @@ test = "test/integration"
 
 [profile.default.fmt]
 wrap_comments = true
+# Vendored Uniswap v4 libraries, kept byte-identical to upstream.
+ignore = ["script/deployments/1/005-earn-lp/lib/*.sol"]
 
 [profile.build]
 test = "/dev/null"
