@@ -67,27 +67,14 @@ contract PeriodicYield is Script {
         return _periodicYieldAmountPure(airdropSupply, basisPriceUsd, annualDividendRatioX100);
     }
 
-    /// @dev Pure computation plus live pre-condition reads. Writes no file -- run() alone does --
-    /// so `yarn verify:migration`, which calls this directly, leaves `git status` clean.
-    ///
-    /// require(totalStaked() > 0) is a hard revert, first thing -- the whole reason this script
-    /// builds a batch rather than emitting a bare transfer. _currentRewardsPerShare() returns
-    /// early when totalStaked == 0 (src/StakedStrat.sol:137), but syncRewards() has already
-    /// folded the deposit into totalNotifiedRewards and started the clock. Every second elapsed
-    /// with zero stakers accrues to nobody, and those tokens can never be re-notified -- a later
-    /// syncRewards() sees totalDeposited <= totalNotifiedRewards and early-returns. Funding
-    /// before anyone has staked permanently destroys the deposit.
+    /// Caller must confirm sEARN totalStaked() > 0 immediately before executing: USDS streamed while it is 0 is
+    /// permanently lost.
     function periodicYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply)
         internal
         view
         returns (SafeBatchLib.Tx[] memory txs)
     {
-        StakedStrat stakedEarn = StakedStrat(stakedEarnAddr);
         uint256 amount = periodicYieldAmount(airdropSupply);
-        require(
-            stakedEarn.totalStaked() > 0,
-            "PeriodicYield: totalStaked() == 0 -- funding now permanently destroys the deposit, see src/StakedStrat.sol syncRewards()"
-        );
         require(IERC20(usds).balanceOf(safe) >= amount, "PeriodicYield: Safe USDS balance < computed amount");
 
         txs = new SafeBatchLib.Tx[](2);

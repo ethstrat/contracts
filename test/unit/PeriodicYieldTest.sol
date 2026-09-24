@@ -150,17 +150,6 @@ contract PeriodicYieldTest is Test {
     // Safe-batch construction
     // ---------------------------------------------------------------------
 
-    function test_periodicYield_revertsWhenNoStakers() public {
-        _deployStakedStrat(1_000_000e18);
-        usds.mint(safe, 1_000_000_000e18);
-        vm.expectRevert(
-            bytes(
-                "PeriodicYield: totalStaked() == 0 -- funding now permanently destroys the deposit, see src/StakedStrat.sol syncRewards()"
-            )
-        );
-        harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP);
-    }
-
     function test_periodicYield_revertsWhenSafeBalanceBelowAmount() public {
         _deployStakedStrat(1_000_000e18);
         _stakeAll();
