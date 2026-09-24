@@ -335,7 +335,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   - `IV4Minimal.sol`: `struct PoolKey`, `struct SwapParams`, `error MaximumAmountExceeded(uint128,uint128)`, `library Actions { MINT_POSITION = 0x02; SETTLE_PAIR = 0x0d }`, `interface IPositionManager`, `IPermit2`, `IStateView`, `IPoolManagerMinimal`.
   - Revert strings: `"ProposeLp: bid wall would hold EARN (case A)"`, `"ProposeLp: bid wall would hold EARN (case B)"`, `"ProposeLp: empty band after rounding"`.
 
-- [ ] **Step 1: Download the seven library files at the pinned commits and check the hashes**
+- [x] **Step 1: Download the seven library files at the pinned commits and check the hashes**
 
   ```bash
   L=script/deployments/1/005-earn-lp/lib
@@ -360,7 +360,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   ```
   Every SPDX line must read `MIT` (compatible with the repo's GPL-2.0-or-later). Any `BUSL-1.1`: stop and ask the controller (spec N5).
 
-- [ ] **Step 2: Resolve `LiquidityAmounts.sol`'s upstream import path and keep the files out of `forge fmt`**
+- [x] **Step 2: Resolve `LiquidityAmounts.sol`'s upstream import path and keep the files out of `forge fmt`**
 
   Append to `remappings.txt`:
   ```
@@ -382,7 +382,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Without the ignore, `forge fmt --check` reports diffs in `BitMath.sol`, `CustomRevert.sol`, `FullMath.sol` and `TickMath.sol`, and lint-staged would rewrite them on commit.
 
-- [ ] **Step 3: Create `script/deployments/1/005-earn-lp/interfaces/IV4Minimal.sol`**
+- [x] **Step 3: Create `script/deployments/1/005-earn-lp/interfaces/IV4Minimal.sol`**
 
   ```solidity
   // SPDX-License-Identifier: MIT
@@ -454,7 +454,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   }
   ```
 
-- [ ] **Step 4: Write the failing test file `test/unit/ProposeLpTest.sol`**
+- [x] **Step 4: Write the failing test file `test/unit/ProposeLpTest.sol`**
 
   Reference values were computed with the pinned libraries (spec section 6 table; `liqFull` corrected per Deviation 2).
 
@@ -596,7 +596,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   }
   ```
 
-- [ ] **Step 5: Run the tests to verify they fail**
+- [x] **Step 5: Run the tests to verify they fail**
 
   ```bash
   forge test --match-path test/unit/ProposeLpTest.sol
@@ -604,7 +604,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: compile error, `Source "script/deployments/1/005-earn-lp/ProposeLp.s.sol" not found`.
 
-- [ ] **Step 6: Create `script/deployments/1/005-earn-lp/ProposeLp.s.sol` with the math functions only**
+- [x] **Step 6: Create `script/deployments/1/005-earn-lp/ProposeLp.s.sol` with the math functions only**
 
   ```solidity
   // SPDX-License-Identifier: MIT
@@ -692,7 +692,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   }
   ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
   ```bash
   forge build
@@ -703,7 +703,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   Expected: all 10 `ProposeLpTest` tests pass; full suite green; fmt prints nothing.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
   ```bash
   git add remappings.txt foundry.toml \
