@@ -1381,7 +1381,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
 **Interfaces:** none — doc changes only. Facts used: batch path `script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json`, `yarn verify:lp`, `.earn-airdrop-supply`, the 6-tx order from Task 4.
 
-- [ ] **Step 1: Runbook section 2 table — add the sEARN deploy and LP steps**
+- [x] **Step 1: Runbook section 2 table — add the sEARN deploy and LP steps**
 
   Change:
   ```markdown
@@ -1398,7 +1398,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
 
   And in row 7, change `every 28 days, from step 4 onward` to `every 28 days, from step 4a onward` (PeriodicYield needs sEARN deployed).
 
-- [ ] **Step 2: Runbook section 6 — intro, PeriodicYield base, LP batch file, batch order, nested signing**
+- [x] **Step 2: Runbook section 6 — intro, PeriodicYield base, LP batch file, batch order, nested signing**
 
   Change the intro sentence:
   ```markdown
@@ -1439,7 +1439,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   `poolId` the `ProposeLp` log prints.
   ```
 
-- [ ] **Step 3: Runbook section 7 — broadcast table, `verify:lp` and the ProposeLp command**
+- [x] **Step 3: Runbook section 7 — broadcast table, `verify:lp` and the ProposeLp command**
 
   Change the broadcast-scripts heading `**Broadcast scripts (steps 1, 3, 4, 5, 8)**` to `**Broadcast scripts (steps 1, 3, 4, 4a, 5, 8)**`, and after the table row `| 4 | \`004-stry-migration/Distribute.s.sol\` | \`HOLDERS_FILE\` |` add:
   ```markdown
@@ -1458,7 +1458,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   Use the operator's own `$RPC_URL`, not the public gateway: the pre-write simulation is only as trustworthy as the RPC it forks.
   ```
 
-- [ ] **Step 4: Runbook section 8 — the yield-base placeholder**
+- [x] **Step 4: Runbook section 8 — the yield-base placeholder**
 
   Append at the end of section 8:
   ```markdown
@@ -1467,7 +1467,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   `PeriodicYield.s.sol` reads it as the yield base and reverts while it is `0`.
   ```
 
-- [ ] **Step 5: Superseded line in `docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md`**
+- [x] **Step 5: Superseded line in `docs/superpowers/specs/2026-08-21-espnv3-redemption-migration-design.md`**
 
   After the line `- **Superseded (in part):** Track B's staking design is superseded by ...`, add:
   ```markdown
@@ -1475,7 +1475,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   ```
   No other edits to that file.
 
-- [ ] **Step 6: Add the spec's remaining two lines to `docs/help/claim-earn-yield.md`** (lines 1–2 landed in `cbf3d6ea`)
+- [x] **Step 6: Add the spec's remaining two lines to `docs/help/claim-earn-yield.md`** (lines 1–2 landed in `cbf3d6ea`)
 
   Bring line 2 to the spec wording. Change:
   ```markdown
@@ -1494,7 +1494,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   Swaps in the EARN/USDS pool pay a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%.
   ```
 
-- [ ] **Step 7: Create the how-to `docs/help/trade-earn-usds.md`**
+- [x] **Step 7: Create the how-to `docs/help/trade-earn-usds.md`**
 
   ```markdown
   # Trading EARN for USDS
@@ -1519,7 +1519,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   EARN in your wallet earns no yield. Only staked EARN earns yield — see [How to earn EARN yield](claim-earn-yield.md).
   ```
 
-- [ ] **Step 8: Release notes (`docs/RELEASE-NOTES.md`)**
+- [x] **Step 8: Release notes (`docs/RELEASE-NOTES.md`)**
 
   Change:
   ```markdown
@@ -1535,7 +1535,7 @@ Run tasks in number order. Tasks 1–3 touch disjoint files but one commit strea
   - Added an EARN/USDS trading pool on Uniswap V4, opening at 100 USDS per EARN. [How to trade EARN for USDS](help/trade-earn-usds.md)
   ```
 
-- [ ] **Step 9: Check and commit**
+- [x] **Step 9: Check and commit**
 
   ```bash
   ls docs/help/trade-earn-usds.md docs/help/claim-earn-yield.md docs/superpowers/specs/2026-09-24-earn-deploy-and-lp-design.md
