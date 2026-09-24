@@ -12,7 +12,8 @@
     "finalYieldAmount": "0",
     "excludedAddresses": [
       "0x000000000004444c5dc75cB358380D2e3dE08A90",
-      "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D"
+      "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D",
+      "0x0000000000000068F116a894984e2DB1123eB395"
     ],
     "merkl": {
       "campaignType": 18,
