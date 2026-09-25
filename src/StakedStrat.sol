@@ -9,8 +9,8 @@ import {ITripwireController} from "./interfaces/ITripwireController.sol";
 import {TripwireGuard} from "./lib/TripwireGuard.sol";
 
 /**
- * @title Staked STRAT
- * @dev Users stake STRAT tokens and earn reward token yield (e.g. esETH) proportional to their
+ * @title Staked EARN
+ * @dev Users stake EARN tokens and earn reward token yield (e.g. esETH) proportional to their
  *      stake. Uses rewardDebt/rewardsPerShare accounting (MasterChef-style) combined with
  *      Synthetix-style linear reward streaming.
  *
@@ -25,7 +25,7 @@ import {TripwireGuard} from "./lib/TripwireGuard.sol";
  *        - unstake() auto-claims pending rewards before reducing stake (no silent forfeiture).
  *        - migrateStake() preserves the sender's non-migrated proportional pending in their debt.
  *
- *      StakedSTRAT is a non-transferrable ERC20 token.
+ *      sEARN is a non-transferrable ERC20 token.
  */
 contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     using SafeERC20 for IERC20;
@@ -108,7 +108,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Transfer overrides (sSTRAT is non-transferrable)
+    // Transfer overrides (sEARN is non-transferrable)
     // -------------------------------------------------------------------------
 
     function transfer(address, uint256) public pure override returns (bool) {
@@ -192,7 +192,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     // -------------------------------------------------------------------------
 
     /**
-     * @dev Stake STRAT tokens
+     * @dev Stake EARN tokens
      */
     function stake(uint256 amount) external nonReentrant whenNotTripped {
         if (amount == 0) revert ZeroAmount();
@@ -215,7 +215,7 @@ contract StakedStrat is ERC20, ReentrancyGuard, TripwireGuard {
     }
 
     /**
-     * @dev Unstake STRAT tokens. Pending rewards are automatically claimed first.
+     * @dev Unstake EARN tokens. Pending rewards are automatically claimed first.
      */
     function unstake(uint256 amount) external nonReentrant whenNotTripped {
         if (amount == 0) revert ZeroAmount();

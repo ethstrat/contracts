@@ -8,7 +8,6 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {EthStrategyPerpetualNote} from "src/EthStrategyPerpetualNote.sol";
 import {StryToken} from "src/StryToken.sol";
 import {StakedStrat} from "src/StakedStrat.sol";
-import {TripwireController} from "src/lib/TripwireController.sol";
 import {ConfigLib} from "../lib/ConfigLib.sol";
 import {HoldersLib} from "../lib/HoldersLib.sol";
 import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
@@ -74,16 +73,26 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         vm.startPrank(stryDeployer);
         StryToken stry = distribute(stryDeployer, holdersFile);
         vm.stopPrank();
-        assertEq(stry.owner(), address(0), "Verify: STRY ownership not renounced");
-
-        // Item 3: deploy a TripwireController locally and pass it to Deploy's internal deploy().
-        // TripwireGuard's constructor calls controller.register() itself, permissionlessly -- no
-        // controller-owner transaction is needed.
-        address guardian = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.tripwire-guardian");
-        TripwireController controller = new TripwireController();
-        StakedStrat stakedStrat = deploy(address(stry), address(controller), guardian);
-
+        // The in-memory airdrop total stands in for deploymentAddresses.json .earn-airdrop-supply,
+        // so this fork run never depends on (or writes) the committed placeholder.
+        uint256 airdropSupply = stry.totalSupply();
         address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
+        assertEq(stry.owner(), safe, "Verify: EARN owner != redemption Safe");
+        address[] memory excluded = ConfigLib.addrArray("settings.json", ".espnv3.excludedAddresses");
+        for (uint256 i; i < excluded.length; ++i) {
+            assertEq(stry.balanceOf(excluded[i]), 0, "Verify: excluded address holds EARN");
+        }
+        console2.log("EARN owner:", stry.owner());
+        console2.log("EARN totalSupply:", stry.totalSupply());
+        console2.log("EARN airdrop supply (yield base):", airdropSupply);
+
+        // Item 3: deploy against the live TripwireController. TripwireGuard's constructor calls
+        // controller.register() itself, permissionlessly -- no controller-owner tx is needed.
+        address guardian = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.tripwire-guardian");
+        address controller = ConfigLib.addr("internalAddresses.json", ".protocol.tripwire.controller");
+        require(controller.code.length > 0, "Verify: live TripwireController has no code");
+        StakedStrat stakedStrat = deploy(address(stry), controller, guardian);
+
         uint256 holderStryBalance = stry.balanceOf(holder);
 
         // Item 4: zero-staker permanent-loss case, before the happy path. Snapshot state first so
@@ -137,15 +146,25 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         vm.stopPrank();
 
         // Item 6: PeriodicYield, including its totalStaked > 0 guard. periodicYield() builds the
-        // same Tx[] batch run() would write to a Safe Transaction Builder file; _executeBatch runs
+        // same Tx[] batch run() would write to a Safe Transaction Builder file; SafeBatchLib.execute runs
         // it as calls from the redemption Safe under prank, mirroring what a Safe signer's
-        // execution would do. amount is computed, not passed in -- see periodicYieldAmount().
-        uint256 amount = periodicYieldAmount(stakedStrat);
+        // execution would do. amount is computed from airdropSupply -- see periodicYieldAmount().
+        uint256 amount = periodicYieldAmount(airdropSupply);
+        {
+            // A later Safe mint (the Safe is owner) must not move the yield base (D22).
+            address[] memory to = new address[](1);
+            to[0] = safe;
+            uint256[] memory amts = new uint256[](1);
+            amts[0] = 1e18;
+            vm.prank(safe);
+            stry.mintBatch(to, amts);
+            assertEq(periodicYieldAmount(airdropSupply), amount, "Verify: post-airdrop mint moved the yield amount");
+        }
         if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
         uint256 notifiedBeforePeriod = stakedStrat.totalNotifiedRewards();
-        SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat));
+        SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
         uint256 syncGasBefore = gasleft();
-        _executeBatch(safe, periodTxs);
+        SafeBatchLib.execute(safe, periodTxs);
         uint256 syncGas = syncGasBefore - gasleft();
         assertEq(
             stakedStrat.periodFinish(),
@@ -188,8 +207,8 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         // (src/StakedStrat.sol:228). Fund and run a second PeriodicYield period, then warp
         // partway through it, so real rewards are pending at unstake time.
         if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
-        SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat));
-        _executeBatch(safe, secondTxs);
+        SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
+        SafeBatchLib.execute(safe, secondTxs);
         vm.warp(block.timestamp + 1 days);
 
         uint256 stakedBalance = stakedStrat.staked(holder);
@@ -209,26 +228,6 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         console2.log("periodicYield execution gas:", syncGas);
         console2.log("claim execution gas:", claimGas);
         console2.log("unstake execution gas:", unstakeGas);
-    }
-
-    /// @dev Executes a Safe Transaction Builder batch's txs, in order, as calls from `safe` --
-    /// the same shape a Safe signer's execution would take once the emitted JSON is imported and
-    /// run. startPrank's two-argument form also sets tx.origin, matching how the other Verify
-    /// scripts in this repo simulate Safe execution.
-    function _executeBatch(address safe, SafeBatchLib.Tx[] memory txs) internal {
-        vm.startPrank(safe, safe);
-        for (uint256 i = 0; i < txs.length; i++) {
-            (bool ok, bytes memory ret) = txs[i].to.call(txs[i].data);
-            if (!ok) {
-                if (ret.length > 0) {
-                    assembly {
-                        revert(add(ret, 32), mload(ret))
-                    }
-                }
-                revert("Verify: batch tx reverted with no reason");
-            }
-        }
-        vm.stopPrank();
     }
 
     /// @dev Picks the largest non-contract, non-excluded holder from the committed snapshot at

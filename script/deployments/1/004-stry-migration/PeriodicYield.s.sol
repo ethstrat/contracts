@@ -8,9 +8,10 @@ import {ConfigLib} from "../lib/ConfigLib.sol";
 import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 
 /// @notice Repeatable, manually triggered -- NOT one-time automation. No cron, keeper, or CI
-/// schedule. The per-period amount is computed from EARN's total supply and settings.json's
-/// basisPriceUsd/annualDividendRatioX100 -- not an env var, since EARN's supply is fixed forever
-/// after mintBatch + renounceOwnership() and the rate/basis price are fixed config.
+/// schedule. The per-period amount is computed from the recorded airdrop total
+/// (deploymentAddresses.json .earn-airdrop-supply, written once by Distribute.run()) and
+/// settings.json's basisPriceUsd/annualDividendRatioX100. Later EARN mints by the redemption Safe
+/// (e.g. the LP's EARN) do not change the base: it is the recorded airdrop total, not live supply.
 ///
 /// Never broadcasts: the payer is the redemption Safe. Each run emits a Safe Transaction Builder
 /// batch -- USDS.transfer(stakedEarn, amount), StakedStrat.syncRewards() -- funding the existing
@@ -25,7 +26,9 @@ contract PeriodicYield is Script {
         address usds = ConfigLib.addr("externalAddresses.json", ".sky-money.USDS");
         address stakedEarn = ConfigLib.addr("deploymentAddresses.json", ".staked-earn");
 
-        SafeBatchLib.Tx[] memory txs = periodicYield(safe, usds, stakedEarn);
+        uint256 airdropSupply = ConfigLib.num("deploymentAddresses.json", ".earn-airdrop-supply");
+
+        SafeBatchLib.Tx[] memory txs = periodicYield(safe, usds, stakedEarn, airdropSupply);
 
         SafeBatchLib.write(
             safe,
@@ -41,7 +44,7 @@ contract PeriodicYield is Script {
     /// touching the committed settings.json file: test/unit/PeriodicYieldTest.sol calls this
     /// directly with crafted ratios to pin the guard's boundary, and calls periodicYieldAmount
     /// separately to confirm it reads the real config correctly.
-    function _periodicYieldAmountPure(uint256 totalSupply_, uint256 basisPriceUsd, uint256 annualDividendRatioX100)
+    function _periodicYieldAmountPure(uint256 supplyBase, uint256 basisPriceUsd, uint256 annualDividendRatioX100)
         internal
         pure
         returns (uint256)
@@ -54,37 +57,24 @@ contract PeriodicYield is Script {
         // script runs every 28 days (matching REWARD_DURATION exactly), not every calendar
         // month. All four multiplications happen before any of the three divisions, so this is
         // exactly equal to a single /3,650,000 division -- no extra truncation loss.
-        return totalSupply_ * basisPriceUsd * annualDividendRatioX100 * 28 / 100 / 100 / 365;
+        return supplyBase * basisPriceUsd * annualDividendRatioX100 * 28 / 100 / 100 / 365;
     }
 
-    function periodicYieldAmount(StakedStrat stakedEarn) internal view returns (uint256) {
-        uint256 totalSupply_ = stakedEarn.stratToken().totalSupply();
+    function periodicYieldAmount(uint256 airdropSupply) internal view returns (uint256) {
+        require(airdropSupply > 0, "PeriodicYield: airdropSupply == 0");
         uint256 basisPriceUsd = ConfigLib.num("settings.json", ".espnv3.basisPriceUsd");
         uint256 annualDividendRatioX100 = ConfigLib.num("settings.json", ".espnv3.annualDividendRatioX100");
-        return _periodicYieldAmountPure(totalSupply_, basisPriceUsd, annualDividendRatioX100);
+        return _periodicYieldAmountPure(airdropSupply, basisPriceUsd, annualDividendRatioX100);
     }
 
-    /// @dev Pure computation plus live pre-condition reads. Writes no file -- run() alone does --
-    /// so `yarn verify:migration`, which calls this directly, leaves `git status` clean.
-    ///
-    /// require(totalStaked() > 0) is a hard revert, first thing -- the whole reason this script
-    /// builds a batch rather than emitting a bare transfer. _currentRewardsPerShare() returns
-    /// early when totalStaked == 0 (src/StakedStrat.sol:137), but syncRewards() has already
-    /// folded the deposit into totalNotifiedRewards and started the clock. Every second elapsed
-    /// with zero stakers accrues to nobody, and those tokens can never be re-notified -- a later
-    /// syncRewards() sees totalDeposited <= totalNotifiedRewards and early-returns. Funding
-    /// before anyone has staked permanently destroys the deposit.
-    function periodicYield(address safe, address usds, address stakedEarnAddr)
+    /// Caller must confirm sEARN totalStaked() > 0 immediately before executing: USDS streamed while it is 0 is
+    /// permanently lost.
+    function periodicYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply)
         internal
         view
         returns (SafeBatchLib.Tx[] memory txs)
     {
-        StakedStrat stakedEarn = StakedStrat(stakedEarnAddr);
-        uint256 amount = periodicYieldAmount(stakedEarn);
-        require(
-            stakedEarn.totalStaked() > 0,
-            "PeriodicYield: totalStaked() == 0 -- funding now permanently destroys the deposit, see src/StakedStrat.sol syncRewards()"
-        );
+        uint256 amount = periodicYieldAmount(airdropSupply);
         require(IERC20(usds).balanceOf(safe) >= amount, "PeriodicYield: Safe USDS balance < computed amount");
 
         txs = new SafeBatchLib.Tx[](2);

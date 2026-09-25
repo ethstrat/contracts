@@ -16,3 +16,11 @@ Staked EARN (sEARN) is minted 1:1 when you stake, and is non-transferrable. Ever
 Rewards accrue continuously over each 28-day stream, not all at once, so claiming earlier in the period pays out less than waiting until the stream finishes.
 
 Note: wallets that can't call `claim()` — for example some liquidity pool contracts — will accrue rewards they can't collect if they hold staked EARN.
+
+EARN supply is not fixed. The redemption Safe, controlled by the main multisig, can mint additional EARN; any mint dilutes existing holders.
+
+The 28-day yield is sized on the original airdrop supply. EARN minted later, including the pool's EARN, does not change the yield amount.
+
+EARN held in the Uniswap V4 pool positions is not staked and earns no sEARN yield.
+
+Swaps in the EARN/USDS pool pay a 0.30% pool fee plus a Uniswap protocol fee of up to 0.05%.

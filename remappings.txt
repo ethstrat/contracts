@@ -1,3 +1,4 @@
 forge-std/=lib/forge-std/src/
 openzeppelin-contracts/=lib/openzeppelin-contracts/
 src/=src/
+@uniswap/v4-core/src/libraries/=script/deployments/1/005-earn-lp/lib/
