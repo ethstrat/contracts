@@ -172,6 +172,56 @@ contract UltraPresaleCloseTest is Test {
         finish.build(spec, bytes32(uint256(1)));
     }
 
+    /// @dev Attacker fills 1 wei with a huge scaled denominator (m/(m*S), the same fraction as 1/S) to try to
+    /// overflow Seaport's uint120 fill accounting so honest fills with denominator S revert.
+    function testHugeDenominatorGriefDoesNotBlockHolders() external {
+        vm.warp(end);
+        (SafeBatchLib.Tx[] memory txs, PresaleOrderBase.OrderSpec memory spec) = close.build(_params(true));
+        close.simulate(spec, txs);
+
+        address attacker = makeAddr("attacker");
+        vm.prank(u2);
+        receipt.transfer(attacker, 1);
+        uint256 m = type(uint120).max / spec.receiptAmount;
+        ISeaportMinimal.AdvancedOrder memory grief = ISeaportMinimal.AdvancedOrder({
+            parameters: _params(spec),
+            numerator: uint120(m),
+            denominator: uint120(m * spec.receiptAmount),
+            signature: "",
+            extraData: ""
+        });
+        vm.startPrank(attacker);
+        receipt.approve(address(SEAPORT), 1);
+        SEAPORT.fulfillAdvancedOrder(grief, new ISeaportMinimal.CriteriaResolver[](0), bytes32(0), attacker);
+        vm.stopPrank();
+        assertEq(ultra.balanceOf(attacker), ULTRA_PER_RECEIPT);
+
+        _fill(u1, spec);
+        _fill(u3, spec);
+        _fill(u2, spec);
+        assertEq(ultra.balanceOf(u1), ULTRA_PER_RECEIPT * 1.234567891234567891 ether);
+        assertEq(ultra.balanceOf(u3), ULTRA_PER_RECEIPT * 2 ether);
+        assertEq(ultra.balanceOf(u2), ULTRA_PER_RECEIPT * (0.3 ether - 1));
+    }
+
+    /// @dev A pULTRA holder who received tokens after Close (e.g. Safe mint) cannot over-fill: Seaport clamps.
+    function testFillBeyondOrderIsClamped() external {
+        vm.warp(end);
+        (SafeBatchLib.Tx[] memory txs, PresaleOrderBase.OrderSpec memory spec) = close.build(_params(true));
+        close.simulate(spec, txs);
+        _fill(u1, spec);
+        _fill(u2, spec);
+        // u3 now tries to fill more than what's left: give u3 extra pULTRA
+        vm.prank(safe);
+        receipt.manageMinter(safe, true);
+        vm.prank(safe);
+        receipt.mint(u3, 1 ether);
+        _fill(u3, spec); // numerator 3e18 > remaining 2e18 -> clamped
+        assertEq(ultra.balanceOf(u3), ULTRA_PER_RECEIPT * 2 ether);
+        assertEq(receipt.balanceOf(u3), 1 ether);
+        assertEq(ultra.balanceOf(safe), 0, "Safe paid out exactly the order, no more");
+    }
+
     function fillExternal(address holder, PresaleOrderBase.OrderSpec memory spec) external {
         _fill(holder, spec);
     }
