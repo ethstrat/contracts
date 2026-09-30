@@ -65,19 +65,21 @@ contract UltraPresale is TripwireGuard {
      * @notice Contribute native ETH; `to` receives receipt tokens 1:1.
      */
     function deposit(address to) external payable whenNotTripped {
-        // Transfer first, record (and its Deposit event) last: the event reflects a fully-settled deposit.
-        // `safe` is the trusted multisig, so this ordering is not a CEI/reentrancy concern here.
+        // Checks and state first, then the transfer, then the event: the Deposit log follows every token
+        // transfer it describes, without moving the external call ahead of the checks.
+        _record(to, msg.value);
         (bool success,) = safe.call{value: msg.value}("");
         if (!success) revert EthTransferFailed();
-        _record(to, msg.value, false);
+        emit Deposit(msg.sender, to, msg.value, false);
     }
 
     /**
      * @notice Contribute WETH (requires approval to this contract); `to` receives receipt tokens 1:1.
      */
     function depositWeth(address to, uint256 amount) external whenNotTripped {
+        _record(to, amount);
         weth.safeTransferFrom(msg.sender, safe, amount);
-        _record(to, amount, true);
+        emit Deposit(msg.sender, to, amount, true);
     }
 
     /// @notice Remaining room under the cap.
@@ -85,7 +87,8 @@ contract UltraPresale is TripwireGuard {
         return cap - totalDeposited;
     }
 
-    function _record(address to, uint256 amount, bool isWeth) internal {
+    /// @dev Checks and effects only. Callers do the transfer and emit `Deposit` afterwards.
+    function _record(address to, uint256 amount) internal {
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         if (block.timestamp < start || block.timestamp >= end) revert NotOpen();
@@ -93,6 +96,5 @@ contract UltraPresale is TripwireGuard {
         if (newTotal > cap) revert CapExceeded(cap - totalDeposited);
         totalDeposited = newTotal;
         receipt.mint(to, amount);
-        emit Deposit(msg.sender, to, amount, isWeth);
     }
 }
