@@ -105,6 +105,32 @@ contract UltraPresaleTest is Test {
         assertEq(presale.totalDeposited(), 5 ether);
     }
 
+    function testDepositWethEmitsTransferBeforeDeposit() external {
+        vm.warp(START);
+        vm.startPrank(user);
+        weth.deposit{value: 5 ether}();
+        weth.approve(address(presale), 5 ether);
+
+        vm.recordLogs();
+        presale.depositWeth(user, 5 ether);
+        vm.stopPrank();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        int256 transferIndex = -1;
+        int256 depositIndex = -1;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(weth) && logs[i].topics[0] == IERC20.Transfer.selector) {
+                transferIndex = int256(i);
+            }
+            if (logs[i].emitter == address(presale) && logs[i].topics[0] == UltraPresale.Deposit.selector) {
+                depositIndex = int256(i);
+            }
+        }
+        assertGe(transferIndex, 0, "WETH Transfer log not found");
+        assertGe(depositIndex, 0, "Deposit log not found");
+        assertLt(transferIndex, depositIndex, "Transfer must be recorded before Deposit");
+    }
+
     function testEthAndWethShareCap() external {
         vm.warp(START);
         vm.startPrank(user);
@@ -190,17 +216,13 @@ contract UltraPresaleTest is Test {
 
     function testDeployScript() external {
         vm.etch(multisig, hex"00");
-        (UltraPresaleToken r, UltraPresale p) = new Deploy().deploy(
-            Deploy.Params({
-                owner: multisig,
-                controller: address(ctrl),
-                weth: address(weth),
-                start: START,
-                end: END,
-                cap: CAP
-            }),
-            block.chainid
-        );
+        (UltraPresaleToken r, UltraPresale p) = new Deploy()
+            .deploy(
+                Deploy.Params({
+                    owner: multisig, controller: address(ctrl), weth: address(weth), start: START, end: END, cap: CAP
+                }),
+                block.chainid
+            );
         assertEq(address(p.receipt()), address(r));
         assertEq(p.cap(), CAP);
     }

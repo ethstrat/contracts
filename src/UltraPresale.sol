@@ -65,17 +65,19 @@ contract UltraPresale is TripwireGuard {
      * @notice Contribute native ETH; `to` receives receipt tokens 1:1.
      */
     function deposit(address to) external payable whenNotTripped {
-        _record(to, msg.value, false);
+        // Transfer first, record (and its Deposit event) last: the event reflects a fully-settled deposit.
+        // `safe` is the trusted multisig, so this ordering is not a CEI/reentrancy concern here.
         (bool success,) = safe.call{value: msg.value}("");
         if (!success) revert EthTransferFailed();
+        _record(to, msg.value, false);
     }
 
     /**
      * @notice Contribute WETH (requires approval to this contract); `to` receives receipt tokens 1:1.
      */
     function depositWeth(address to, uint256 amount) external whenNotTripped {
-        _record(to, amount, true);
         weth.safeTransferFrom(msg.sender, safe, amount);
+        _record(to, amount, true);
     }
 
     /// @notice Remaining room under the cap.
