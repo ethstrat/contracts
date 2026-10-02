@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IERC4626} from "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {ERC4626} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {StryToken} from "../../src/StryToken.sol";
@@ -37,7 +36,7 @@ contract WrappedStakedEarnTest is Test {
         usds = new StryToken(address(this));
         staking = new StakedStrat(address(earn), address(usds), ITripwireController(address(ctrl)), safe);
         vault = new WrappedStakedEarn(staking, CAP, safe, ITripwireController(address(ctrl)), safe);
-        oracle = new WsEarnOracle(IERC4626(address(vault)), PAR);
+        oracle = new WsEarnOracle(vault, PAR);
 
         _mintEarn(alice, 1_000 ether);
         _mintEarn(bob, 1_000 ether);
@@ -147,9 +146,14 @@ contract WrappedStakedEarnTest is Test {
         vault.deposit(100 ether, bob);
 
         vm.prank(safe);
-        vault.donate(20 ether); // +10%
+        vault.donate(20 ether); // +10%, released over VESTING_DURATION
 
         assertEq(vault.totalSupply(), 200 ether, "no shares minted");
+        assertEq(vault.totalAssets(), 200 ether, "nothing vested yet");
+        assertEq(vault.convertToAssets(1e18), 1e18);
+        vm.warp(block.timestamp + 14 days);
+        assertEq(vault.totalAssets(), 210 ether, "half vested");
+        vm.warp(block.timestamp + 14 days);
         assertEq(vault.totalAssets(), 220 ether);
         // OZ 4626 carries 1 virtual share/asset, so ratios land 1 wei under the exact figure.
         assertApproxEqAbs(vault.convertToAssets(1e18), 1.1e18, 1);
@@ -186,6 +190,7 @@ contract WrappedStakedEarnTest is Test {
         uint256 earnBought = usdsOut / 100;
         vm.prank(safe);
         vault.donate(earnBought);
+        vm.warp(block.timestamp + vault.VESTING_DURATION());
 
         assertApproxEqAbs(vault.convertToAssets(1e18), 1.028e18, 1e9);
         vm.prank(alice);
@@ -280,7 +285,8 @@ contract WrappedStakedEarnTest is Test {
         vm.prank(safe);
         ctrl.tripGlobal(address(staking));
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ITripwireGuard.Tripped.selector, staking.stake.selector));
+        assertEq(vault.maxDeposit(alice), 0);
+        vm.expectRevert(abi.encodeWithSelector(ERC4626.ERC4626ExceededMaxDeposit.selector, alice, 1 ether, 0));
         vault.deposit(1 ether, alice);
     }
 
@@ -288,9 +294,9 @@ contract WrappedStakedEarnTest is Test {
 
     function testOracleRejectsBadArgs() external {
         vm.expectRevert(WsEarnOracle.ZeroAddress.selector);
-        new WsEarnOracle(IERC4626(address(0)), PAR);
+        new WsEarnOracle(WrappedStakedEarn(address(0)), PAR);
         vm.expectRevert(WsEarnOracle.ZeroPar.selector);
-        new WsEarnOracle(IERC4626(address(vault)), 0);
+        new WsEarnOracle(vault, 0);
     }
 
     // -------------------------------------------------------------------------------------------- fuzz
@@ -315,7 +321,10 @@ contract WrappedStakedEarnTest is Test {
         uint256 before = vault.convertToAssets(1e18);
         vm.prank(safe);
         vault.donate(don);
+        assertEq(vault.convertToAssets(1e18), before, "donate itself does not move the price");
+        vm.warp(block.timestamp + vault.VESTING_DURATION());
         assertGe(vault.convertToAssets(1e18), before);
+        assertEq(vault.totalAssets(), dep + don);
         assertEq(vault.totalSupply(), dep);
     }
 }

@@ -18,6 +18,7 @@ contract WsEarnHandler is Test {
 
     uint256 public lastPrice;
     uint256 public donated;
+    uint256 public gifted;
 
     constructor(WrappedStakedEarn v, StakedStrat s, StryToken e, StryToken u, address safe_) {
         vault = v;
@@ -33,6 +34,7 @@ contract WsEarnHandler is Test {
         }
         vm.prank(safe);
         earn.approve(address(vault), type(uint256).max);
+        earn.approve(address(staking), type(uint256).max);
         lastPrice = vault.convertToAssets(1e18);
     }
 
@@ -59,6 +61,8 @@ contract WsEarnHandler is Test {
         uint256 shares = bound(frac, 1, bal);
         vm.prank(u);
         try vault.redeem(shares, u, u) {} catch {}
+        // Last share out resets the vault to 1:1; the price floor restarts with it.
+        if (vault.totalSupply() == 0) lastPrice = vault.convertToAssets(1e18);
     }
 
     function transferShares(uint256 seedFrom, uint256 seedTo, uint256 frac) external {
@@ -100,6 +104,15 @@ contract WsEarnHandler is Test {
         earn.transfer(address(vault), amount);
     }
 
+    /// @dev Stake directly and migrate it onto the vault: raises `staking.staked(vault)` without minting wsEARN.
+    function giftStake(uint256 amount) external {
+        amount = bound(amount, 1, 500 ether);
+        _mint(address(this), amount);
+        staking.stake(amount);
+        staking.migrateStake(address(vault), amount);
+        gifted += amount;
+    }
+
     function recordPrice() external {
         lastPrice = vault.convertToAssets(1e18);
     }
@@ -127,13 +140,16 @@ contract WrappedStakedEarnInvariantTest is Test {
         targetContract(address(handler));
     }
 
-    /// totalAssets is exactly what the vault has staked.
-    function invariant_totalAssetsIsStakedBalance() external view {
-        assertEq(vault.totalAssets(), staking.staked(address(vault)));
+    /// The vault's stake always covers what it manages, and what it manages always covers what holders can claim.
+    /// Stake migrated onto the vault from outside never enters managedAssets.
+    function invariant_managedAssetsAreStaked() external view {
+        assertGe(staking.staked(address(vault)), vault.managedAssets() + handler.gifted());
+        assertEq(vault.totalAssets() + vault.unvestedAssets(), vault.managedAssets());
+        if (vault.totalSupply() == 0) assertEq(vault.managedAssets(), 0);
     }
 
-    /// Every wsEARN is backed by at least 1 EARN; the surplus is exactly what the owner donated (less rounding dust
-    /// left behind by withdrawals, which only ever stays in the vault, never leaves it).
+    /// Every wsEARN is backed by at least 1 EARN; the surplus is what the owner donated and has vested (plus
+    /// rounding dust left behind by withdrawals, which only ever stays in the vault, never leaves it).
     function invariant_sharesFullyBacked() external view {
         assertGe(vault.totalAssets(), vault.totalSupply());
     }
