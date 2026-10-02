@@ -28,6 +28,15 @@ import {PresaleOrderBase} from "./PresaleOrderBase.sol";
 ///
 /// Output: script/deployments/robinhood/multisig/008-ultra-presale/001-<mode>-<safe>-multisig.json. Record the
 /// logged order hash and amounts; Finish.s.sol needs them.
+///
+/// Before running this for real (Robinhood Chain is an Arbitrum-stack L2; `block.timestamp >= presale.end()`
+/// is only the L2's own clock and does not by itself mean the last deposits are irreversible):
+///   1. Wait until `presale.end()` has passed.
+///   2. Do not treat deposits still pending/unconfirmed as successful.
+///   3. Identify the final Robinhood Chain block containing presale activity.
+///   4. Wait for that block's batch to be posted to Ethereum L1.
+///   5. Preferably wait for Ethereum L1 finality on that batch.
+///   6. Only then run Close (and subsequently Finish).
 contract Close is PresaleOrderBase {
     struct Params {
         address safe;
@@ -106,15 +115,14 @@ contract Close is PresaleOrderBase {
             require(p.ultraPerReceipt > 0, "Close: ULTRA_PER_RECEIPT is zero");
             require(MintableBurnableToken(p.ultra).owner() == p.safe, "Close: Safe does not own ULTRA");
             spec.offerAmount = p.ultraPerReceipt * outstanding;
-            txs[i++] =
-                SafeBatchLib.Tx({to: p.ultra, data: abi.encodeCall(MintableBurnableToken.manageMinter, (p.safe, true))});
             txs[i++] = SafeBatchLib.Tx({
-                to: p.ultra,
-                data: abi.encodeCall(MintableBurnableToken.mint, (p.safe, spec.offerAmount))
+                to: p.ultra, data: abi.encodeCall(MintableBurnableToken.manageMinter, (p.safe, true))
             });
             txs[i++] = SafeBatchLib.Tx({
-                to: p.ultra,
-                data: abi.encodeCall(MintableBurnableToken.manageMinter, (p.safe, false))
+                to: p.ultra, data: abi.encodeCall(MintableBurnableToken.mint, (p.safe, spec.offerAmount))
+            });
+            txs[i++] = SafeBatchLib.Tx({
+                to: p.ultra, data: abi.encodeCall(MintableBurnableToken.manageMinter, (p.safe, false))
             });
         } else {
             spec.offerAmount = outstanding;
@@ -125,8 +133,7 @@ contract Close is PresaleOrderBase {
         }
 
         txs[i++] = SafeBatchLib.Tx({
-            to: spec.offerToken,
-            data: abi.encodeCall(IERC20.approve, (address(SEAPORT), spec.offerAmount))
+            to: spec.offerToken, data: abi.encodeCall(IERC20.approve, (address(SEAPORT), spec.offerAmount))
         });
         ISeaportMinimal.Order[] memory orders = new ISeaportMinimal.Order[](1);
         orders[0] = ISeaportMinimal.Order({parameters: _orderParams(spec), signature: ""});

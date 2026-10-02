@@ -140,17 +140,29 @@ contract UltraPresaleAdversarialTest is Test {
         rs.set(p);
 
         vm.deal(address(this), 20 ether);
-        // 3 re-entries of 4 ETH would reach 16 ETH > cap: the whole call reverts, nothing recorded
+        // The Safe's receive() re-enters deposit() on the forwarded ETH, so the nested call's
+        // msg.sender is the Safe itself: SafeCannotDeposit now fires on every nested attempt,
+        // regardless of amount vs cap, and bubbles up through the failed ETH forward as
+        // EthTransferFailed. Reentrancy can no longer bypass the cap because the Safe can no
+        // longer deposit at all (see testSafeCannotDeposit in UltraPresaleTest).
         vm.expectRevert(UltraPresale.EthTransferFailed.selector);
         p.deposit{value: 4 ether}(address(this));
         assertEq(p.totalDeposited(), 0);
         assertEq(r.totalSupply(), 0);
 
-        // 2 ETH + 3 re-entries = 8 ETH <= cap: every nested deposit is accounted and backed
+        vm.expectRevert(UltraPresale.EthTransferFailed.selector);
         p.deposit{value: 2 ether}(address(this));
-        assertEq(p.totalDeposited(), 8 ether);
-        assertEq(r.totalSupply(), 8 ether);
-        assertEq(address(rs).balance, 2 ether, "Safe holds the ETH once; nested deposits re-used it");
+        assertEq(p.totalDeposited(), 0);
+        assertEq(r.totalSupply(), 0);
+
+        // Directly confirm the specific reason the nested reentrant call hits. Stop the Safe's
+        // own re-entry (balance >= 50 ether) so the forward succeeds trivially and _record sees
+        // msg.sender == safe head-on: this is the exact SafeCannotDeposit that the cascading
+        // EthTransferFailed above is otherwise hiding.
+        vm.deal(address(rs), 50 ether);
+        vm.prank(address(rs));
+        vm.expectRevert(UltraPresale.SafeCannotDeposit.selector);
+        p.deposit{value: 1 ether}(address(this));
     }
 
     function testForcedEthDoesNotAffectAccounting() external {

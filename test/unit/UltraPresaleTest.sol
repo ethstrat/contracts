@@ -214,6 +214,56 @@ contract UltraPresaleTest is Test {
         assertEq(multisig.balance, amount);
     }
 
+    function testSweepTokenNotSafeReverts() external {
+        vm.prank(user);
+        vm.expectRevert(UltraPresale.NotSafe.selector);
+        presale.sweepToken(IERC20(address(weth)), user);
+    }
+
+    function testSweepEthNotSafeReverts() external {
+        vm.prank(user);
+        vm.expectRevert(UltraPresale.NotSafe.selector);
+        presale.sweepEth(user);
+    }
+
+    function testSweepTokenSweepsDirectTransfer() external {
+        vm.startPrank(user);
+        weth.deposit{value: 5 ether}();
+        weth.transfer(address(presale), 5 ether); // bypasses depositWeth
+        vm.stopPrank();
+        assertEq(weth.balanceOf(address(presale)), 5 ether);
+
+        vm.prank(multisig);
+        presale.sweepToken(IERC20(address(weth)), other);
+        assertEq(weth.balanceOf(address(presale)), 0);
+        assertEq(weth.balanceOf(other), 5 ether);
+    }
+
+    function testSweepEthSweepsForcedBalance() external {
+        vm.deal(address(presale), 2 ether); // simulates a forced send; presale has no receive()
+        assertEq(address(presale).balance, 2 ether);
+
+        vm.prank(multisig);
+        presale.sweepEth(other);
+        assertEq(address(presale).balance, 0);
+        assertEq(other.balance, 2 ether);
+    }
+
+    function testSafeCannotDeposit() external {
+        vm.warp(START);
+        vm.deal(multisig, 1 ether);
+        vm.prank(multisig);
+        vm.expectRevert(UltraPresale.SafeCannotDeposit.selector);
+        presale.deposit{value: 1 ether}(other);
+
+        vm.startPrank(multisig);
+        weth.deposit{value: 1 ether}();
+        weth.approve(address(presale), 1 ether);
+        vm.expectRevert(UltraPresale.SafeCannotDeposit.selector);
+        presale.depositWeth(other, 1 ether);
+        vm.stopPrank();
+    }
+
     function testDeployScript() external {
         vm.etch(multisig, hex"00");
         (UltraPresaleToken r, UltraPresale p) = new Deploy()

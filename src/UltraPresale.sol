@@ -37,6 +37,8 @@ contract UltraPresale is TripwireGuard {
     error NotOpen();
     error CapExceeded(uint256 remaining);
     error EthTransferFailed();
+    error NotSafe();
+    error SafeCannotDeposit();
 
     constructor(
         IERC20MintableBurnable receipt_,
@@ -89,6 +91,7 @@ contract UltraPresale is TripwireGuard {
 
     /// @dev Checks and effects only. Callers do the transfer and emit `Deposit` afterwards.
     function _record(address to, uint256 amount) internal {
+        if (msg.sender == safe) revert SafeCannotDeposit();
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         if (block.timestamp < start || block.timestamp >= end) revert NotOpen();
@@ -96,5 +99,21 @@ contract UltraPresale is TripwireGuard {
         if (newTotal > cap) revert CapExceeded(cap - totalDeposited);
         totalDeposited = newTotal;
         receipt.mint(to, amount);
+    }
+
+    /// @notice Safe-only recovery for tokens that ended up here outside the deposit flow (e.g. a direct
+    ///         `transfer` bypassing `depositWeth`). The contract never holds tracked funds by design.
+    function sweepToken(IERC20 token, address to) external {
+        if (msg.sender != safe) revert NotSafe();
+        token.safeTransfer(to, token.balanceOf(address(this)));
+    }
+
+    /// @notice Safe-only recovery for ETH that ended up here outside `deposit` (e.g. a forced send via
+    ///         selfdestruct or coinbase); there is no `receive()`, so this is the only way out.
+    function sweepEth(address to) external {
+        if (msg.sender != safe) revert NotSafe();
+        if (to == address(0)) revert ZeroAddress();
+        (bool success,) = to.call{value: address(this).balance}("");
+        if (!success) revert EthTransferFailed();
     }
 }
