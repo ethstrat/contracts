@@ -97,7 +97,7 @@ contract ProposeCompensation is Script {
         recipients[5] = 0xEF5dc16B42d2197895aE4884b3Db5B0ADe495dC8;
         amounts[5] = 212867601687644006;
 
-        recipients[6] = 0xDef27D920bE434Fa870978D342671a9b7a7BD271;
+        recipients[6] = 0xdEf27D920Be434Fa870978c342671a9b7a7Bd271;
         amounts[6] = 6999518470308900;
 
         recipients[7] = 0x25942088F3af0DC7b2E2a5cCBE31E48b87D399B9;
