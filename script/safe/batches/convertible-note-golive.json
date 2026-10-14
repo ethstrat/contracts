@@ -1,0 +1,122 @@
+{
+  "description": "Convertible note go-live: back esETH with desETH, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Untrip esETH",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "resetGlobal(address)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb"
+      ]
+    },
+    {
+      "label": "Untrip CDT",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "resetGlobal(address)",
+      "args": [
+        "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3"
+      ]
+    },
+    {
+      "label": "Untrip note",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "resetGlobal(address)",
+      "args": [
+        "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"
+      ]
+    },
+    {
+      "label": "Grant Safe desETH minter",
+      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+      "contractName": "DesEthToken",
+      "signature": "manageMinter(address,bool)",
+      "args": [
+        "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+        true
+      ]
+    },
+    {
+      "label": "Grant Safe CDT minter",
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "contractName": "CdtToken",
+      "signature": "manageMinter(address,bool)",
+      "args": [
+        "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+        true
+      ]
+    },
+    {
+      "label": "Mint 1623 desETH to esETH",
+      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+      "contractName": "DesEthToken",
+      "signature": "mint(address,uint256)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "1623000000000000000000"
+      ]
+    },
+    {
+      "label": "Register desETH in esETH (ERC20 1:1, not mintable/redeemable by users)",
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "contractName": "esETH",
+      "signature": "setTokenConfig(address,uint8,bool,bool)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        1,
+        false,
+        false
+      ]
+    },
+    {
+      "label": "Withdraw 1900 stETH from esETH via treasuryManager Safe (burns its esETH)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x5c833bfd000000000000000000000000ae7ab96520de3a18e5e111b5eaab095312d7fe84000000000000000000000000000000000000000000000066ffcbfd5e5a300000000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Set BCF to 0.25",
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "contractName": "EthStrategyConvertibleNote",
+      "signature": "setBCF(uint256)",
+      "args": [
+        "250000000000000000"
+      ]
+    },
+    {
+      "label": "Raise CDT debt cap by 483,143.48",
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "contractName": "EthStrategyConvertibleNote",
+      "signature": "setMaxDebt(uint256)",
+      "args": [
+        "8274394480000000000000000"
+      ]
+    },
+    {
+      "label": "Mint 483,143.48 CDT",
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "contractName": "CdtToken",
+      "signature": "mint(address,uint256)",
+      "args": [
+        "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+        "483143480000000000000000"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,320 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1791937057905,
+  "meta": {
+    "name": "Convertible note go-live: back esETH with desETH, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
+    "description": "Convertible note go-live: back esETH with desETH, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
+    "txBuilderVersion": "1.18.0",
+    "createdFromSafeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "createdFromOwnerAddress": "",
+    "checksum": null
+  },
+  "transactions": [
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "resetGlobal",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "resetGlobal",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          }
+        ],
+        "name": "resetGlobal",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"
+      }
+    },
+    {
+      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg1",
+            "type": "bool"
+          }
+        ],
+        "name": "manageMinter",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+        "arg1": "true"
+      }
+    },
+    {
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg1",
+            "type": "bool"
+          }
+        ],
+        "name": "manageMinter",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+        "arg1": "true"
+      }
+    },
+    {
+      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg1",
+            "type": "uint256"
+          }
+        ],
+        "name": "mint",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "arg1": "1623000000000000000000"
+      }
+    },
+    {
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "arg1",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg2",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg3",
+            "type": "bool"
+          }
+        ],
+        "name": "setTokenConfig",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "arg1": "1",
+        "arg2": "false",
+        "arg3": "false"
+      }
+    },
+    {
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes",
+            "name": "arg2",
+            "type": "bytes"
+          },
+          {
+            "internalType": "uint8",
+            "name": "arg3",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg5",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "arg7",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg8",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes",
+            "name": "arg9",
+            "type": "bytes"
+          }
+        ],
+        "name": "execTransaction",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "arg1": "0",
+        "arg2": "0x5c833bfd000000000000000000000000ae7ab96520de3a18e5e111b5eaab095312d7fe84000000000000000000000000000000000000000000000066ffcbfd5e5a300000000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1",
+        "arg3": "0",
+        "arg4": "0",
+        "arg5": "0",
+        "arg6": "0",
+        "arg7": "0x0000000000000000000000000000000000000000",
+        "arg8": "0x0000000000000000000000000000000000000000",
+        "arg9": "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      }
+    },
+    {
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "arg0",
+            "type": "uint256"
+          }
+        ],
+        "name": "setBCF",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "250000000000000000"
+      }
+    },
+    {
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "arg0",
+            "type": "uint256"
+          }
+        ],
+        "name": "setMaxDebt",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "8274394480000000000000000"
+      }
+    },
+    {
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg1",
+            "type": "uint256"
+          }
+        ],
+        "name": "mint",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+        "arg1": "483143480000000000000000"
+      }
+    }
+  ]
+}

@@ -22,6 +22,7 @@
     "lint:forge": "forge fmt --check",
     "lint:fix": "forge fmt",
     "clean": "forge clean",
+    "safe:generate-golive": "node --env-file=.env script/safe/generate-convertible-note-golive.mjs",
     "safe:propose": "node --env-file=.env script/safe/propose-batch.mjs"
   },
   "devDependencies": {
