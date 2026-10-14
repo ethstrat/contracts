@@ -1,5 +1,5 @@
 {
-  "description": "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
+  "description": "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, approve esETH (bounded) to the note from the encumbered and treasuryManager Safes, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
   "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
   "chainId": 1,
   "transactions": [
@@ -115,6 +115,42 @@
       ]
     },
     {
+      "label": "Approve esETH to note from encumbered Safe (bounded)",
+      "to": "0x1b005A566983721bc736b57D7D3B1EE028782362",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000000011c37937e08000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Approve esETH to note from treasuryManager Safe (bounded)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000000011c37937e08000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
       "label": "Set BCF to 0.25",
       "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
       "contractName": "EthStrategyConvertibleNote",
@@ -178,9 +214,9 @@
     "nonce": 227,
     "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
     "operation": 1,
-    "innerDataHash": "0xd2cef943a2596ae6a203d224ef0a907bb5217d1a26a78d2ba826e06b381cf08a",
+    "innerDataHash": "0xed6cc880b307d12c4a0f7ca9935d17b71e02a2e52e4462c50860164dddbbe76f",
     "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
-    "messageHash": "0xfea782f974455f31b506cd4078c2e074597c23be5f210fc7d88b1af9a531b93b",
-    "safeTxHash": "0xa754b054302f94695890e720e8de22c141f8aa09b60fd4a41a13d347f2d10af2"
+    "messageHash": "0xc36333dcd8bbf02e4e46f3d49c9cef97caac3598298554e56a59ad1f113a8bc5",
+    "safeTxHash": "0x23e985a9b5cbbf962d7ae18eb85c2850fe4862bc9c9f1946c92bf93bc124af35"
   }
 }

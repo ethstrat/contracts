@@ -19,6 +19,8 @@ const { values: a } = (await import("node:util")).parseArgs({
         "cdt-recipient": { type: "string" },
         "max-debt": { type: "string" },
         "no-untrip": { type: "boolean" },
+        "encumbered-approval": { type: "string" }, // esETH wei
+        "unencumbered-approval": { type: "string" }, // esETH wei
     },
 });
 for (const k of ["note", "desEth", "steth-receiver", "cdt-recipient"]) {
@@ -28,6 +30,7 @@ const dep = JSON.parse(readFileSync("script/deployments/1/config/deploymentAddre
 const ext = JSON.parse(readFileSync("script/deployments/1/config/externalAddresses.json", "utf8"));
 const { multisigs, tripwire } = JSON.parse(readFileSync("script/deployments/1/config/internalAddresses.json", "utf8")).protocol;
 const SAFE = multisigs.main;
+const ENCUMBERED = multisigs.encumbered;
 const TREASURY_MANAGER = multisigs.unencumbered; // esETH.treasuryManager(); only it holds esETH and may redeem
 const [note, desEth, receiver, cdtTo] = [a.note, a.desEth, a["steth-receiver"], a["cdt-recipient"]].map(getAddress);
 const { esETH, cdt } = dep;
@@ -39,6 +42,13 @@ const DES_ETH_AMOUNT = 1623n * E18;
 const STETH_OUT = 1900n * E18; // esETH holds 2000 stETH; 100 stay for conversions
 const BCF = (25n * E18) / 100n; // 0.25 * SCALE (SCALE = 1e18 in EthStrategyConvertibleNote)
 const CDT_AMOUNT = parseUnits("483143.48", 18); // CDT is OZ ERC20, 18 decimals
+// Bounded esETH approvals to the note. convert() pulls the stored conversionEntitlementEth[tokenId] (fixed at bond, price-independent):
+// encumbered -> unencumbered (both directions) and unencumbered -> holder (toEth only). Both legs = sum over outstanding tokenIds.
+// Derived 2026-10-14 (block 26187857): tokenIds 1,2,3 outstanding, sum 0.003873813993951808 esETH, x1.05 = 0.004067504693649398,
+// rounded up to 0.005 esETH. Bonds made after go-live are NOT covered: top up the approvals.
+const ENC_APPROVAL = BigInt(a["encumbered-approval"] ?? 5n * 10n ** 15n);
+const UNENC_APPROVAL = BigInt(a["unencumbered-approval"] ?? 5n * 10n ** 15n);
+console.warn(`!!! ASSUMPTION/NOTE: esETH approvals to note are BOUNDED: encumbered Safe ${ENC_APPROVAL} wei, treasuryManager Safe ${UNENC_APPROVAL} wei (3 outstanding positions x1.05, rounded up). New bonds after go-live need approval top-ups.`);
 const ERC20_TYPE = 1; // esETH.TokenType.ERC20 (1:1)
 
 let maxDebt;
@@ -53,9 +63,10 @@ const tx = (label, to, contractName, signature, args) => ({ label, to, contractN
 const transactions = [];
 // Globally tripped on mainnet and needed for go-live; SAFE is the TripwireController guardian. Others (old note, ESPN deposit token) are not ours/not needed.
 if (!a["no-untrip"]) for (const [n, t] of [["esETH", esETH], ["CDT", cdt], ["note", note]]) transactions.push(tx(`Untrip ${n}`, tripwire.controller, "TripwireController", "resetGlobal(address)", [t]));
-// TM-executed calls: SAFE is TM's owner, approved-hash style signature (v=1, r=SAFE)
+// Calls executed by a Safe owned by SAFE (TM or encumbered): SAFE is its owner, approved-hash style signature (v=1, r=SAFE)
 const ownerSig = "0x" + SAFE.slice(2).toLowerCase().padStart(64, "0") + "0".repeat(64) + "01";
-const viaTM = (label, to, iface, fn, args) => tx(label, TREASURY_MANAGER, "Safe", "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)", [to, 0n, new Interface([`function ${iface}`]).encodeFunctionData(fn, args), 0, 0n, 0n, 0n, ZeroAddress, ZeroAddress, ownerSig]);
+const viaSafe = (safe, label, to, iface, fn, args) => tx(label, safe, "Safe", "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)", [to, 0n, new Interface([`function ${iface}`]).encodeFunctionData(fn, args), 0, 0n, 0n, 0n, ZeroAddress, ZeroAddress, ownerSig]);
+const viaTM = (...r) => viaSafe(TREASURY_MANAGER, ...r);
 const redeemData = new Interface(["function redeem(address,uint256,address)"]).encodeFunctionData("redeem", [stETH, STETH_OUT, receiver]);
 // TM is isMinter on esETH and bypasses isMintable, so the desETH config stays not user-mintable (re-asserted idempotently).
 console.warn(`!!! ASSUMPTION: esETH minted from desETH goes to ${TREASURY_MANAGER} (treasuryManager Safe)`);
@@ -65,6 +76,8 @@ transactions.push(
     viaTM("Approve esETH to pull 1623 desETH from treasuryManager Safe", desEth, "approve(address,uint256)", "approve", [esETH, DES_ETH_AMOUNT]),
     viaTM("Mint esETH from 1623 desETH via treasuryManager Safe", esETH, "mint(address,uint256,address)", "mint", [desEth, DES_ETH_AMOUNT, TREASURY_MANAGER]),
     viaTM("Withdraw 1900 stETH from esETH via treasuryManager Safe (burns its esETH)", esETH, "redeem(address,uint256,address)", "redeem", [stETH, STETH_OUT, receiver]),
+    viaSafe(ENCUMBERED, "Approve esETH to note from encumbered Safe (bounded)", esETH, "approve(address,uint256)", "approve", [note, ENC_APPROVAL]),
+    viaTM("Approve esETH to note from treasuryManager Safe (bounded)", esETH, "approve(address,uint256)", "approve", [note, UNENC_APPROVAL]),
     tx("Set BCF to 0.25", note, "EthStrategyConvertibleNote", "setBCF(uint256)", [BCF]),
     tx("Raise CDT debt cap by 483,143.48", note, "EthStrategyConvertibleNote", "setMaxDebt(uint256)", [maxDebt + CDT_AMOUNT]),
     viaTM("Mint 483,143.48 CDT", cdt, "mint(address,uint256)", "mint", [cdtTo, CDT_AMOUNT]),
@@ -90,6 +103,13 @@ assert.deepEqual([...inner("Mint esETH").args], [desEth, DES_ETH_AMOUNT, TREASUR
 assert.deepEqual([...inner("Approve esETH").args], [esETH, DES_ETH_AMOUNT]);
 const idx = (n) => transactions.findIndex((t) => t.label.includes(n));
 assert(idx("Approve") < idx("Mint esETH") && idx("Mint esETH") < idx("Withdraw"));
+for (const [n, safe, amount] of [["encumbered", ENCUMBERED, ENC_APPROVAL], ["treasuryManager", TREASURY_MANAGER, UNENC_APPROVAL]]) {
+    const t = transactions[idx(`Approve esETH to note from ${n}`)];
+    assert.equal(t.to, safe);
+    assert.equal(t.args[0], esETH);
+    assert.deepEqual([...inner(t.label).args], [note, amount]);
+    assert(idx("Withdraw") < transactions.indexOf(t) && transactions.indexOf(t) < idx("BCF"));
+}
 assert.equal(amt("BCF")[0], "250000000000000000");
 assert.deepEqual(mintArgs("Mint 483"), [cdtTo, CDT_AMOUNT]);
 assert.equal(amt("Mint 483")[0], cdt);
@@ -100,7 +120,7 @@ assert.equal(BigInt(amt("Raise")[0]) - maxDebt, CDT_AMOUNT);
 
 const out = "script/safe/batches/convertible-note-golive.json";
 writeFileSync(out, JSON.stringify({
-    description: "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
+    description: "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, approve esETH (bounded) to the note from the encumbered and treasuryManager Safes, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
     safeAddress: SAFE, chainId: 1, transactions,
 }, null, 2) + "\n");
 console.log(out, `(maxDebt ${maxDebt} -> ${maxDebt + CDT_AMOUNT})`);
