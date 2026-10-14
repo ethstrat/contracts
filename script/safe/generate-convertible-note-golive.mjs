@@ -2,8 +2,9 @@
 // Generate the convertible-note go-live Safe batch (plain schema + tx-builder export).
 // Usage: node --env-file=.env script/safe/generate-convertible-note-golive.mjs \
 //   --note <noteAddr> --desEth <desEthAddr> --steth-receiver <addr> --cdt-recipient <addr> \
-//   [--max-debt <currentMaxDebtWei>] [--no-grant-minter-desEth] [--no-grant-minter-cdt] [--no-untrip]
-// Untrips (esETH, CDT, note), desETH + CDT minter grants are ON by default; --no-* opts out.
+//   [--max-debt <currentMaxDebtWei>] [--no-untrip]
+// Untrips (esETH, CDT, note) are ON by default; --no-untrip opts out.
+// TM (staking Safe) is already a minter on desETH and CDT, so both mints go via TM; main Safe revokes TM's desETH minter last.
 // Current maxDebt is read from RPC_URL unless --max-debt is given (offline).
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -17,8 +18,6 @@ const { values: a } = (await import("node:util")).parseArgs({
         "steth-receiver": { type: "string" },
         "cdt-recipient": { type: "string" },
         "max-debt": { type: "string" },
-        "no-grant-minter-desEth": { type: "boolean" },
-        "no-grant-minter-cdt": { type: "boolean" },
         "no-untrip": { type: "boolean" },
     },
 });
@@ -54,8 +53,6 @@ const tx = (label, to, contractName, signature, args) => ({ label, to, contractN
 const transactions = [];
 // Globally tripped on mainnet and needed for go-live; SAFE is the TripwireController guardian. Others (old note, ESPN deposit token) are not ours/not needed.
 if (!a["no-untrip"]) for (const [n, t] of [["esETH", esETH], ["CDT", cdt], ["note", note]]) transactions.push(tx(`Untrip ${n}`, tripwire.controller, "TripwireController", "resetGlobal(address)", [t]));
-if (!a["no-grant-minter-desEth"]) transactions.push(tx("Grant Safe desETH minter", desEth, "DesEthToken", "manageMinter(address,bool)", [SAFE, true]));
-if (!a["no-grant-minter-cdt"]) transactions.push(tx("Grant Safe CDT minter", cdt, "CdtToken", "manageMinter(address,bool)", [SAFE, true]));
 // TM-executed calls: SAFE is TM's owner, approved-hash style signature (v=1, r=SAFE)
 const ownerSig = "0x" + SAFE.slice(2).toLowerCase().padStart(64, "0") + "0".repeat(64) + "01";
 const viaTM = (label, to, iface, fn, args) => tx(label, TREASURY_MANAGER, "Safe", "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)", [to, 0n, new Interface([`function ${iface}`]).encodeFunctionData(fn, args), 0, 0n, 0n, 0n, ZeroAddress, ZeroAddress, ownerSig]);
@@ -63,14 +60,16 @@ const redeemData = new Interface(["function redeem(address,uint256,address)"]).e
 // TM is isMinter on esETH and bypasses isMintable, so the desETH config stays not user-mintable (re-asserted idempotently).
 console.warn(`!!! ASSUMPTION: esETH minted from desETH goes to ${TREASURY_MANAGER} (treasuryManager Safe)`);
 transactions.push(
-    tx("Mint 1623 desETH to treasuryManager Safe", desEth, "DesEthToken", "mint(address,uint256)", [TREASURY_MANAGER, DES_ETH_AMOUNT]),
+    viaTM("Mint 1623 desETH to treasuryManager Safe", desEth, "mint(address,uint256)", "mint", [TREASURY_MANAGER, DES_ETH_AMOUNT]),
     tx("Register desETH in esETH (ERC20 1:1, not mintable/redeemable by users)", esETH, "esETH", "setTokenConfig(address,uint8,bool,bool)", [desEth, ERC20_TYPE, false, false]),
     viaTM("Approve esETH to pull 1623 desETH from treasuryManager Safe", desEth, "approve(address,uint256)", "approve", [esETH, DES_ETH_AMOUNT]),
     viaTM("Mint esETH from 1623 desETH via treasuryManager Safe", esETH, "mint(address,uint256,address)", "mint", [desEth, DES_ETH_AMOUNT, TREASURY_MANAGER]),
     viaTM("Withdraw 1900 stETH from esETH via treasuryManager Safe (burns its esETH)", esETH, "redeem(address,uint256,address)", "redeem", [stETH, STETH_OUT, receiver]),
     tx("Set BCF to 0.25", note, "EthStrategyConvertibleNote", "setBCF(uint256)", [BCF]),
     tx("Raise CDT debt cap by 483,143.48", note, "EthStrategyConvertibleNote", "setMaxDebt(uint256)", [maxDebt + CDT_AMOUNT]),
-    tx("Mint 483,143.48 CDT", cdt, "CdtToken", "mint(address,uint256)", [cdtTo, CDT_AMOUNT]),
+    viaTM("Mint 483,143.48 CDT", cdt, "mint(address,uint256)", "mint", [cdtTo, CDT_AMOUNT]),
+    tx("Revoke treasuryManager Safe desETH minter", desEth, "DesEthToken", "manageMinter(address,bool)", [TREASURY_MANAGER, false]),
+    tx("Revoke treasuryManager Safe CDT minter", cdt, "CdtToken", "manageMinter(address,bool)", [TREASURY_MANAGER, false]),
 );
 
 // self-check: calldata round-trips through decode/encode
@@ -81,21 +80,27 @@ for (const t of transactions) {
     assert.equal(i.encodeFunctionData(name, i.decodeFunctionData(name, data)), data);
 }
 const amt = (n) => transactions.find((t) => t.label.includes(n)).args;
-assert.equal(amt("Mint 1623 desETH")[1], "1623000000000000000000");
+const mintI = new Interface(["function mint(address,uint256)"]);
+const mintArgs = (n) => [...mintI.parseTransaction({ data: amt(n)[2] }).args];
+assert.deepEqual(mintArgs("Mint 1623 desETH"), [TREASURY_MANAGER, DES_ETH_AMOUNT]);
+assert.equal(amt("Mint 1623 desETH")[0], desEth);
 assert.equal(amt("Withdraw")[2], redeemData);
-assert.equal(amt("Mint 1623 desETH")[0], TREASURY_MANAGER);
 const inner = (n) => new Interface(["function mint(address,uint256,address)", "function approve(address,uint256)"]).parseTransaction({ data: amt(n)[2] });
 assert.deepEqual([...inner("Mint esETH").args], [desEth, DES_ETH_AMOUNT, TREASURY_MANAGER]);
 assert.deepEqual([...inner("Approve esETH").args], [esETH, DES_ETH_AMOUNT]);
 const idx = (n) => transactions.findIndex((t) => t.label.includes(n));
 assert(idx("Approve") < idx("Mint esETH") && idx("Mint esETH") < idx("Withdraw"));
 assert.equal(amt("BCF")[0], "250000000000000000");
-assert.equal(amt("Mint 483")[1], "483143480000000000000000");
+assert.deepEqual(mintArgs("Mint 483"), [cdtTo, CDT_AMOUNT]);
+assert.equal(amt("Mint 483")[0], cdt);
+assert(idx("Mint 1623 desETH") < idx("Revoke treasuryManager Safe desETH") && idx("Revoke treasuryManager Safe CDT") === transactions.length - 1 && idx("Mint 483") < idx("Revoke treasuryManager Safe CDT"));
+assert.deepEqual(amt("Revoke treasuryManager Safe CDT"), [TREASURY_MANAGER, false]);
+assert.equal(transactions[idx("Revoke treasuryManager Safe CDT")].to, cdt);
 assert.equal(BigInt(amt("Raise")[0]) - maxDebt, CDT_AMOUNT);
 
 const out = "script/safe/batches/convertible-note-golive.json";
 writeFileSync(out, JSON.stringify({
-    description: "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
+    description: "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
     safeAddress: SAFE, chainId: 1, transactions,
 }, null, 2) + "\n");
 console.log(out, `(maxDebt ${maxDebt} -> ${maxDebt + CDT_AMOUNT})`);

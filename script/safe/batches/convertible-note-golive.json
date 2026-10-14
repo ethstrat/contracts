@@ -1,5 +1,5 @@
 {
-  "description": "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
+  "description": "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
   "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
   "chainId": 1,
   "transactions": [
@@ -31,33 +31,21 @@
       ]
     },
     {
-      "label": "Grant Safe desETH minter",
-      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
-      "contractName": "DesEthToken",
-      "signature": "manageMinter(address,bool)",
-      "args": [
-        "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
-        true
-      ]
-    },
-    {
-      "label": "Grant Safe CDT minter",
-      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
-      "contractName": "CdtToken",
-      "signature": "manageMinter(address,bool)",
-      "args": [
-        "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
-        true
-      ]
-    },
-    {
       "label": "Mint 1623 desETH to treasuryManager Safe",
-      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
-      "contractName": "DesEthToken",
-      "signature": "mint(address,uint256)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
-        "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
-        "1623000000000000000000"
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "0",
+        "0x40c10f19000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1000000000000000000000000000000000000000000000057fba64cfa3afc0000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
       ]
     },
     {
@@ -146,12 +134,40 @@
     },
     {
       "label": "Mint 483,143.48 CDT",
-      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
-      "contractName": "CdtToken",
-      "signature": "mint(address,uint256)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+        "0",
+        "0x40c10f19000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e100000000000000000000000000000000000000000000664f42b238227cec0000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Revoke treasuryManager Safe desETH minter",
+      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+      "contractName": "DesEthToken",
+      "signature": "manageMinter(address,bool)",
       "args": [
         "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
-        "483143480000000000000000"
+        false
+      ]
+    },
+    {
+      "label": "Revoke treasuryManager Safe CDT minter",
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "contractName": "CdtToken",
+      "signature": "manageMinter(address,bool)",
+      "args": [
+        "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+        false
       ]
     }
   ],
@@ -162,9 +178,9 @@
     "nonce": 227,
     "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
     "operation": 1,
-    "innerDataHash": "0xd99dbeea5cfb45f24c23d85ea0d7e5ccf0dfbcfad7b9e58b16d2e6c57f735201",
+    "innerDataHash": "0xd2cef943a2596ae6a203d224ef0a907bb5217d1a26a78d2ba826e06b381cf08a",
     "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
-    "messageHash": "0x05ca9f29a1cab1f9f1375d21242bd38f70d9e17e87d053ef2dd11361e3011d6d",
-    "safeTxHash": "0xf6371a0d409e835d8f1d25fa9df29003ca285a6cae184f47d917d1a8ff65594d"
+    "messageHash": "0xfea782f974455f31b506cd4078c2e074597c23be5f210fc7d88b1af9a531b93b",
+    "safeTxHash": "0xa754b054302f94695890e720e8de22c141f8aa09b60fd4a41a13d347f2d10af2"
   }
 }
