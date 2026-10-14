@@ -1,5 +1,5 @@
 {
-  "description": "Convertible note go-live: back esETH with desETH, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
+  "description": "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, set BCF 0.25, raise CDT debt cap and mint CDT.",
   "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
   "chainId": 1,
   "transactions": [
@@ -51,12 +51,12 @@
       ]
     },
     {
-      "label": "Mint 1623 desETH to esETH",
+      "label": "Mint 1623 desETH to treasuryManager Safe",
       "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
       "contractName": "DesEthToken",
       "signature": "mint(address,uint256)",
       "args": [
-        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
         "1623000000000000000000"
       ]
     },
@@ -70,6 +70,42 @@
         1,
         false,
         false
+      ]
+    },
+    {
+      "label": "Approve esETH to pull 1623 desETH from treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "0",
+        "0x095ea7b3000000000000000000000000e7a2f9b5fe8a3bb067c15ad08644d96b9dfdf9cb000000000000000000000000000000000000000000000057fba64cfa3afc0000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Mint esETH from 1623 desETH via treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x0d4d15130000000000000000000000002e65e2fa50e8338d2cc81821d15364cf9516145f000000000000000000000000000000000000000000000057fba64cfa3afc0000000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
       ]
     },
     {
@@ -118,5 +154,17 @@
         "483143480000000000000000"
       ]
     }
-  ]
+  ],
+  "hashes": {
+    "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "chainId": 1,
+    "safeVersion": "1.4.1",
+    "nonce": 227,
+    "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
+    "operation": 1,
+    "innerDataHash": "0xd99dbeea5cfb45f24c23d85ea0d7e5ccf0dfbcfad7b9e58b16d2e6c57f735201",
+    "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
+    "messageHash": "0x05ca9f29a1cab1f9f1375d21242bd38f70d9e17e87d053ef2dd11361e3011d6d",
+    "safeTxHash": "0xf6371a0d409e835d8f1d25fa9df29003ca285a6cae184f47d917d1a8ff65594d"
+  }
 }

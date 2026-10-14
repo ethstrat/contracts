@@ -30,6 +30,7 @@ import { spawnSync } from "node:child_process";
 import { Interface, getAddress, verifyTypedData } from "ethers";
 import Safe, { EthSafeSignature, adjustVInSignature, generateTypedData } from "@safe-global/protocol-kit";
 import SafeApiKit from "@safe-global/api-kit";
+import { computeHashes, diffHashes, printHashes } from "./lib/safe-hash.mjs";
 
 function fail(message) {
     console.error(`Error: ${message}`);
@@ -219,6 +220,19 @@ try {
 
     const safeTransaction = await protocolKit.createTransaction({ transactions: metaTransactions });
     const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);
+
+    // Print the hashes signers compare against the Safe UI / hardware wallet; refuse if the batch's
+    // recorded hashes (script/safe/hash-batch.mjs --write) no longer match (edited batch or nonce moved).
+    const hashes = await computeHashes(batch, { rpcUrl: RPC_URL, nonce: BigInt(safeTransaction.data.nonce) });
+    if (hashes.safeTxHash.toLowerCase() !== safeTxHash.toLowerCase()) fail("hash module disagrees with the created tx");
+    printHashes(hashes);
+    if (batch.hashes) {
+        const bad = diffHashes(batch.hashes, hashes);
+        if (bad.length) {
+            fail(`recorded hashes differ from recomputed (${bad.join(", ")}) — batch edited or nonce moved; re-run hash-batch.mjs --write after review`);
+        }
+        console.log("Recorded hashes match.\n");
+    }
 
     let signedSafeTransaction;
     let senderAddress;
