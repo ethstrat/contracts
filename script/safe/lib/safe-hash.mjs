@@ -38,7 +38,7 @@ const SAFE_TX_TYPES = {
 };
 
 // nonce undefined => current on-chain nonce. Asserts protocol-kit and manual EIP-712 agree.
-export async function computeHashes(batch, { rpcUrl, nonce }) {
+export async function computeHashes(batch, { rpcUrl, nonce, withTx }) {
     const { safeAddress, chainId, metaTransactions } = toMetaTransactions(batch);
     const kit = await Safe.init({ provider: rpcUrl, safeAddress });
     const version = kit.getContractVersion();
@@ -69,6 +69,7 @@ export async function computeHashes(batch, { rpcUrl, nonce }) {
         safeAddress, chainId, safeVersion: version, nonce: Number(d.nonce),
         multisendTo: d.to, operation: d.operation, innerDataHash: keccak256(d.data),
         domainSeparatorHash, messageHash, safeTxHash,
+        ...(withTx ? { txData: d } : {}), // only for simulators; kept out of the recorded "hashes"
     };
 }
 
