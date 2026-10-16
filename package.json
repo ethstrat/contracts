@@ -25,7 +25,8 @@
     "safe:generate-golive": "node --env-file=.env script/safe/generate-convertible-note-golive.mjs",
     "safe:propose": "node --env-file=.env script/safe/propose-batch.mjs",
     "safe:hash": "node --env-file=.env script/safe/hash-batch.mjs",
-    "safe:simulate": "node --env-file=.env script/safe/tenderly-simulate.mjs"
+    "safe:simulate": "node --env-file=.env script/safe/tenderly-simulate.mjs",
+    "safe:add-operator": "node --env-file=.env script/safe/generate-add-operator.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^17.7.1",

@@ -1,0 +1,76 @@
+{
+  "description": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 10 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Set CDT debt cap (maxDebt) to 11,000,000",
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "contractName": "EthStrategyConvertibleNote",
+      "signature": "setMaxDebt(uint256)",
+      "args": [
+        "11000000000000000000000000"
+      ]
+    },
+    {
+      "label": "Make stETH redeemable from esETH (ERC20 type 1, isMintable stays false, isRedeemable true)",
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "contractName": "esETH",
+      "signature": "setTokenConfig(address,uint8,bool,bool)",
+      "args": [
+        "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+        1,
+        false,
+        true
+      ]
+    },
+    {
+      "label": "Raise esETH allowance to note to 10 esETH from encumbered Safe",
+      "to": "0x1b005A566983721bc736b57D7D3B1EE028782362",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000008ac7230489e80000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Raise esETH allowance to note to 10 esETH from treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000008ac7230489e80000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    }
+  ],
+  "hashes": {
+    "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "chainId": 1,
+    "safeVersion": "1.4.1",
+    "nonce": 232,
+    "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
+    "operation": 1,
+    "innerDataHash": "0xd1f68eca19e77906be16653167dbebedf1b6c6ddabde589629eb65db8ebb985f",
+    "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
+    "messageHash": "0x958cc9b36f234e4c5fc1d4c2e9efe30a6c633bafe3891d43ab2ce13b8e81c040",
+    "safeTxHash": "0x8394862023cf22809b23704bcd67a39ef3dad28b18ae0b59dafb60877938fb48"
+  }
+}
