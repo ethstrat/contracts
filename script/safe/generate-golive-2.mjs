@@ -2,9 +2,9 @@
 // Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC) Safe batch, sent from the main Safe:
 //   raise CDT debt cap, make stETH redeemable from esETH, raise esETH allowances to the note from the
 //   encumbered and treasuryManager Safes, and add any missing TripwireController operators on esETH, CDT, note.
-// Operators = the emergency Safe (internalAddresses tripwire-operator, already set) + the optional Sigint address.
-// Usage: node --env-file=.env script/safe/generate-golive-2.mjs [<sigintAddress>] [--out path] [--dry-run]
-//   <sigintAddress> omitted = emergency Safe only, so nothing to add today.
+// Operators = multisigs.tripwire-operator1 and tripwire-operator2 in script/deployments/1/config/internalAddresses.json (deduped).
+// To change the operator: edit tripwire-operator2 there, then re-run `yarn safe:golive-2`.
+// Usage: node --env-file=.env script/safe/generate-golive-2.mjs [--out path] [--dry-run]
 // Writes the batch (with hashes at the current Safe nonce) and its .tx-builder.json.
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -23,15 +23,12 @@ const SAFE = multisigs.main; // proposer and TripwireController guardian
 const [ENCUMBERED, TREASURY_MANAGER] = [multisigs.encumbered, multisigs.unencumbered];
 const { esETH, cdt, "convertible-note": note } = dep;
 
-const { values: a, positionals: [opArg] } = parseArgs({
-    allowPositionals: true,
+const { values: a } = parseArgs({
     options: { out: { type: "string", default: "script/safe/batches/convertible-note-golive-2.json" }, "dry-run": { type: "boolean" } },
 });
 if (!process.env.RPC_URL) throw new Error("set RPC_URL (node --env-file=.env)");
-const emergency = getAddress(multisigs["tripwire-operator"]);
-const sigint = opArg ? getAddress(opArg) : emergency;
-assert.notEqual(sigint, ZeroAddress, "operator is the zero address");
-const operators = [...new Set([emergency, sigint])];
+const operators = [...new Set([multisigs["tripwire-operator1"], multisigs["tripwire-operator2"]].map(getAddress))];
+for (const o of operators) assert.notEqual(o, ZeroAddress, "operator is the zero address");
 
 const tx = (label, to, contractName, signature, args) => ({ label, to, contractName, signature, args: args.map((x) => (typeof x === "bigint" ? x.toString() : x)) });
 // Call executed by a Safe owned by SAFE: approved-hash style signature (v=1, r=SAFE)
