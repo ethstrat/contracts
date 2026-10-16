@@ -5,7 +5,7 @@
 // Signatures are faked: approvedHashes[owner][safeTxHash]=1 set via state_objects for `threshold` owners.
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { Contract, Interface, JsonRpcProvider, getAddress, keccak256, solidityPacked, zeroPadValue, AbiCoder } from "ethers";
+import { Contract, Interface, JsonRpcProvider, getAddress, toBeHex, keccak256, solidityPacked, zeroPadValue, AbiCoder } from "ethers";
 import { computeHashes } from "./lib/safe-hash.mjs";
 
 // Safe v1.3/1.4.1 layout: slot 8 = mapping(address => mapping(bytes32 => uint256)) approvedHashes (verified on anvil fork).
@@ -17,6 +17,7 @@ const ONE = zeroPadValue("0x01", 32);
 const SAFE_ABI = [
     "function getOwners() view returns (address[])",
     "function getThreshold() view returns (uint256)",
+    "function nonce() view returns (uint256)",
     "function execTransaction(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,bytes signatures) payable returns (bool)",
     "event ExecutionSuccess(bytes32 txHash, uint256 payment)",
     "event ExecutionFailure(bytes32 txHash, uint256 payment)",
@@ -37,7 +38,11 @@ export async function buildSimulation(batch, { rpcUrl, nonce, from }) {
     const d = h.txData;
     const input = new Interface(SAFE_ABI).encodeFunctionData("execTransaction", [d.to, d.value, d.data, d.operation, d.safeTxGas, d.baseGas, d.gasPrice, d.gasToken, d.refundReceiver, signatures]);
     const storage = Object.fromEntries(signers.map((o) => [approvedSlot(o, h.safeTxHash), ONE]));
-    return { from: sender, to: h.safeAddress, input, state_objects: { [h.safeAddress]: { storage } }, signers, threshold, hashes: h };
+    // A non-current --nonce needs the Safe's own nonce (slot 5, v1.3/1.4.1) overridden, else the Safe hashes at the on-chain nonce (GS025).
+    if (BigInt(h.nonce) !== (await safe.nonce())) storage[zeroPadValue("0x05", 32)] = zeroPadValue(toBeHex(h.nonce), 32);
+    // Optional batch.stateOverrides ({address: {storage: {slot: value}}}), e.g. pre-funding balances; not part of the hashes.
+    const state_objects = { ...(batch.stateOverrides ?? {}), [h.safeAddress]: { storage } };
+    return { from: sender, to: h.safeAddress, input, state_objects, signers, threshold, hashes: h };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
