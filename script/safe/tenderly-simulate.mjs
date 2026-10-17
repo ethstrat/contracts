@@ -54,7 +54,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const need = ["RPC_URL", ...(a["print-only"] ? [] : ["TENDERLY_ACCESS_KEY", "TENDERLY_ACCOUNT", "TENDERLY_PROJECT"])].filter((k) => !process.env[k]);
     if (need.length) throw new Error(`missing env var(s): ${need.join(", ")} (set in .env)`);
     const batch = JSON.parse(readFileSync(path, "utf8"));
-    const s = await buildSimulation(batch, { rpcUrl: process.env.RPC_URL, nonce: a.nonce === undefined ? undefined : BigInt(a.nonce), from: a.from });
+    const s = await buildSimulation(batch, { rpcUrl: process.env.RPC_URL, nonce: a.nonce !== undefined ? BigInt(a.nonce) : batch.hashes?.nonce !== undefined ? BigInt(batch.hashes.nonce) : undefined, from: a.from });
     const body = {
         network_id: "1", from: s.from, to: s.to, input: s.input, value: "0", save: true, save_if_fails: true,
         simulation_type: "full", state_objects: s.state_objects, // no block_number => latest

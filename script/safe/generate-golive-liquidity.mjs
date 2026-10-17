@@ -5,7 +5,7 @@
 // ORDER OF SIGNING: this batch is hashed at (current main Safe nonce + 1), so golive-2 (generate-golive-2.mjs) must be
 // signed/executed FIRST at the current nonce. If the nonce moves, re-run this script (or hash-batch.mjs --write).
 // Funding is NOT part of the batch: fund 0xaA1A with >= 400,000 USDS and 0x0cbe with >= 150,000 USDS before execution
-// (a nested call that fails reverts the whole batch). The generator only WARNs when underfunded and writes Tenderly
+// (only the underfunded Safe's own leg reverts; the other leg is independent). The generator only WARNs when underfunded and writes Tenderly
 // `stateOverrides` for the missing balances so the simulation works before funding.
 // Usage: node --env-file=.env script/safe/generate-golive-liquidity.mjs [--out path] [--dry-run]
 // Writes the batch (+ .tx-builder.json) and <out>.seaport-order.json (order for sellers).
@@ -93,7 +93,7 @@ for (const [name, holder, need] of [["liquidity Safe", LP_SAFE, USDS_IN_LP], ["r
     const bal = await erc(USDS).balanceOf(holder);
     console.log(`USDS balance ${name} ${holder}: ${bal} (need ${need})`);
     if (bal < need) {
-        warnings.push(`WARN: ${name} ${holder} holds ${bal} USDS < ${need}; batch reverts until funded`);
+        warnings.push(`WARN: ${name} ${holder} holds ${bal} USDS < ${need}; its leg reverts until funded`);
         // USDS balanceOf is mapping at slot 2
         const slot = keccak256(coder.encode(["address", "uint256"], [holder, 2]));
         overrides[USDS] = { storage: { ...(overrides[USDS]?.storage ?? {}), [slot]: zeroPadValue(toBeHex(need), 32) } };

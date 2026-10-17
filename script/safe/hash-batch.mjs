@@ -6,6 +6,7 @@
 //   --check    recompute at the recorded nonce; exit 1 if recorded hashes differ
 // Nonce changes whenever another Safe tx executes first: re-run with --write (or --nonce N).
 import { readFileSync, writeFileSync } from "node:fs";
+import Safe from "@safe-global/protocol-kit";
 import { parseArgs } from "node:util";
 import { computeHashes, diffHashes, printHashes } from "./lib/safe-hash.mjs";
 
@@ -23,6 +24,9 @@ if (a.check) {
     const bad = diffHashes(batch.hashes, cur);
     printHashes(cur);
     if (bad.length) { console.error(`CHECK FAILED, differing: ${bad.join(", ")}`); process.exit(1); }
+    const onChain = BigInt(await (await Safe.init({ provider: process.env.RPC_URL, safeAddress: cur.safeAddress })).getNonce());
+    if (BigInt(batch.hashes.nonce) < onChain) { console.error(`CHECK FAILED: recorded nonce ${batch.hashes.nonce} < on-chain nonce ${onChain} (nonce already used)`); process.exit(1); }
+    if (BigInt(batch.hashes.nonce) > onChain) console.warn(`WARN: recorded nonce ${batch.hashes.nonce} > on-chain nonce ${onChain}; not yet reachable (earlier Safe txs must execute first)`);
     console.log("CHECK PASS");
 } else {
     const h = await computeHashes(batch, { rpcUrl: process.env.RPC_URL, nonce: a.nonce === undefined ? undefined : BigInt(a.nonce) });

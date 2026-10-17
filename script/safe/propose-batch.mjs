@@ -218,7 +218,10 @@ try {
         safeAddress,
     });
 
-    const safeTransaction = await protocolKit.createTransaction({ transactions: metaTransactions });
+    const safeTransaction = await protocolKit.createTransaction({
+        transactions: metaTransactions,
+        ...(batch.hashes?.nonce !== undefined ? { options: { nonce: batch.hashes.nonce } } : {}),
+    });
     const safeTxHash = await protocolKit.getTransactionHash(safeTransaction);
 
     // Print the hashes signers compare against the Safe UI / hardware wallet; refuse if the batch's

@@ -7,12 +7,26 @@ import { Interface, TypedDataEncoder, keccak256, solidityPacked } from "ethers";
 import Safe from "@safe-global/protocol-kit";
 
 // Normalizes both batch schemas (plain / tx-builder) to {safeAddress, chainId, metaTransactions}. Throws on bad input.
+// Tx-builder tx with data:null: encode from contractMethod+contractInputsValues. Throws on anything unsupported (arrays/tuples).
+function txBuilderData(tx, i) {
+    if (typeof tx.data === "string" && /^0x([0-9a-fA-F]{2})*$/.test(tx.data)) return tx.data;
+    const m = tx.contractMethod, v = tx.contractInputsValues;
+    if (tx.data != null || !m?.name || !Array.isArray(m.inputs) || !v) throw new Error(`transactions[${i}]: data is not hex and no contractMethod/contractInputsValues`);
+    const args = m.inputs.map((inp) => {
+        if (/[\[(]/.test(inp.type) || v[inp.name] === undefined) throw new Error(`transactions[${i}]: unsupported/missing input ${inp.name} (${inp.type})`);
+        if (inp.type !== "bool") return v[inp.name];
+        if (v[inp.name] !== "true" && v[inp.name] !== "false") throw new Error(`transactions[${i}]: bad bool ${v[inp.name]}`);
+        return v[inp.name] === "true";
+    });
+    return new Interface([`function ${m.name}(${m.inputs.map((x) => x.type).join(",")})`]).encodeFunctionData(m.name, args);
+}
+
 export function toMetaTransactions(batch) {
     const isTxBuilder = !batch.safeAddress;
     const safeAddress = isTxBuilder ? batch.meta?.createdFromSafeAddress : batch.safeAddress;
-    const metaTransactions = batch.transactions.map((tx) =>
+    const metaTransactions = batch.transactions.map((tx, i) =>
         isTxBuilder
-            ? { to: tx.to, value: tx.value ?? "0", data: tx.data }
+            ? { to: tx.to, value: tx.value ?? "0", data: txBuilderData(tx, i) }
             : {
                   to: tx.to,
                   value: "0",
