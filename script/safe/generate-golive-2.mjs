@@ -15,7 +15,7 @@ import { computeHashes, printHashes } from "./lib/safe-hash.mjs";
 
 // ---- CONFIG ----
 const MAX_DEBT = 11_000_000n * 10n ** 18n; // CDT debt cap
-const ALLOWANCE = 10n * 10n ** 18n; // esETH allowance to the note, from each holdings Safe
+const ALLOWANCE = 100n * 10n ** 18n; // esETH allowance to the note, from each holdings Safe
 const STETH = "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84";
 const dep = JSON.parse(readFileSync("script/deployments/1/config/deploymentAddresses.json", "utf8"));
 const { multisigs, tripwire } = JSON.parse(readFileSync("script/deployments/1/config/internalAddresses.json", "utf8")).protocol;
@@ -42,8 +42,8 @@ const approveVia = (safe, label) =>
 const transactions = [
     tx("Set CDT debt cap (maxDebt) to 11,000,000", note, "EthStrategyConvertibleNote", "setMaxDebt(uint256)", [MAX_DEBT]),
     tx("Make stETH redeemable from esETH (ERC20 type 1, isMintable stays false, isRedeemable true)", esETH, "esETH", "setTokenConfig(address,uint8,bool,bool)", [STETH, 1, false, true]),
-    approveVia(ENCUMBERED, "Raise esETH allowance to note to 10 esETH from encumbered Safe"),
-    approveVia(TREASURY_MANAGER, "Raise esETH allowance to note to 10 esETH from treasuryManager Safe"),
+    approveVia(ENCUMBERED, "Raise esETH allowance to note to 100 esETH from encumbered Safe"),
+    approveVia(TREASURY_MANAGER, "Raise esETH allowance to note to 100 esETH from treasuryManager Safe"),
 ];
 const ctl = new Contract(
     tripwire.controller,
@@ -71,7 +71,7 @@ for (const t of transactions) {
 
 // ---- WRITE / HASH / EXPORT ----
 const batch = {
-    description: "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 10 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF."
+    description: "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF."
         + (added.length ? ` Adds ${[...new Set(added)].join(", ")} as tripwire operator.` : ""),
     safeAddress: SAFE,
     chainId: 1,

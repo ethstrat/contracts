@@ -1,5 +1,5 @@
 {
-  "description": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 10 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
+  "description": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
   "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
   "chainId": 1,
   "transactions": [
@@ -25,14 +25,14 @@
       ]
     },
     {
-      "label": "Raise esETH allowance to note to 10 esETH from encumbered Safe",
+      "label": "Raise esETH allowance to note to 100 esETH from encumbered Safe",
       "to": "0x1b005A566983721bc736b57D7D3B1EE028782362",
       "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
         "0",
-        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000008ac7230489e80000",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
         0,
         "0",
         "0",
@@ -43,14 +43,14 @@
       ]
     },
     {
-      "label": "Raise esETH allowance to note to 10 esETH from treasuryManager Safe",
+      "label": "Raise esETH allowance to note to 100 esETH from treasuryManager Safe",
       "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
       "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
         "0",
-        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000008ac7230489e80000",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
         0,
         "0",
         "0",
@@ -68,9 +68,9 @@
     "nonce": 232,
     "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
     "operation": 1,
-    "innerDataHash": "0xd1f68eca19e77906be16653167dbebedf1b6c6ddabde589629eb65db8ebb985f",
+    "innerDataHash": "0x2e0dbbf165ac2c893a5cda75148471c68711765cfb02b64077342f9fc5218a15",
     "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
-    "messageHash": "0x958cc9b36f234e4c5fc1d4c2e9efe30a6c633bafe3891d43ab2ce13b8e81c040",
-    "safeTxHash": "0x8394862023cf22809b23704bcd67a39ef3dad28b18ae0b59dafb60877938fb48"
+    "messageHash": "0x351d81e1cfc4da8861d45dc41390c474c6fa0a7360df36cdd17d18232eb3ada6",
+    "safeTxHash": "0x1c8c31728ec743270a8e6f657807822f0e1df045493f0c05984f05e05f9e99e7"
   }
 }

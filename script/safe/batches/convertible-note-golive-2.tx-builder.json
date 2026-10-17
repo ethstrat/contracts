@@ -1,10 +1,10 @@
 {
   "version": "1.0",
   "chainId": "1",
-  "createdAt": 1792047891851,
+  "createdAt": 1792204114960,
   "meta": {
-    "name": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 10 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
-    "description": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 10 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
+    "name": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
+    "description": "Convertible note go-live, part 2 (Mon 19 Oct 2026 02:00 UTC): raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe. BCF is already 0.25 on-chain, so no setBCF.",
     "txBuilderVersion": "1.18.0",
     "createdFromSafeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
     "createdFromOwnerAddress": "",
@@ -130,7 +130,7 @@
       "contractInputsValues": {
         "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
         "arg1": "0",
-        "arg2": "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000008ac7230489e80000",
+        "arg2": "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
         "arg3": "0",
         "arg4": "0",
         "arg5": "0",
@@ -203,7 +203,7 @@
       "contractInputsValues": {
         "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
         "arg1": "0",
-        "arg2": "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000008ac7230489e80000",
+        "arg2": "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
         "arg3": "0",
         "arg4": "0",
         "arg5": "0",
