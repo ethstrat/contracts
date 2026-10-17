@@ -1,8 +1,65 @@
 {
-  "description": "Convertible note go-live liquidity (Mon 19 Oct 2026 02:00 UTC): 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Hashed at main Safe nonce 233 (golive-2 goes first at 232).",
+  "description": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 232: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
   "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
   "chainId": 1,
   "transactions": [
+    {
+      "label": "Set CDT debt cap (maxDebt) to 11,000,000",
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "contractName": "EthStrategyConvertibleNote",
+      "signature": "setMaxDebt(uint256)",
+      "args": [
+        "11000000000000000000000000"
+      ]
+    },
+    {
+      "label": "Make stETH redeemable from esETH (ERC20 type 1, isMintable stays false, isRedeemable true)",
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "contractName": "esETH",
+      "signature": "setTokenConfig(address,uint8,bool,bool)",
+      "args": [
+        "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+        1,
+        false,
+        true
+      ]
+    },
+    {
+      "label": "Raise esETH allowance to note to 100 esETH from encumbered Safe",
+      "to": "0x1b005A566983721bc736b57D7D3B1EE028782362",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Raise esETH allowance to note to 100 esETH from treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
     {
       "label": "liquidity Safe: USDS.approve(Permit2, 400,000)",
       "to": "0xaA1A5A784BE986baE07E8686566bb402c74DFe42",
@@ -101,12 +158,12 @@
     "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
     "chainId": 1,
     "safeVersion": "1.4.1",
-    "nonce": 233,
+    "nonce": 232,
     "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
     "operation": 1,
-    "innerDataHash": "0xe6e183c7cd061db15b9271548d022d1297c7482f3f0e580128f30b91bb223369",
+    "innerDataHash": "0x0e1b8efc1cfc7f88a62b6ca50ffce28a9f3ecdc15fe2965af77ec85ea931879b",
     "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
-    "messageHash": "0xfee5360f1bea3655cf9d18b5bad479c17be11550780df64c9802dd4afb35402b",
-    "safeTxHash": "0xbb091a17f829627f9b5e5a7d3c3405e54fc7b756de16c52848eebc355e663dae"
+    "messageHash": "0x4a6ef06a036bfbcf2bbf84f0b0b98c59e0c77abdd90c6f7c8c7bfab1a79dfe2f",
+    "safeTxHash": "0x871c06c308d7e8cbe94f5cc84871959e944c5f5cabb58b0273c7814cbdfc28e1"
   }
 }

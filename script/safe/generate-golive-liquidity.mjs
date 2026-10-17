@@ -1,20 +1,13 @@
-#!/usr/bin/env node
 // Convertible note go-live liquidity (Mon 19 Oct 2026 02:00 UTC) Safe batch, sent from the main Safe:
 //   (a) 0xaA1A (liquidity Safe): 400,000 USDS single-sided CDT/USDS Uniswap v4 position, price $1 down to ~$0, pool opened at $1.
 //   (b) 0x0cbe (redemption Safe): Seaport bid, offer 150,000 USDS for CDT at $0.70, PARTIAL_OPEN, validated on-chain.
-// ORDER OF SIGNING: this batch is hashed at (current main Safe nonce + 1), so golive-2 (generate-golive-2.mjs) must be
-// signed/executed FIRST at the current nonce. If the nonce moves, re-run this script (or hash-batch.mjs --write).
 // Funding is NOT part of the batch: fund 0xaA1A with >= 400,000 USDS and 0x0cbe with >= 150,000 USDS before execution
 // (only the underfunded Safe's own leg reverts; the other leg is independent). The generator only WARNs when underfunded and writes Tenderly
 // `stateOverrides` for the missing balances so the simulation works before funding.
-// Usage: node --env-file=.env script/safe/generate-golive-liquidity.mjs [--out path] [--dry-run]
-// Writes the batch (+ .tx-builder.json) and <out>.seaport-order.json (order for sellers).
-import { readFileSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+// Library: imported by generate-golive-monday.mjs (the Monday batch); exports the tx list, stateOverrides, Seaport order.
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { parseArgs } from "node:util";
 import { AbiCoder, Interface, JsonRpcProvider, Contract, ZeroAddress, ZeroHash, keccak256, toUtf8Bytes, zeroPadValue, toBeHex, getAddress } from "ethers";
-import { computeHashes, printHashes } from "./lib/safe-hash.mjs";
 
 // ---- CONFIG ----
 const USDS_IN_LP = 400_000n * 10n ** 18n;
@@ -22,18 +15,18 @@ const FEE = 3000, TICK_SPACING = 60;
 const OFFER = 150_000n * 10n ** 18n; // USDS offered by the Seaport order
 const ASK_PRICE_X100 = 70n; // $0.70 per CDT
 const GRID = 10n ** 9n; // partial-fill grid (wei): offer and ask are multiples, so any n/1e9 fraction is exact
-const START_TIME = 1792375200; // 2026-10-19 02:00:00 UTC
-const END_TIME = START_TIME + 30 * 86400;
+export const START_TIME = 1792375200; // 2026-10-19 02:00:00 UTC
+export const END_TIME = START_TIME + 30 * 86400;
 const SALT = BigInt(keccak256(toUtf8Bytes("cdt-usds-bid-1")));
 const Q96 = 2n ** 96n;
 const ROOT = "script/deployments/1/config/";
 const J = (f) => JSON.parse(readFileSync(ROOT + f, "utf8"));
 const dep = J("deploymentAddresses.json"), ext = J("externalAddresses.json"), { multisigs } = J("internalAddresses.json").protocol;
 const SAFE = multisigs.main, LP_SAFE = multisigs.liquidity, RED = multisigs.redemption;
-const CDT = dep.cdt, USDS = ext["sky-money"].USDS, SEAPORT = ext.opensea.seaport;
+const CDT = dep.cdt, USDS = ext["sky-money"].USDS;
+export const SEAPORT = ext.opensea.seaport;
 const { poolManager, positionManager: POSM, permit2: PERMIT2, stateView } = ext["uniswap-v4"];
 
-const { values: a } = parseArgs({ options: { out: { type: "string", default: "script/safe/batches/golive-liquidity.json" }, "dry-run": { type: "boolean" } } });
 if (!process.env.RPC_URL) throw new Error("set RPC_URL (node --env-file=.env)");
 const provider = new JsonRpcProvider(process.env.RPC_URL);
 
@@ -85,10 +78,10 @@ const seaport = new Contract(SEAPORT, [
     "function getCounter(address) view returns (uint256)",
     "function getOrderHash((address offerer,address zone,(uint8 itemType,address token,uint256 identifierOrCriteria,uint256 startAmount,uint256 endAmount)[] offer,(uint8 itemType,address token,uint256 identifierOrCriteria,uint256 startAmount,uint256 endAmount,address recipient)[] consideration,uint8 orderType,uint256 startTime,uint256 endTime,bytes32 zoneHash,uint256 salt,bytes32 conduitKey,uint256 counter)) view returns (bytes32)",
 ], provider);
-const counter = await seaport.getCounter(RED);
+export const counter = await seaport.getCounter(RED);
 
 const warnings = [];
-const overrides = {};
+export const overrides = {};
 for (const [name, holder, need] of [["liquidity Safe", LP_SAFE, USDS_IN_LP], ["redemption Safe", RED, OFFER]]) {
     const bal = await erc(USDS).balanceOf(holder);
     console.log(`USDS balance ${name} ${holder}: ${bal} (need ${need})`);
@@ -102,16 +95,16 @@ for (const [name, holder, need] of [["liquidity Safe", LP_SAFE, USDS_IN_LP], ["r
 warnings.forEach((w) => console.warn(w));
 
 // ---- SEAPORT ORDER ----
-const ask = ((OFFER * 100n) / ASK_PRICE_X100 + GRID - 1n) / GRID * GRID; // ceil to grid: offerer favored by dust
+export const ask = ((OFFER * 100n) / ASK_PRICE_X100 + GRID - 1n) / GRID * GRID; // ceil to grid: offerer favored by dust
 assert.equal(OFFER % GRID, 0n);
-const order = {
+export const order = {
     offerer: RED, zone: ZeroAddress,
     offer: [{ itemType: 1, token: USDS, identifierOrCriteria: 0n, startAmount: OFFER, endAmount: OFFER }],
     consideration: [{ itemType: 1, token: CDT, identifierOrCriteria: 0n, startAmount: ask, endAmount: ask, recipient: RED }],
     orderType: 1, // PARTIAL_OPEN
     startTime: BigInt(START_TIME), endTime: BigInt(END_TIME), zoneHash: ZeroHash, salt: SALT, conduitKey: ZeroHash,
 };
-const orderHash = await seaport.getOrderHash({ ...order, counter });
+export const orderHash = await seaport.getOrderHash({ ...order, counter });
 const orderTuple = [order.offerer, order.zone, order.offer.map(Object.values), order.consideration.map(Object.values), order.orderType, order.startTime, order.endTime, order.zoneHash, order.salt, order.conduitKey, 1n];
 const VALIDATE = "validate(((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),bytes)[])";
 
@@ -129,7 +122,7 @@ const settleParams = coder.encode(["address", "address"], [CDT, USDS]);
 const unlockData = coder.encode(["bytes", "bytes[]"], [new Uint8Array([MINT, SETTLE_PAIR]), [mintParams, settleParams]]);
 const posmI = new Interface(["function initializePool((address,address,uint24,int24,address),uint160) returns (int24)", "function modifyLiquidities(bytes,uint256)"]);
 const multicall = [posmI.encodeFunctionData("initializePool", [key, Q96]), posmI.encodeFunctionData("modifyLiquidities", [unlockData, 2n ** 256n - 1n])];
-const transactions = [
+export const transactions = [
     via(LP_SAFE, "USDS.approve(Permit2, 400,000)", USDS, "approve(address,uint256)", [PERMIT2, USDS_IN_LP]),
     via(LP_SAFE, "Permit2.approve(USDS, PositionManager, 400,000, max expiry)", PERMIT2, "approve(address,address,uint160,uint48)", [USDS, POSM, USDS_IN_LP, 2n ** 48n - 1n]),
     via(LP_SAFE, "PositionManager.multicall: initializePool CDT/USDS at $1 (fee 3000, spacing 60) + mint USDS-only position ticks [-887220, 0] to liquidity Safe", POSM, "multicall(bytes[])", [multicall]),
@@ -144,28 +137,3 @@ for (const t of transactions) {
     const data = i.encodeFunctionData(name, t.args);
     assert.equal(i.encodeFunctionData(name, i.decodeFunctionData(name, data)), data);
 }
-
-// ---- WRITE / HASH / EXPORT ----
-const safeNonce = await safeC(SAFE).nonce();
-const batch = {
-    description: `Convertible note go-live liquidity (Mon 19 Oct 2026 02:00 UTC): 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Hashed at main Safe nonce ${safeNonce + 1n} (golive-2 goes first at ${safeNonce}).`,
-    safeAddress: SAFE,
-    chainId: 1,
-    transactions,
-    ...(Object.keys(overrides).length ? { stateOverrides: overrides } : {}),
-};
-batch.hashes = await computeHashes(batch, { rpcUrl: process.env.RPC_URL, nonce: safeNonce + 1n });
-
-console.log(`poolId ${poolId}\nsqrtPriceX96 ${Q96} tick 0\nticks [${minUsableTick}, 0] liquidity ${L}\norderHash ${orderHash} counter ${counter} ask ${ask}`);
-transactions.forEach((t, i) => console.log(`${i + 1}. ${t.label}`));
-if (a["dry-run"]) {
-    console.log(JSON.stringify(batch, null, 2));
-    process.exit(0);
-}
-writeFileSync(a.out, JSON.stringify(batch, null, 2) + "\n");
-const sideCar = a.out.replace(/\.json$/, ".seaport-order.json");
-writeFileSync(sideCar, JSON.stringify({ orderHash, seaport: SEAPORT, fill: "fulfillAdvancedOrder with denominator 1000000000", components: { ...order, counter } }, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2) + "\n");
-console.log(`wrote ${a.out} (${transactions.length} txs) and ${sideCar}`);
-printHashes(batch.hashes);
-const r = spawnSync("node", ["script/safe/export-tx-builder.mjs", a.out], { stdio: "inherit" });
-if (r.status) process.exit(r.status);

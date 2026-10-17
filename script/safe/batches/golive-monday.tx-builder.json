@@ -1,16 +1,218 @@
 {
   "version": "1.0",
   "chainId": "1",
-  "createdAt": 1792136901257,
+  "createdAt": 1792205671649,
   "meta": {
-    "name": "Convertible note go-live liquidity (Mon 19 Oct 2026 02:00 UTC): 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Hashed at main Safe nonce 233 (golive-2 goes first at 232).",
-    "description": "Convertible note go-live liquidity (Mon 19 Oct 2026 02:00 UTC): 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Hashed at main Safe nonce 233 (golive-2 goes first at 232).",
+    "name": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 232: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
+    "description": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 232: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
     "txBuilderVersion": "1.18.0",
     "createdFromSafeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
     "createdFromOwnerAddress": "",
     "checksum": null
   },
   "transactions": [
+    {
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "arg0",
+            "type": "uint256"
+          }
+        ],
+        "name": "setMaxDebt",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "11000000000000000000000000"
+      }
+    },
+    {
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "arg1",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg2",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg3",
+            "type": "bool"
+          }
+        ],
+        "name": "setTokenConfig",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+        "arg1": "1",
+        "arg2": "false",
+        "arg3": "true"
+      }
+    },
+    {
+      "to": "0x1b005A566983721bc736b57D7D3B1EE028782362",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes",
+            "name": "arg2",
+            "type": "bytes"
+          },
+          {
+            "internalType": "uint8",
+            "name": "arg3",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg5",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "arg7",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg8",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes",
+            "name": "arg9",
+            "type": "bytes"
+          }
+        ],
+        "name": "execTransaction",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "arg1": "0",
+        "arg2": "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
+        "arg3": "0",
+        "arg4": "0",
+        "arg5": "0",
+        "arg6": "0",
+        "arg7": "0x0000000000000000000000000000000000000000",
+        "arg8": "0x0000000000000000000000000000000000000000",
+        "arg9": "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      }
+    },
+    {
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg1",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes",
+            "name": "arg2",
+            "type": "bytes"
+          },
+          {
+            "internalType": "uint8",
+            "name": "arg3",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg5",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "arg6",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "arg7",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg8",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes",
+            "name": "arg9",
+            "type": "bytes"
+          }
+        ],
+        "name": "execTransaction",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "arg1": "0",
+        "arg2": "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000056bc75e2d63100000",
+        "arg3": "0",
+        "arg4": "0",
+        "arg5": "0",
+        "arg6": "0",
+        "arg7": "0x0000000000000000000000000000000000000000",
+        "arg8": "0x0000000000000000000000000000000000000000",
+        "arg9": "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      }
+    },
     {
       "to": "0xaA1A5A784BE986baE07E8686566bb402c74DFe42",
       "value": "0",
