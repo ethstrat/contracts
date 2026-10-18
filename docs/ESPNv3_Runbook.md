@@ -313,7 +313,8 @@ airdrop total there once, with `--broadcast`, and refuses to run again once it i
   stream; there is no Merkl-style fee deduction.
 - **EARN supply is not fixed.** The redemption Safe, controlled by the main multisig, can
   mint additional EARN; any mint dilutes existing holders. The 28-day yield is sized on the
-  original airdrop supply (`.earn-airdrop-supply`), not live supply.
+  airdrop supply (`.earn-airdrop-supply`), not live supply. That value = original airdrop +
+  the 006/007 compensation mints (EARN missed by V3-pool holders); the LP's 2,500 EARN is excluded.
 - **`$100 is a nominal basis price, not a redemption guarantee.`** EARN nominally claims
   the full ESPN backing at the snapshot; it is not backed to the extent Track A's 700,000
   USDS redemption pool is.
