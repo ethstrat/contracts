@@ -1,10 +1,10 @@
 {
   "version": "1.0",
   "chainId": "1",
-  "createdAt": 1792374683898,
+  "createdAt": 1792374764628,
   "meta": {
-    "name": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 232: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
-    "description": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 232: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
+    "name": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 235: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
+    "description": "Monday go-live (19 Oct 2026 02:00 UTC), single tx at main Safe nonce 235: raise CDT debt cap to 11,000,000, make stETH redeemable from esETH, raise esETH allowances to the note to 100 from each holdings Safe; then 400,000 USDS single-sided CDT/USDS Uniswap v4 LP ($1 down to ~$0) from the liquidity Safe, and a validated Seaport bid for CDT at $0.70 (150,000 USDS) from the redemption Safe. Seaport order for sellers: script/safe/batches/golive-monday.seaport-order.json (orderHash 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca). BCF is already 0.25 on-chain, so no setBCF.",
     "txBuilderVersion": "1.18.0",
     "createdFromSafeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
     "createdFromOwnerAddress": "",
