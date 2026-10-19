@@ -1,0 +1,12 @@
+{
+  "_TODO": "Still to fill before running 007-ultra-lp/ProposeUltraLp.s.sol: basisPrice, fullRangeQuote. Zero values are rejected. quote is WETH on Robinhood Chain (18 decimals, verified on-chain); the Safe must hold fullRangeQuote of WETH (wrap ETH first). Prices are 18-decimal wei strings: quote wei per 1 ULTRA (e.g. 0.05 WETH per ULTRA = \"50000000000000000\"). Amounts are 18-decimal wei strings. poolManager/positionManager/stateView/permit2 are the Uniswap v4 deployments on Robinhood Chain (4663), cross-checked on-chain. fee/tickSpacing match the EARN pool.",
+  "quote": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+  "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+  "positionManager": "0x58daec3116aae6d93017baaea7749052e8a04fa7",
+  "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+  "stateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+  "basisPrice": "0",
+  "fee": 3000,
+  "tickSpacing": 60,
+  "fullRangeQuote": "0"
+}
