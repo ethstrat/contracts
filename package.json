@@ -22,7 +22,11 @@
     "lint:forge": "forge fmt --check",
     "lint:fix": "forge fmt",
     "clean": "forge clean",
-    "safe:propose": "node --env-file=.env script/safe/propose-batch.mjs"
+    "safe:generate-golive": "node --env-file=.env script/safe/generate-convertible-note-golive.mjs",
+    "safe:propose": "node --env-file=.env script/safe/propose-batch.mjs",
+    "safe:hash": "node --env-file=.env script/safe/hash-batch.mjs",
+    "safe:simulate": "node --env-file=.env script/safe/tenderly-simulate.mjs",
+    "safe:golive-monday": "node --env-file=.env script/safe/generate-golive-monday.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^17.7.1",
