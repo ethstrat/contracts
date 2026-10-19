@@ -1,0 +1,37 @@
+{
+  "description": "Revoke live stETH allowances (0xC92E8bdf79f0507f65a392b0ab4667716BFE0110) held by the treasuryManager Safe 0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1, one nested execTransaction each from the main Safe (owner)",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Revoke stETH allowance of 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110 from treasuryManager Safe (was MAX)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+        "0",
+        "0x095ea7b3000000000000000000000000c92e8bdf79f0507f65a392b0ab4667716bfe01100000000000000000000000000000000000000000000000000000000000000000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    }
+  ],
+  "hashes": {
+    "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "chainId": 1,
+    "safeVersion": "1.4.1",
+    "nonce": 239,
+    "multisendTo": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+    "operation": 0,
+    "innerDataHash": "0xc7d075ff904b470d833aa0b0b6965a6cc7e92cd36dc26dc0b339ea9e6da66dff",
+    "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
+    "messageHash": "0xe43850aa8e11778cd1803d9fbdaa4b0cd9126342976b02f7f5e5a4673ba271af",
+    "safeTxHash": "0xe2a73fe96a58309343e789cf0d8713c5a4c2dd303d0ac9331db291996a72033b"
+  }
+}
