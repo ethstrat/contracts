@@ -63,6 +63,7 @@
     {
       "label": "liquidity Safe: USDS.approve(Permit2, 400,000)",
       "to": "0xaA1A5A784BE986baE07E8686566bb402c74DFe42",
+      "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0xdC035D45d973E3EC169d2276DDab16f1e407384F",
@@ -80,6 +81,7 @@
     {
       "label": "liquidity Safe: Permit2.approve(USDS, PositionManager, 400,000, max expiry)",
       "to": "0xaA1A5A784BE986baE07E8686566bb402c74DFe42",
+      "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0x000000000022D473030F116dDEE9F6B43aC78BA3",
@@ -97,6 +99,7 @@
     {
       "label": "liquidity Safe: PositionManager.multicall: initializePool CDT/USDS at $1 (fee 3000, spacing 60) + mint USDS-only position ticks [-887220, 0] to liquidity Safe",
       "to": "0xaA1A5A784BE986baE07E8686566bb402c74DFe42",
+      "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0xbD216513d74C8cf14cf4747E6AaA6420FF64ee9e",
@@ -114,6 +117,7 @@
     {
       "label": "redemption Safe: USDS.approve(Seaport, 150,000)",
       "to": "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D",
+      "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0xdC035D45d973E3EC169d2276DDab16f1e407384F",
@@ -131,6 +135,7 @@
     {
       "label": "redemption Safe: Seaport.validate order 0x5ca84002be4de7e48d14a80907aec493a2c2309533dbee6900931e8d60a327ca (offer 150,000 USDS for 214285714285715000000000 CDT, PARTIAL_OPEN, 1792375200-1794967200)",
       "to": "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D",
+      "contractName": "Safe",
       "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
       "args": [
         "0x0000000000000068F116a894984e2DB1123eB395",
@@ -146,14 +151,6 @@
       ]
     }
   ],
-  "stateOverrides": {
-    "0xdC035D45d973E3EC169d2276DDab16f1e407384F": {
-      "storage": {
-        "0x866fee38dc8c7dd584827e544d2a0f94932d86b923012fcf3a95a6a0cd26184d": "0x0000000000000000000000000000000000000000000054b40b1f852bda000000",
-        "0x96bad92cc4f0f0e46cfa5f818d306bbd9282e2f50aa91cb7a5a718e14a9adbb8": "0x000000000000000000000000000000000000000000001fc3842bd1f071c00000"
-      }
-    }
-  },
   "hashes": {
     "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
     "chainId": 1,

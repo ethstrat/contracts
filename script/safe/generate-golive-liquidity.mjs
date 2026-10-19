@@ -109,7 +109,7 @@ const orderTuple = [order.offerer, order.zone, order.offer.map(Object.values), o
 const VALIDATE = "validate(((address,address,(uint8,address,uint256,uint256,uint256)[],(uint8,address,uint256,uint256,uint256,address)[],uint8,uint256,uint256,bytes32,uint256,bytes32,uint256),bytes)[])";
 
 // ---- TRANSACTIONS (in order) ----
-const tx = (label, to, signature, args) => ({ label, to, signature, args: args.map((x) => (typeof x === "bigint" ? x.toString() : x)) });
+const tx = (label, to, signature, args) => ({ label, to, contractName: "Safe", signature, args: args.map((x) => (typeof x === "bigint" ? x.toString() : x)) });
 const ownerSig = "0x" + SAFE.slice(2).toLowerCase().padStart(64, "0") + "0".repeat(64) + "01"; // approved-hash style (v=1, r=SAFE)
 // Nested call: main Safe -> safe.execTransaction(to, 0, abi(signature,args))
 const via = (safe, label, to, signature, args) => {
