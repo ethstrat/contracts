@@ -9,6 +9,7 @@ import {MintableBurnableToken} from "../../src/MintableBurnableToken.sol";
 import {TripwireController} from "../../src/lib/TripwireController.sol";
 import {ITripwireController} from "../../src/interfaces/ITripwireController.sol";
 import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
+import {ConfigLib} from "../../script/deployments/1/lib/ConfigLib.sol";
 import {PeriodicYield} from "../../script/deployments/1/004-stry-migration/PeriodicYield.s.sol";
 
 /// @dev periodicYield/periodicYieldAmount/_periodicYieldAmountPure are `internal` on the
@@ -22,6 +23,10 @@ contract PeriodicYieldHarness is PeriodicYield {
         returns (uint256)
     {
         return _periodicYieldAmountPure(totalSupply_, basisPriceUsd, annualDividendRatioX100);
+    }
+
+    function exposedBase(address earn_) external view returns (uint256) {
+        return yieldBase(earn_);
     }
 
     function exposedAmount(uint256 airdropSupply) external view returns (uint256) {
@@ -107,27 +112,29 @@ contract PeriodicYieldTest is Test {
         );
     }
 
-    function test_periodicYieldAmount_ignoresPostAirdropMint() public {
+    function test_periodicYieldAmount_nonLpMintMovesBase() public {
         _deployStakedStrat(AIRDROP);
-        _stakeAll();
-        usds.mint(safe, 1_000_000_000e18);
-        bytes memory before = harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP)[0].data;
-
-        // A later Safe mint (e.g. the LP's 2,500 EARN) must not move the yield base (D22).
+        uint256 lp = ConfigLib.num("deploymentAddresses.json", ".earn-lp-supply");
+        // Live supply minus the LP's EARN; a fresh mint (not the LP's) raises it by exactly the mint.
         address[] memory to = new address[](1);
         to[0] = safe;
         uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 2_500e18;
+        amounts[0] = 1_000e18;
         earn.mintBatch(to, amounts);
-
-        assertEq(harness.exposedYield(safe, address(usds), address(stakedStrat), AIRDROP)[0].data, before);
+        assertEq(harness.exposedBase(address(earn)), AIRDROP + 1_000e18 - lp);
     }
 
-    function test_periodicYield_revertsOnZeroAirdropSupply() public {
+    function test_yieldBase_revertsWhenSupplyNotAboveLp() public {
+        _deployStakedStrat(1e18);
+        vm.expectRevert(bytes("PeriodicYield: totalSupply <= LP supply"));
+        harness.exposedBase(address(earn));
+    }
+
+    function test_periodicYield_revertsOnZeroBase() public {
         _deployStakedStrat(AIRDROP);
         _stakeAll();
         usds.mint(safe, 1_000_000_000e18);
-        vm.expectRevert(bytes("PeriodicYield: airdropSupply == 0"));
+        vm.expectRevert(bytes("PeriodicYield: yield base == 0"));
         harness.exposedYield(safe, address(usds), address(stakedStrat), 0);
     }
 

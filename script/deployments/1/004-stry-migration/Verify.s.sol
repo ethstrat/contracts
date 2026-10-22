@@ -73,8 +73,8 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         vm.startPrank(stryDeployer);
         StryToken stry = distribute(stryDeployer, holdersFile);
         vm.stopPrank();
-        // The in-memory airdrop total stands in for deploymentAddresses.json .earn-airdrop-supply,
-        // so this fork run never depends on (or writes) the committed placeholder.
+        // The fork's in-memory EARN stands in for deploymentAddresses.json .stry, so this run
+        // never depends on (or writes) the committed addresses.
         uint256 airdropSupply = stry.totalSupply();
         address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
         assertEq(stry.owner(), safe, "Verify: EARN owner != redemption Safe");
@@ -84,7 +84,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         }
         console2.log("EARN owner:", stry.owner());
         console2.log("EARN totalSupply:", stry.totalSupply());
-        console2.log("EARN airdrop supply (yield base):", airdropSupply);
+        console2.log("EARN airdrop supply:", airdropSupply);
 
         // Item 3: deploy against the live TripwireController. TripwireGuard's constructor calls
         // controller.register() itself, permissionlessly -- no controller-owner tx is needed.
@@ -148,21 +148,23 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         // Item 6: PeriodicYield, including its totalStaked > 0 guard. periodicYield() builds the
         // same Tx[] batch run() would write to a Safe Transaction Builder file; SafeBatchLib.execute runs
         // it as calls from the redemption Safe under prank, mirroring what a Safe signer's
-        // execution would do. amount is computed from airdropSupply -- see periodicYieldAmount().
-        uint256 amount = periodicYieldAmount(airdropSupply);
+        // execution would do. amount is computed from yieldBase() -- see periodicYieldAmount().
+        uint256 amount = periodicYieldAmount(yieldBase(address(stry)));
+        uint256 amountBeforeMint = amount;
         {
-            // A later Safe mint (the Safe is owner) must not move the yield base (D22).
+            // A later non-LP Safe mint (the Safe is owner) raises the live-supply yield base.
             address[] memory to = new address[](1);
             to[0] = safe;
             uint256[] memory amts = new uint256[](1);
             amts[0] = 1e18;
             vm.prank(safe);
             stry.mintBatch(to, amts);
-            assertEq(periodicYieldAmount(airdropSupply), amount, "Verify: post-airdrop mint moved the yield amount");
+            amount = periodicYieldAmount(yieldBase(address(stry)));
+            assertGt(amount, amountBeforeMint, "Verify: post-airdrop mint did not move the yield amount");
         }
         if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
         uint256 notifiedBeforePeriod = stakedStrat.totalNotifiedRewards();
-        SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
+        SafeBatchLib.Tx[] memory periodTxs = periodicYield(safe, usds, address(stakedStrat), yieldBase(address(stry)));
         uint256 syncGasBefore = gasleft();
         SafeBatchLib.execute(safe, periodTxs);
         uint256 syncGas = syncGasBefore - gasleft();
@@ -207,7 +209,7 @@ contract Verify is Script, StdCheats, StdAssertions, StopEspnYield, Distribute, 
         // (src/StakedStrat.sol:228). Fund and run a second PeriodicYield period, then warp
         // partway through it, so real rewards are pending at unstake time.
         if (IERC20(usds).balanceOf(safe) < amount) deal(usds, safe, amount);
-        SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat), airdropSupply);
+        SafeBatchLib.Tx[] memory secondTxs = periodicYield(safe, usds, address(stakedStrat), yieldBase(address(stry)));
         SafeBatchLib.execute(safe, secondTxs);
         vm.warp(block.timestamp + 1 days);
 
