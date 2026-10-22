@@ -13,8 +13,8 @@ import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 /// assuming everything except the LP is staked -- and settings.json's
 /// basisPriceUsd/annualDividendRatioX100. Other EARN mints by the redemption Safe raise the base.
 ///
-/// Never broadcasts: the payer is the redemption Safe. Each run emits a Safe Transaction Builder
-/// batch -- USDS.transfer(stakedEarn, amount), StakedStrat.syncRewards() -- funding the existing
+/// Never broadcasts: the payer is the earn-yield Safe (.protocol.multisigs.earnYield). Each run emits a Safe
+/// Transaction Builder batch -- USDS.transfer(stakedEarn, amount), StakedStrat.syncRewards() -- funding the existing
 /// StakedStrat instance's 28-day reward stream. No approve() step: transfer, not transferFrom.
 contract PeriodicYield is Script {
     /// @dev Fat-finger guard on settings.json's annualDividendRatioX100 -- nothing upstream of
@@ -22,7 +22,7 @@ contract PeriodicYield is Script {
     uint256 internal constant MAX_ANNUAL_DIVIDEND_RATIO_X100 = 3000;
 
     function run() external virtual {
-        address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
+        address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.earnYield");
         address usds = ConfigLib.addr("externalAddresses.json", ".sky-money.USDS");
         address stakedEarn = ConfigLib.addr("deploymentAddresses.json", ".staked-earn");
 
