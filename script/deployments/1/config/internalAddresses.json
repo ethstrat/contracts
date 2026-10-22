@@ -6,7 +6,10 @@
       "unencumbered": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
       "tripwire-guardian": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
       "redemption": "0x0cbe9bDD425a7d651e6D4FE292c8504eEa4ef26D",
-      "earnYield": "0x823EfFFA08f946233D2a502a1B073C5E16Fea16b"
+      "earnYield": "0x823EfFFA08f946233D2a502a1B073C5E16Fea16b",
+      "liquidity": "0xaA1A5A784BE986baE07E8686566bb402c74DFe42",
+      "tripwire-operator1": "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF",
+      "tripwire-operator2": "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF"
     },
     "tripwire": {
       "controller": "0x328aED8F7a01f45A959c187F3cb97eC508064854"

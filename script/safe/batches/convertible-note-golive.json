@@ -1,0 +1,222 @@
+{
+  "description": "Convertible note go-live: mint esETH from desETH via the treasuryManager Safe, withdraw 1900 stETH, approve esETH (bounded) to the note from the encumbered and treasuryManager Safes, set BCF 0.25, raise CDT debt cap, mint CDT, revoke treasuryManager desETH and CDT minter.",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Untrip esETH",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "resetGlobal(address)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb"
+      ]
+    },
+    {
+      "label": "Untrip CDT",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "resetGlobal(address)",
+      "args": [
+        "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3"
+      ]
+    },
+    {
+      "label": "Untrip note",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "resetGlobal(address)",
+      "args": [
+        "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56"
+      ]
+    },
+    {
+      "label": "Mint 1623 desETH to treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "0",
+        "0x40c10f19000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1000000000000000000000000000000000000000000000057fba64cfa3afc0000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Register desETH in esETH (ERC20 1:1, not mintable/redeemable by users)",
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "contractName": "esETH",
+      "signature": "setTokenConfig(address,uint8,bool,bool)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        1,
+        false,
+        false
+      ]
+    },
+    {
+      "label": "Approve esETH to pull 1623 desETH from treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "0",
+        "0x095ea7b3000000000000000000000000e7a2f9b5fe8a3bb067c15ad08644d96b9dfdf9cb000000000000000000000000000000000000000000000057fba64cfa3afc0000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Mint esETH from 1623 desETH via treasuryManager Safe",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x0d4d15130000000000000000000000002e65e2fa50e8338d2cc81821d15364cf9516145f000000000000000000000000000000000000000000000057fba64cfa3afc0000000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Withdraw 1900 stETH from esETH via treasuryManager Safe (burns its esETH)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x5c833bfd000000000000000000000000ae7ab96520de3a18e5e111b5eaab095312d7fe84000000000000000000000000000000000000000000000066ffcbfd5e5a300000000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e1",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Approve esETH to note from encumbered Safe (bounded)",
+      "to": "0x1b005A566983721bc736b57D7D3B1EE028782362",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000000011c37937e08000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Approve esETH to note from treasuryManager Safe (bounded)",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0",
+        "0x095ea7b30000000000000000000000003b4ec3decfec8e2260be01018f6fe04741a8aa560000000000000000000000000000000000000000000000000011c37937e08000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Set BCF to 0.25",
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "contractName": "EthStrategyConvertibleNote",
+      "signature": "setBCF(uint256)",
+      "args": [
+        "250000000000000000"
+      ]
+    },
+    {
+      "label": "Raise CDT debt cap by 483,143.48",
+      "to": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+      "contractName": "EthStrategyConvertibleNote",
+      "signature": "setMaxDebt(uint256)",
+      "args": [
+        "8274394480000000000000000"
+      ]
+    },
+    {
+      "label": "Mint 483,143.48 CDT",
+      "to": "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+      "contractName": "Safe",
+      "signature": "execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)",
+      "args": [
+        "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+        "0",
+        "0x40c10f19000000000000000000000000f89f49e21a2bd1fb24332462cb21dc1378aa25e100000000000000000000000000000000000000000000664f42b238227cec0000",
+        0,
+        "0",
+        "0",
+        "0",
+        "0x0000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000",
+        "0x000000000000000000000000c53cced6332d06972a7eaedc64fdf6d4af5220b8000000000000000000000000000000000000000000000000000000000000000001"
+      ]
+    },
+    {
+      "label": "Revoke treasuryManager Safe desETH minter",
+      "to": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+      "contractName": "DesEthToken",
+      "signature": "manageMinter(address,bool)",
+      "args": [
+        "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+        false
+      ]
+    },
+    {
+      "label": "Revoke treasuryManager Safe CDT minter",
+      "to": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+      "contractName": "CdtToken",
+      "signature": "manageMinter(address,bool)",
+      "args": [
+        "0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1",
+        false
+      ]
+    }
+  ],
+  "hashes": {
+    "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "chainId": 1,
+    "safeVersion": "1.4.1",
+    "nonce": 227,
+    "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
+    "operation": 1,
+    "innerDataHash": "0xed6cc880b307d12c4a0f7ca9935d17b71e02a2e52e4462c50860164dddbbe76f",
+    "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
+    "messageHash": "0xc36333dcd8bbf02e4e46f3d49c9cef97caac3598298554e56a59ad1f113a8bc5",
+    "safeTxHash": "0x23e985a9b5cbbf962d7ae18eb85c2850fe4862bc9c9f1946c92bf93bc124af35"
+  }
+}
