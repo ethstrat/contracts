@@ -165,7 +165,7 @@ they each write a Safe Transaction Builder JSON batch to
 - `script/deployments/1/multisig/003-espn-redemption/001-0x0cbe9bDD-multisig.json` — `BuildOrder.s.sol`
 - `script/deployments/1/multisig/003-espn-redemption/002-0x0cbe9bDD-multisig.json` — `Cancel.s.sol`
 - `script/deployments/1/multisig/004-stry-migration/001-0x0cbe9bDD-multisig.json` — `StopEspnYield.s.sol` (payer is `.protocol.multisigs.redemption`, the same address and prefix as the two Track A batches above)
-- `script/deployments/1/multisig/004-stry-migration/<NNN>-0x0cbe9bDD-multisig.json`, `NNN ≥ 002` — `PeriodicYield.s.sol`, one new file per 28-day period. The index is **allocated by the script as the first free one** (`001` belongs to `StopEspnYield.s.sol`); it is never an env var and an existing period's batch is never overwritten. To redo a period whose batch was generated but not yet signed, delete that file first. `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed from the airdrop total recorded once in `deploymentAddresses.json` `.earn-airdrop-supply` and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in. EARN minted later by the Safe, including the LP's 2,500, does not change it. The batch itself is two on-chain transactions, `USDS.transfer(stakedEarn, amount)` then `StakedStrat.syncRewards()`; there is no off-chain registration step and no dependency on any external API. The script hard-reverts before writing the batch if `StakedStrat.totalStaked() == 0` — funding the stream before anyone has staked would permanently destroy the deposit — or if the Safe's USDS balance is below `amount`.
+- `script/deployments/1/multisig/004-stry-migration/<NNN>-0x823EfFFA-multisig.json`, `NNN ≥ 002` — `PeriodicYield.s.sol` (payer is `.protocol.multisigs.earnYield`, Safe `0x823EfFFA08f946233D2a502a1B073C5E16Fea16b`, not the redemption Safe), one new file per 28-day period. The index is **allocated by the script as the first free one** (`001` belongs to `StopEspnYield.s.sol`); it is never an env var and an existing period's batch is never overwritten. To redo a period whose batch was generated but not yet signed, delete that file first. `PeriodicYield.s.sol` takes **no env vars** — the transfer amount is computed from live EARN `totalSupply()` minus the LP's EARN (`deploymentAddresses.json` `.earn-lp-supply`, 2,500) and `settings.json`'s `basisPriceUsd`/`annualDividendRatioX100` (the 28-day slice of the annual dividend rate), not passed in. Other EARN minted by the Safe raises it; the LP's 2,500 does not. The batch itself is two on-chain transactions, `USDS.transfer(stakedEarn, amount)` then `StakedStrat.syncRewards()`; there is no off-chain registration step and no dependency on any external API. The script hard-reverts before writing the batch if `StakedStrat.totalStaked() == 0` — funding the stream before anyone has staked would permanently destroy the deposit — or if the Safe's USDS balance is below `amount`.
 - `script/deployments/1/multisig/005-earn-lp/001-0x0cbe9bDD-multisig.json` — `005-earn-lp/ProposeLp.s.sol`, written once. Run it with `--fork-url` mainnet and **without** `--broadcast`: it executes the exact batch as the Safe on a fork of the latest block and writes the file only if every check passes. It refuses if the file already exists or the pool is already initialized.
 
 Every transaction in every batch is written as **raw calldata**: `"data": "0x…"`,
@@ -294,7 +294,7 @@ move ESPN NAV and make Distribute refuse.
 
 `deploymentAddresses.json` ships `earn-airdrop-supply = "0"`. Track B `Distribute.s.sol` writes the real
 airdrop total there once, with `--broadcast`, and refuses to run again once it is nonzero.
-`PeriodicYield.s.sol` reads it as the yield base and reverts while it is `0`.
+`PeriodicYield.s.sol` no longer reads it; the yield base is live EARN supply minus `.earn-lp-supply`.
 
 ## 9. Track B holder notes
 
@@ -312,8 +312,9 @@ airdrop total there once, with `--broadcast`, and refuses to run again once it i
 - **No protocol fee.** The full amount `PeriodicYield.s.sol` transfers reaches the reward
   stream; there is no Merkl-style fee deduction.
 - **EARN supply is not fixed.** The redemption Safe, controlled by the main multisig, can
-  mint additional EARN; any mint dilutes existing holders. The 28-day yield is sized on the
-  original airdrop supply (`.earn-airdrop-supply`), not live supply.
+  mint additional EARN; any mint dilutes existing holders. The 28-day yield is sized on
+  live EARN supply minus the LP's 2,500 EARN (`.earn-lp-supply`), i.e. as if everything except
+  the LP is staked; any other mint raises the base.
 - **`$100 is a nominal basis price, not a redemption guarantee.`** EARN nominally claims
   the full ESPN backing at the snapshot; it is not backed to the extent Track A's 700,000
   USDS redemption pool is.

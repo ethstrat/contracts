@@ -8,13 +8,13 @@ import {ConfigLib} from "../lib/ConfigLib.sol";
 import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 
 /// @notice Repeatable, manually triggered -- NOT one-time automation. No cron, keeper, or CI
-/// schedule. The per-period amount is computed from the recorded airdrop total
-/// (deploymentAddresses.json .earn-airdrop-supply, written once by Distribute.run()) and
-/// settings.json's basisPriceUsd/annualDividendRatioX100. Later EARN mints by the redemption Safe
-/// (e.g. the LP's EARN) do not change the base: it is the recorded airdrop total, not live supply.
+/// schedule. The per-period amount is computed from the yield base -- live EARN totalSupply minus
+/// the EARN minted into the LP (deploymentAddresses.json .earn-lp-supply), i.e. the supply
+/// assuming everything except the LP is staked -- and settings.json's
+/// basisPriceUsd/annualDividendRatioX100. Other EARN mints by the redemption Safe raise the base.
 ///
-/// Never broadcasts: the payer is the redemption Safe. Each run emits a Safe Transaction Builder
-/// batch -- USDS.transfer(stakedEarn, amount), StakedStrat.syncRewards() -- funding the existing
+/// Never broadcasts: the payer is the earn-yield Safe (.protocol.multisigs.earnYield). Each run emits a Safe
+/// Transaction Builder batch -- USDS.transfer(stakedEarn, amount), StakedStrat.syncRewards() -- funding the existing
 /// StakedStrat instance's 28-day reward stream. No approve() step: transfer, not transferFrom.
 contract PeriodicYield is Script {
     /// @dev Fat-finger guard on settings.json's annualDividendRatioX100 -- nothing upstream of
@@ -22,13 +22,13 @@ contract PeriodicYield is Script {
     uint256 internal constant MAX_ANNUAL_DIVIDEND_RATIO_X100 = 3000;
 
     function run() external virtual {
-        address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.redemption");
+        address safe = ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.earnYield");
         address usds = ConfigLib.addr("externalAddresses.json", ".sky-money.USDS");
         address stakedEarn = ConfigLib.addr("deploymentAddresses.json", ".staked-earn");
 
-        uint256 airdropSupply = ConfigLib.num("deploymentAddresses.json", ".earn-airdrop-supply");
+        address earn = ConfigLib.addr("deploymentAddresses.json", ".stry");
 
-        SafeBatchLib.Tx[] memory txs = periodicYield(safe, usds, stakedEarn, airdropSupply);
+        SafeBatchLib.Tx[] memory txs = periodicYield(safe, usds, stakedEarn, yieldBase(earn));
 
         SafeBatchLib.write(
             safe,
@@ -60,21 +60,29 @@ contract PeriodicYield is Script {
         return supplyBase * basisPriceUsd * annualDividendRatioX100 * 28 / 100 / 100 / 365;
     }
 
-    function periodicYieldAmount(uint256 airdropSupply) internal view returns (uint256) {
-        require(airdropSupply > 0, "PeriodicYield: airdropSupply == 0");
+    /// @dev Live EARN supply minus the LP's EARN.
+    function yieldBase(address earn) internal view returns (uint256) {
+        uint256 lpSupply = ConfigLib.num("deploymentAddresses.json", ".earn-lp-supply");
+        uint256 supply = IERC20(earn).totalSupply();
+        require(supply > lpSupply, "PeriodicYield: totalSupply <= LP supply");
+        return supply - lpSupply;
+    }
+
+    function periodicYieldAmount(uint256 base) internal view returns (uint256) {
+        require(base > 0, "PeriodicYield: yield base == 0");
         uint256 basisPriceUsd = ConfigLib.num("settings.json", ".espnv3.basisPriceUsd");
         uint256 annualDividendRatioX100 = ConfigLib.num("settings.json", ".espnv3.annualDividendRatioX100");
-        return _periodicYieldAmountPure(airdropSupply, basisPriceUsd, annualDividendRatioX100);
+        return _periodicYieldAmountPure(base, basisPriceUsd, annualDividendRatioX100);
     }
 
     /// Caller must confirm sEARN totalStaked() > 0 immediately before executing: USDS streamed while it is 0 is
     /// permanently lost.
-    function periodicYield(address safe, address usds, address stakedEarnAddr, uint256 airdropSupply)
+    function periodicYield(address safe, address usds, address stakedEarnAddr, uint256 base)
         internal
         view
         returns (SafeBatchLib.Tx[] memory txs)
     {
-        uint256 amount = periodicYieldAmount(airdropSupply);
+        uint256 amount = periodicYieldAmount(base);
         require(IERC20(usds).balanceOf(safe) >= amount, "PeriodicYield: Safe USDS balance < computed amount");
 
         txs = new SafeBatchLib.Tx[](2);

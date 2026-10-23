@@ -79,6 +79,7 @@ contract Verify is Script, StdCheats, StdAssertions, ProposeLp, Distribute, Peri
         StryToken earn = distribute(deployer, holdersFile);
         vm.stopPrank();
         uint256 airdropSupply = earn.totalSupply();
+        // Pre-LP supply is already the LP-excluded base; yieldBase() would subtract the LP's EARN before it is minted.
         uint256 yieldBefore = periodicYieldAmount(airdropSupply);
 
         // Step 2: the mainnet preflight is a hard require; the fork tops up and says so.
@@ -114,7 +115,12 @@ contract Verify is Script, StdCheats, StdAssertions, ProposeLp, Distribute, Peri
         // Steps 5-12.
         _simulateAndCheck(p, txs);
         assertEq(earn.totalSupply(), airdropSupply + p.fullRangeEarn, "Verify: supply != airdrop + LP EARN");
-        assertEq(periodicYieldAmount(airdropSupply), yieldBefore, "Verify: LP mint moved the yield amount");
+        assertEq(periodicYieldAmount(yieldBase(address(earn))), yieldBefore, "Verify: LP mint moved the yield amount");
+        assertEq(
+            p.fullRangeEarn,
+            ConfigLib.num("deploymentAddresses.json", ".earn-lp-supply"),
+            "Verify: LP EARN != earn-lp-supply"
+        );
 
         // Step 13: buildBatch refuses an initialized pool.
         _assertBuildBatchReverts(address(earn), "ProposeLp: pool already initialized");
