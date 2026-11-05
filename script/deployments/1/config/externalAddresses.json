@@ -22,5 +22,12 @@
   "merkl": {
     "distributionCreator": "0x8BB4C975Ff3c250e0ceEA271728547f3802B36Fd",
     "distributor": "0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae"
+  },
+  "safe": {
+    "multiSendCallOnly": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2"
+  },
+  "uniswap-v3": {
+    "swapRouter02": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+    "quoterV2": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
   }
 }

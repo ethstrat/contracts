@@ -6,6 +6,36 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ConfigLib} from "../../script/deployments/1/lib/ConfigLib.sol";
 import {HoldersLib} from "../../script/deployments/1/lib/HoldersLib.sol";
 import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
+import {SafeBatchDecodedLib} from "../../script/deployments/1/lib/SafeBatchDecodedLib.sol";
+import {WethToStEth} from "../../script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol";
+import {RebalanceParams} from "../../script/deployments/1/009-eseth-weth-rebalance/Params.sol";
+
+/// @dev Exposes the real 009 batch builders and writer so the default (no-fork) CI run exercises the
+/// real decoded descriptors: `_write` -> `SafeBatchDecodedLib.verify` reverts on any wrong descriptor.
+contract WethToStEthHarness is WethToStEth {
+    function lido(uint256 amt) external view returns (SafeBatchDecodedLib.Tx[] memory) {
+        return _lidoTxs(amt);
+    }
+
+    function uni(uint256 amt, uint256 minWst, uint256 stMint) external view returns (SafeBatchDecodedLib.Tx[] memory) {
+        return _uniTxs(amt, minWst, stMint);
+    }
+
+    function write(string memory op, SafeBatchDecodedLib.Tx[] memory txs)
+        external
+        returns (string memory, string memory)
+    {
+        return _write(op, "n", "d", txs);
+    }
+
+    function route() external view returns (Route) {
+        return _route();
+    }
+
+    function parse(string memory s) external pure returns (Route) {
+        return _parseRoute(s);
+    }
+}
 
 contract ScriptLibsTest is Test {
     function test_ConfigLib_addr_confirmedAddresses() public view {
@@ -144,5 +174,178 @@ contract ScriptLibsTest is Test {
 
         // Leave no test artifact behind in the committed multisig output tree.
         vm.removeDir(dir, true);
+    }
+
+    function test_SafeBatchLib_writeWithValues_emitsValue() public {
+        address safe = 0x1111111111111111111111111111111111111111;
+        SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](2);
+        txs[0] = SafeBatchLib.Tx({to: address(0xA), data: hex"01"});
+        txs[1] = SafeBatchLib.Tx({to: address(0xB), data: hex"02"});
+        uint256[] memory values = new uint256[](2);
+        values[1] = 1 ether;
+
+        string memory operation = "999-test-fixture-values";
+        SafeBatchLib.write(safe, operation, 1, "n", "d", txs, values);
+        string memory json = vm.readFile(SafeBatchLib.path(safe, operation, 1));
+
+        assertEq(vm.parseJsonString(json, ".transactions[0].value"), "0");
+        assertEq(vm.parseJsonString(json, ".transactions[1].value"), "1000000000000000000");
+        vm.removeDir(string.concat("script/deployments/1/multisig/", operation), true);
+    }
+
+    /// @dev Pins the 6-arg writer's exact bytes (format copied from the pre-change writer), so the
+    /// delegation is proven byte-identical. The existing round-trip test does not check `value`.
+    function test_SafeBatchLib_write_sixArgBytesUnchanged() public {
+        address safe = 0x1111111111111111111111111111111111111111;
+        SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](1);
+        txs[0] = SafeBatchLib.Tx({to: address(0xA), data: hex"01"});
+
+        string memory operation = "999-test-fixture-bytes";
+        SafeBatchLib.write(safe, operation, 1, "n", "d", txs);
+        string memory expected = string.concat(
+            "{\"version\":\"1.0\",\"chainId\":\"1\",\"createdAt\":",
+            vm.toString(block.timestamp * 1000),
+            ",\"meta\":{\"name\":\"n\",\"description\":\"d\",\"txBuilderVersion\":\"2.0.1\",\"createdFromSafeAddress\":\"",
+            vm.toString(safe),
+            "\",\"createdFromOwnerAddress\":\"\",\"checksum\":null},\"transactions\":[{\"to\":\"",
+            vm.toString(address(0xA)),
+            "\",\"value\":\"0\",\"data\":\"0x01\",\"contractMethod\":null,\"contractInputsValues\":null}]}"
+        );
+        assertEq(vm.readFile(SafeBatchLib.path(safe, operation, 1)), expected);
+        vm.removeDir(string.concat("script/deployments/1/multisig/", operation), true);
+    }
+
+    function test_SafeBatchDecodedLib_write_valueAndPayable() public {
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](2);
+        SafeBatchDecodedLib.Input[] memory none = new SafeBatchDecodedLib.Input[](0);
+        SafeBatchDecodedLib.Input[] memory ref = new SafeBatchDecodedLib.Input[](1);
+        ref[0] = SafeBatchDecodedLib.Input("_referral", "address", vm.toString(address(0)));
+        txs[0] = SafeBatchDecodedLib.Tx(address(0xA), 0, abi.encodeWithSignature("withdraw()"), "withdraw", none);
+        txs[1] = SafeBatchDecodedLib.Tx(
+            address(0xB), 5, abi.encodeWithSignature("submit(address)", address(0)), "submit", ref
+        );
+        SafeBatchDecodedLib.verify(txs[0], 0);
+        SafeBatchDecodedLib.verify(txs[1], 1);
+
+        string memory path = "./tmp/decoded-test.tx-builder.json";
+        SafeBatchDecodedLib.write(path, address(0x1111111111111111111111111111111111111111), "n", "d", txs);
+        string memory json = vm.readFile(path);
+
+        assertEq(vm.parseJsonString(json, ".transactions[0].value"), "0");
+        assertEq(vm.parseJsonString(json, ".transactions[1].value"), "5");
+        assertFalse(vm.parseJsonBool(json, ".transactions[0].contractMethod.payable"));
+        assertTrue(vm.parseJsonBool(json, ".transactions[1].contractMethod.payable"));
+        assertEq(vm.parseJsonString(json, ".transactions[1].contractInputsValues._referral"), vm.toString(address(0)));
+        vm.removeFile(path);
+    }
+
+    // External wrappers: library internals revert in the test frame, so expectRevert needs a CALL boundary.
+    function writeDecodedExt(string memory p, string memory name, SafeBatchDecodedLib.Tx[] memory txs) external {
+        SafeBatchDecodedLib.write(p, address(0x1111111111111111111111111111111111111111), name, "d", txs);
+    }
+
+    function writeRawExt(SafeBatchLib.Tx[] memory txs, uint256[] memory values) external {
+        SafeBatchLib.write(
+            address(0x1111111111111111111111111111111111111111), "999-test-fixture-len", 1, "n", "d", txs, values
+        );
+    }
+
+    function _withdrawTx(uint256 encoded, string memory declared)
+        internal
+        pure
+        returns (SafeBatchDecodedLib.Tx[] memory txs)
+    {
+        SafeBatchDecodedLib.Input[] memory ins = new SafeBatchDecodedLib.Input[](1);
+        ins[0] = SafeBatchDecodedLib.Input("wad", "uint256", declared);
+        txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = SafeBatchDecodedLib.Tx(
+            address(0xA), 0, abi.encodeWithSignature("withdraw(uint256)", encoded), "withdraw", ins
+        );
+    }
+
+    function test_SafeBatchDecodedLib_verify_mismatchReverts() public {
+        string memory p = "./tmp/decoded-mismatch.tx-builder.json";
+        vm.expectRevert(bytes("SafeBatchDecodedLib.verify: decoded descriptor mismatch for tx 0 (withdraw)"));
+        this.writeDecodedExt(p, "n", _withdrawTx(2, "1"));
+        assertFalse(vm.exists(p));
+    }
+
+    function test_SafeBatchDecodedLib_uint256Input_roundTrips() public {
+        string memory p = "./tmp/decoded-uint.tx-builder.json";
+        SafeBatchDecodedLib.write(p, address(0x1111111111111111111111111111111111111111), "n", "d", _withdrawTx(2, "2"));
+        string memory json = vm.readFile(p);
+        assertEq(vm.parseJsonString(json, ".transactions[0].contractInputsValues.wad"), "2");
+        assertEq(vm.parseJsonString(json, ".transactions[0].contractMethod.inputs[0].type"), "uint256");
+        assertEq(vm.parseJsonString(json, ".transactions[0].contractMethod.inputs[0].internalType"), "uint256");
+        vm.removeFile(p);
+    }
+
+    function test_SafeBatchDecodedLib_verify_unhandledTypeReverts() public {
+        SafeBatchDecodedLib.Input[] memory ins = new SafeBatchDecodedLib.Input[](1);
+        ins[0] = SafeBatchDecodedLib.Input("f", "bool", "true");
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = SafeBatchDecodedLib.Tx(address(0xA), 0, abi.encodeWithSignature("set(bool)", true), "set", ins);
+        vm.expectRevert(bytes("SafeBatchDecodedLib.verify: unhandled input type for tx 0"));
+        this.writeDecodedExt("./tmp/decoded-bool.tx-builder.json", "n", txs);
+    }
+
+    function test_SafeBatchLib_write_valuesLengthReverts() public {
+        SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](2);
+        txs[0] = SafeBatchLib.Tx(address(0xA), hex"01");
+        txs[1] = SafeBatchLib.Tx(address(0xB), hex"02");
+        vm.expectRevert(bytes("SafeBatchLib: values length != txs length"));
+        this.writeRawExt(txs, new uint256[](1));
+    }
+
+    function test_SafeBatchDecodedLib_quoteGuardReverts() public {
+        string memory p = "./tmp/decoded-quote.tx-builder.json";
+        vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
+        this.writeDecodedExt(p, "a\"b", _withdrawTx(1, "1"));
+        assertFalse(vm.exists(p));
+        vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
+        this.writeDecodedExt(p, "n", _withdrawTx(1, "1\\"));
+        assertFalse(vm.exists(p));
+        SafeBatchDecodedLib.Tx[] memory txs = _withdrawTx(1, "1");
+        txs[0].inputs[0].typ = "uint256\\";
+        vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
+        this.writeDecodedExt(p, "n", txs);
+        assertFalse(vm.exists(p));
+    }
+
+    function test_SafeBatchDecodedLib_rawFallback_writesData() public {
+        string memory p = "./tmp/decoded-raw.tx-builder.json";
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = SafeBatchDecodedLib.Tx(address(0xC), 0, hex"04e45aaf01", "", new SafeBatchDecodedLib.Input[](0));
+        SafeBatchDecodedLib.write(p, address(0x1111111111111111111111111111111111111111), "n", "d", txs);
+        string memory json = vm.readFile(p);
+        assertEq(vm.parseJsonBytes(json, ".transactions[0].data"), hex"04e45aaf01");
+        assertTrue(vm.contains(json, "\"contractMethod\":null,\"contractInputsValues\":null"));
+        vm.removeFile(p);
+    }
+
+    function test_009_realDescriptors_verifyAndWrite() public {
+        string memory op = "999-test-fixture-descriptors";
+        string memory dir = string.concat("script/deployments/1/multisig/", op);
+        if (vm.exists(dir)) vm.removeDir(dir, true); // left behind by a prior failed run
+        WethToStEthHarness c = new WethToStEthHarness();
+        (, string memory lidoJson) = c.write(op, c.lido(50 ether));
+        (, string memory uniJson) = c.write(op, c.uni(1 ether, 0.8 ether, 0.9 ether));
+
+        string memory lido = vm.readFile(lidoJson);
+        string memory uniswap = vm.readFile(uniJson);
+        string[5] memory lidoNames = ["redeem", "withdraw", "submit", "approve", "mint"];
+        for (uint256 i; i < lidoNames.length; i++) {
+            assertTrue(vm.contains(lido, string.concat("\"name\":\"", lidoNames[i], "\"")));
+        }
+        assertTrue(vm.contains(uniswap, "\"name\":\"unwrap\""));
+        vm.removeDir(dir, true);
+    }
+
+    function test_009_params_defaultsAreValid() public {
+        WethToStEthHarness h = new WethToStEthHarness();
+        // Valid whatever Params.ROUTE or the ROUTE env var holds: both must parse.
+        h.parse(RebalanceParams.ROUTE);
+        h.route();
+        assertLe(RebalanceParams.SLIPPAGE_BPS, RebalanceParams.MAX_SLIPPAGE_BPS);
     }
 }
