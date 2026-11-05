@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {console2} from "forge-std/Script.sol";
+import {Script, console2} from "forge-std/Script.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {esETH} from "src/esETH.sol";
 import {ConfigLib} from "../lib/ConfigLib.sol";
+import {SafeBatchLib} from "../lib/SafeBatchLib.sol";
 import {SafeBatchDecodedLib} from "../lib/SafeBatchDecodedLib.sol";
-import {RebalanceBase, IWETH9} from "./RebalanceBase.s.sol";
 import {RebalanceParams} from "./Params.sol";
 
 interface ILido {
@@ -51,6 +51,29 @@ interface IWstETH {
     function getStETHByWstETH(uint256 wstETHAmount) external view returns (uint256);
 }
 
+interface ISafe {
+    function nonce() external view returns (uint256);
+    function getOwners() external view returns (address[] memory);
+    function getThreshold() external view returns (uint256);
+    function execTransaction(
+        address to,
+        uint256 value,
+        bytes calldata data,
+        uint8 operation,
+        uint256 safeTxGas,
+        uint256 baseGas,
+        uint256 gasPrice,
+        address gasToken,
+        address payable refundReceiver,
+        bytes memory signatures
+    ) external payable returns (bool);
+}
+
+interface IWETH9 {
+    function withdraw(uint256 wad) external;
+    function approve(address guy, uint256 wad) external returns (bool);
+}
+
 /// @notice Unencumbered-Safe batch, run each fortnight: redeems AMOUNT (whole ETH) of WETH from esETH,
 /// converts it to stETH, mints the stETH into esETH. Route (`RebalanceParams.ROUTE` = auto|lido|uniswap,
 /// env `ROUTE` overrides):
@@ -62,7 +85,7 @@ interface IWstETH {
 /// the auto winner at the current block, writes nothing.
 /// Pipeline: `[AMOUNT=<ETH>] [ROUTE=..] [SLIPPAGE_BPS=..] forge script ... --fork-url $RPC_URL` ->
 /// `yarn safe:hash <raw> --write [--nonce N]` -> `yarn safe:simulate <raw>` -> `yarn safe:propose <raw>`.
-contract WethToStEth is RebalanceBase {
+contract WethToStEth is Script {
     string internal constant OPERATION = "009-eseth-weth-rebalance/steth";
     uint24 internal constant POOL_FEE = 100; // v3 WETH/wstETH 0.01%, best Uniswap WETH->stETH liquidity (spec A5)
 
@@ -73,12 +96,16 @@ contract WethToStEth is RebalanceBase {
         Compare
     }
 
+    /// @dev Pre-checked inputs and both routes' numbers. `quoteWst`, `minWst`, `uniMint`, `parOk`, `winner` are
+    /// set only when the Uniswap quote was taken.
     struct Cmp {
+        uint256 amt;
         uint256 lidoMint;
         bool lidoPaused;
         uint256 stakeLimit;
-        uint256 headroom; // stakeLimit - amt, 0 if AMOUNT > stakeLimit
+        bool lidoOk; // not paused and amt <= stakeLimit
         uint256 quoteWst;
+        uint256 minWst;
         uint256 uniMint;
         bool parOk;
         Route winner;
@@ -92,6 +119,22 @@ contract WethToStEth is RebalanceBase {
         uint256 safeEsEth;
         uint256 safeSt;
         uint256 lidoShares; // sharesOf(Safe) + sharesOf(esETH)
+    }
+
+    function safe() internal view returns (address) {
+        return ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.unencumbered");
+    }
+
+    function eseth() internal view returns (address) {
+        return ConfigLib.addr("deploymentAddresses.json", ".esETH");
+    }
+
+    function weth() internal view returns (address) {
+        return ConfigLib.addr("externalAddresses.json", ".WETH");
+    }
+
+    function multiSendCallOnly() internal view returns (address) {
+        return ConfigLib.addr("externalAddresses.json", ".safe.multiSendCallOnly");
     }
 
     function steth() internal view returns (address) {
@@ -138,34 +181,37 @@ contract WethToStEth is RebalanceBase {
     }
 
     /// @dev Read-only: quotes both routes at the current block and logs what `auto` would pick. No simulation,
-    /// no files. Same pre-checks as a real run so a wrong AMOUNT fails here too.
+    /// no files. Same pre-checks as a real run (`_prep`) so a wrong AMOUNT or stETH config fails here too.
     function _compare(uint256 amountEth, uint256 slippageBps) internal returns (Cmp memory c) {
-        uint256 amt = _amountWei(amountEth);
-        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "WethToStEth: SLIPPAGE_BPS > 100");
-        _checkCommon(amt);
-        console2.log("block", block.number);
-        _logNonce();
-
-        c.lidoMint = amt - 2;
-        c.lidoPaused = ILido(steth()).isStakingPaused();
-        c.stakeLimit = ILido(steth()).getCurrentStakeLimit();
-        c.headroom = c.stakeLimit > amt ? c.stakeLimit - amt : 0;
-        bool lidoOk = _lidoOk(amt);
-        (c.quoteWst,, c.uniMint) = _quoteUni(amt, slippageBps);
-        c.parOk = c.uniMint >= _parFloor(amt, slippageBps);
-        c.winner = _pick(c.uniMint, c.lidoMint, lidoOk);
-
+        c = _prep(amountEth, slippageBps, true);
         console2.log("Lido mint after slippage (wei)", c.lidoMint);
         console2.log("Lido paused", c.lidoPaused);
         console2.log("Lido stake limit (wei)", c.stakeLimit);
-        console2.log("Lido headroom over AMOUNT (wei, 0 = AMOUNT > limit)", c.headroom);
+        console2.log("Lido usable (not paused, AMOUNT <= stake limit)", c.lidoOk);
         console2.log("Uniswap mint after slippage (wei)", c.uniMint);
-        console2.log("Uniswap par floor ok (run reverts if false)", c.parOk);
+        console2.log("Uniswap par floor ok (enforced only if Uniswap route is chosen)", c.parOk);
         console2.log("auto winner (1 lido, 2 uniswap)", uint256(c.winner));
     }
 
-    function _lidoOk(uint256 amt) internal view returns (bool) {
-        return !ILido(steth()).isStakingPaused() && amt <= ILido(steth()).getCurrentStakeLimit();
+    /// @dev Pre-checks and route numbers shared by a real run and `compare`. Lido state is read once. The
+    /// Uniswap quote is skipped when `quote` is false (forced Lido must not need a pool).
+    function _prep(uint256 amountEth, uint256 slippageBps, bool quote) internal returns (Cmp memory c) {
+        c.amt = _amountWei(amountEth);
+        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "WethToStEth: SLIPPAGE_BPS > 100");
+        _checkCommon(c.amt);
+        (esETH.TokenType tokenType,,,) = esETH(payable(eseth())).tokenConfigs(steth());
+        require(tokenType == esETH.TokenType.ERC20, "WethToStEth: stETH tokenType != ERC20");
+        _logBlockNonce();
+
+        c.lidoMint = c.amt - 2;
+        c.lidoPaused = ILido(steth()).isStakingPaused();
+        c.stakeLimit = ILido(steth()).getCurrentStakeLimit();
+        c.lidoOk = !c.lidoPaused && c.amt <= c.stakeLimit;
+        if (quote) {
+            (c.quoteWst, c.minWst, c.uniMint) = _quoteUni(c.amt, slippageBps);
+            c.parOk = c.uniMint >= _parFloor(c.amt, slippageBps);
+            c.winner = _pick(c.uniMint, c.lidoMint, c.lidoOk);
+        }
     }
 
     function _pick(uint256 stMintUni, uint256 lidoMint, bool lidoOk) internal pure returns (Route) {
@@ -193,44 +239,33 @@ contract WethToStEth is RebalanceBase {
         internal
         returns (SafeBatchDecodedLib.Tx[] memory txs, Route chosen)
     {
-        uint256 amt = _amountWei(amountEth);
-        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "WethToStEth: SLIPPAGE_BPS > 100");
-        _checkCommon(amt);
-        (esETH.TokenType tokenType,,,) = esETH(payable(eseth())).tokenConfigs(steth());
-        require(tokenType == esETH.TokenType.ERC20, "WethToStEth: stETH tokenType != ERC20");
-        _logNonce();
-
-        uint256 lidoMint = amt - 2;
-        bool lidoOk = _lidoOk(amt);
-        uint256 minWst;
-        uint256 stMintUni;
-        if (route != Route.Lido) (, minWst, stMintUni) = _quoteUni(amt, slippageBps);
-        chosen = route;
-        if (route == Route.Auto) chosen = _pick(stMintUni, lidoMint, lidoOk);
-        console2.log("Lido mint (wei)", lidoMint);
-        console2.log("Uniswap mint (wei)", stMintUni);
+        Cmp memory c = _prep(amountEth, slippageBps, route != Route.Lido);
+        uint256 amt = c.amt;
+        chosen = route == Route.Auto ? c.winner : route;
+        console2.log("Lido mint (wei)", c.lidoMint);
+        console2.log("Uniswap mint (wei)", c.uniMint);
         console2.log("route (1 lido, 2 uniswap)", uint256(chosen));
 
         Before memory b = _before();
         if (chosen == Route.Lido) {
-            require(!ILido(steth()).isStakingPaused(), "WethToStEth: Lido staking paused");
-            require(amt <= ILido(steth()).getCurrentStakeLimit(), "WethToStEth: AMOUNT > Lido stake limit");
+            require(!c.lidoPaused, "WethToStEth: Lido staking paused");
+            require(amt <= c.stakeLimit, "WethToStEth: AMOUNT > Lido stake limit");
             txs = _lidoTxs(amt);
             _checkBatch(txs, chosen, amt, 0, slippageBps);
             _simulate(txs);
-            _assertConverted(amt, lidoMint, b);
+            _assertConverted(amt, c.lidoMint, b);
             require(
-                ILido(steth()).getPooledEthByShares(_lidoShares() - b.lidoShares) >= lidoMint,
+                ILido(steth()).getPooledEthByShares(_lidoShares() - b.lidoShares) >= c.lidoMint,
                 "WethToStEth sim: Lido stETH received < amt - 2"
             );
         } else {
-            require(minWst > 0, "WethToStEth: Uniswap minWst == 0");
-            require(stMintUni > 0, "WethToStEth: Uniswap stMint == 0");
-            txs = _uniTxs(amt, minWst, stMintUni);
-            _checkBatch(txs, chosen, amt, minWst, slippageBps);
+            require(c.minWst > 0, "WethToStEth: Uniswap minWst == 0");
+            require(c.uniMint > 0, "WethToStEth: Uniswap stMint == 0");
+            txs = _uniTxs(amt, c.minWst, c.uniMint);
+            _checkBatch(txs, chosen, amt, c.minWst, slippageBps);
             uint256 wstBefore = IERC20(wsteth()).balanceOf(safe());
             _simulate(txs);
-            _assertConverted(amt, stMintUni, b);
+            _assertConverted(amt, c.uniMint, b);
             require(IERC20(weth()).allowance(safe(), swapRouter02()) == 0, "WethToStEth sim: router allowance left");
             require(IERC20(wsteth()).balanceOf(safe()) >= wstBefore, "WethToStEth sim: Safe wstETH fell");
         }
@@ -247,7 +282,6 @@ contract WethToStEth is RebalanceBase {
         stMintUni = _stMintFor(minWst);
         console2.log("Uniswap quote (wstETH)", quoteWst);
         console2.log("Uniswap minWst", minWst);
-        console2.log("Uniswap stMint", stMintUni);
     }
 
     /// @dev stETH minted for `minWst` wstETH, rate from wstETH itself (not the pool quote), less 2 wei rounding.
@@ -432,5 +466,105 @@ contract WethToStEth is RebalanceBase {
         require(IERC20(e).totalSupply() + amt + 1 == b.supply + stMint, "WethToStEth sim: esETH supply delta");
         require(IERC20(e).balanceOf(s) + amt + 1 == b.safeEsEth + stMint, "WethToStEth sim: Safe esETH delta");
         require(IERC20(steth()).balanceOf(s) >= b.safeSt, "WethToStEth sim: mint drew on Safe stETH stock");
+        require(IERC20(steth()).allowance(s, e) == 0, "WethToStEth sim: stETH allowance left");
+    }
+
+    /// @dev AMOUNT is whole ETH; a wei value passed by mistake trips the WETH balance cap in `_checkCommon`.
+    function _amountWei(uint256 amountEth) internal pure returns (uint256 amt) {
+        require(amountEth > 0, "WethToStEth: AMOUNT must be > 0");
+        amt = amountEth * 1 ether;
+        console2.log("AMOUNT (ETH)", amountEth);
+        console2.log("amt (wei)", amt);
+    }
+
+    function _checkCommon(uint256 amt) internal view {
+        esETH e = esETH(payable(eseth()));
+        address s = safe();
+        address w = weth();
+        require(e.treasuryManager() == s, "WethToStEth: esETH.treasuryManager() != Safe");
+        require(e.isMinter(s), "WethToStEth: Safe is not an esETH minter");
+        (esETH.TokenType tokenType,,, uint256 totalMinted) = e.tokenConfigs(w);
+        require(tokenType == esETH.TokenType.ERC20, "WethToStEth: WETH tokenType != ERC20");
+        require(amt <= IERC20(w).balanceOf(address(e)), "WethToStEth: AMOUNT > WETH.balanceOf(esETH)");
+        require(amt <= totalMinted, "WethToStEth: AMOUNT > esETH WETH totalMinted");
+        require(amt + 1 <= e.balanceOf(s), "WethToStEth: AMOUNT + 1 > esETH.balanceOf(Safe)");
+    }
+
+    function _logBlockNonce() internal view {
+        console2.log("block", block.number);
+        console2.log("Safe nonce (on-chain, excludes Safe queue)", ISafe(safe()).nonce());
+    }
+
+    /// @dev Executes the batch as the Safe via the real execTransaction + MultiSendCallOnly. Not
+    /// SafeBatchLib.execute: WETH.withdraw reverts under vm.prank(SAFE) (2300 stipend, cold proxy).
+    function _simulate(SafeBatchDecodedLib.Tx[] memory txs) internal {
+        address s = safe();
+        uint256 wethBefore = IERC20(weth()).balanceOf(s);
+        uint256 ethBefore = s.balance;
+
+        bytes memory packed;
+        for (uint256 i = 0; i < txs.length; i++) {
+            // uint256 value, never a narrower type: a truncated value still executes
+            packed = abi.encodePacked(packed, uint8(0), txs[i].to, txs[i].value, txs[i].data.length, txs[i].data);
+        }
+        ISafe sf = ISafe(s);
+        address ms = multiSendCallOnly(); // resolve before vm.prank: only execTransaction may carry the prank
+        if (sf.getThreshold() > 1) vm.store(s, bytes32(uint256(4)), bytes32(uint256(1))); // fork-only
+        address owner = sf.getOwners()[0];
+        bytes memory sig = abi.encodePacked(uint256(uint160(owner)), bytes32(0), uint8(1));
+        bytes memory msData = abi.encodeWithSignature("multiSend(bytes)", packed);
+        vm.prank(owner);
+        bool ok = sf.execTransaction(ms, 0, msData, 1, 0, 0, 0, address(0), payable(address(0)), sig);
+        require(ok, "WethToStEth sim: execTransaction returned false");
+
+        require(IERC20(weth()).balanceOf(s) == wethBefore, "WethToStEth sim: WETH stranded in Safe");
+        require(s.balance == ethBefore, "WethToStEth sim: ETH stranded in Safe");
+    }
+
+    /// @dev Returns the calldata args of `t` after asserting its target and selector.
+    function _at(SafeBatchDecodedLib.Tx memory t, address to, bytes4 sel) internal pure returns (bytes memory a) {
+        require(t.to == to && bytes4(t.data) == sel, "WethToStEth batch: wrong target/selector");
+        a = new bytes(t.data.length - 4);
+        for (uint256 i; i < a.length; i++) {
+            a[i] = t.data[i + 4];
+        }
+    }
+
+    function _in(string memory name, string memory typ, string memory value)
+        internal
+        pure
+        returns (SafeBatchDecodedLib.Input memory)
+    {
+        return SafeBatchDecodedLib.Input(name, typ, value);
+    }
+
+    function _firstFreeIndex(string memory operation) internal view returns (uint256 index) {
+        index = 1;
+        while (vm.exists(SafeBatchLib.path(safe(), operation, index))) index++;
+    }
+
+    /// @dev Decoded file first: its verify + string guard revert before any raw file exists.
+    function _write(
+        string memory operation,
+        string memory name,
+        string memory description,
+        SafeBatchDecodedLib.Tx[] memory txs
+    ) internal virtual returns (string memory rawPath, string memory decodedPath) {
+        uint256 index = _firstFreeIndex(operation);
+        rawPath = SafeBatchLib.path(safe(), operation, index);
+        decodedPath = vm.replace(rawPath, ".json", ".tx-builder.json");
+        vm.createDir(string.concat("script/deployments/1/multisig/", operation), true);
+        SafeBatchDecodedLib.write(decodedPath, safe(), name, description, txs);
+
+        SafeBatchLib.Tx[] memory raw = new SafeBatchLib.Tx[](txs.length);
+        uint256[] memory values = new uint256[](txs.length);
+        for (uint256 i = 0; i < txs.length; i++) {
+            raw[i] = SafeBatchLib.Tx(txs[i].to, txs[i].data);
+            values[i] = txs[i].value;
+        }
+        SafeBatchLib.write(safe(), operation, index, name, description, raw, values);
+        console2.log("index", index);
+        console2.log("raw", rawPath);
+        console2.log("decoded", decodedPath);
     }
 }

@@ -188,7 +188,7 @@ contract WethToStEthForkTest is Test {
     }
 
     function testFork_zero_reverts() public {
-        vm.expectRevert(bytes("Rebalance: AMOUNT must be > 0"));
+        vm.expectRevert(bytes("WethToStEth: AMOUNT must be > 0"));
         harness.exposed_buildAndSimulate(0, WethToStEth.Route.Lido, 10);
     }
 
@@ -230,7 +230,8 @@ contract WethToStEthForkTest is Test {
         assertEq(uint8(c.winner), uint8(WethToStEth.Route.Lido));
         assertEq(c.lidoMint, 50 ether - 2);
         assertFalse(c.lidoPaused);
-        assertEq(c.headroom, ILido(STETH).getCurrentStakeLimit() - 50 ether);
+        assertEq(c.stakeLimit, ILido(STETH).getCurrentStakeLimit());
+        assertTrue(c.lidoOk);
         assertEq(c.quoteWst, _quote(50 ether));
         assertEq(c.uniMint, IWstETH(WSTETH).getStETHByWstETH(c.quoteWst * 9990 / 10_000) - 2);
         assertTrue(c.parOk);
@@ -247,6 +248,7 @@ contract WethToStEthForkTest is Test {
         vm.mockCall(STETH, abi.encodeWithSignature("isStakingPaused()"), abi.encode(true));
         WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
         assertTrue(c.lidoPaused);
+        assertFalse(c.lidoOk);
         assertEq(uint8(c.winner), uint8(WethToStEth.Route.Uniswap));
     }
 
@@ -254,7 +256,7 @@ contract WethToStEthForkTest is Test {
         vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(0.5 ether)));
         WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
         assertEq(c.stakeLimit, 0.5 ether);
-        assertEq(c.headroom, 0);
+        assertFalse(c.lidoOk);
         assertEq(uint8(c.winner), uint8(WethToStEth.Route.Uniswap));
     }
 
@@ -267,8 +269,21 @@ contract WethToStEthForkTest is Test {
     function testFork_compare_stakeLimitEqualsAmount_lidoOk() public {
         vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(1 ether)));
         WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
-        assertEq(c.headroom, 0);
+        assertTrue(c.lidoOk);
         assertEq(uint8(c.winner), uint8(WethToStEth.Route.Lido));
+    }
+
+    function testFork_compare_tie_picksLido() public {
+        // rate mocked so Uniswap mint == Lido mint (1 ether - 2) exactly
+        vm.mockCall(WSTETH, abi.encodeWithSelector(IWstETH.getStETHByWstETH.selector), abi.encode(uint256(1 ether)));
+        WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
+        assertEq(c.uniMint, c.lidoMint);
+        assertEq(uint8(c.winner), uint8(WethToStEth.Route.Lido));
+    }
+
+    function testFork_stakeLimitEqualsAmount_forcedLido_passes() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(1 ether)));
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
     /// @dev wstETH rate mocked so the Uniswap mint lands exactly on the par floor (1 ETH, 10 bps: 0.999 ether).
@@ -298,8 +313,14 @@ contract WethToStEthForkTest is Test {
 
     function testFork_compare_aboveWethBalance_reverts() public {
         uint256 over = IERC20(WETH).balanceOf(ESETH) / 1e18 + 1;
-        vm.expectRevert(bytes("Rebalance: AMOUNT > WETH.balanceOf(esETH)"));
+        vm.expectRevert(bytes("WethToStEth: AMOUNT > WETH.balanceOf(esETH)"));
         harness.exposed_compare(over, 10);
+    }
+
+    function testFork_compare_stethTokenTypeNotErc20_reverts() public {
+        _mockCfg(STETH, 0, 0);
+        vm.expectRevert(bytes("WethToStEth: stETH tokenType != ERC20"));
+        harness.exposed_compare(1, 10);
     }
 
     function testFork_compare_slippageAtCap_passes() public {
@@ -414,7 +435,7 @@ contract WethToStEthForkTest is Test {
         uint256 stMint = IWstETH(WSTETH).getStETHByWstETH(minWst) - 2;
         SafeBatchDecodedLib.Tx[] memory txs = harness.exposed_uniTxs(1 ether, minWst, stMint);
         txs[3].to = address(0xdead);
-        vm.expectRevert(bytes("Rebalance batch: wrong target/selector"));
+        vm.expectRevert(bytes("WethToStEth batch: wrong target/selector"));
         harness.exposed_checkBatch(txs, WethToStEth.Route.Uniswap, 1 ether, minWst, 10);
     }
 
@@ -542,7 +563,7 @@ contract WethToStEthForkTest is Test {
     function testFork_checkBatch_wrongSelector_reverts() public {
         (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
         txs[3].data = abi.encodeWithSelector(bytes4(0xdeadbeef), minWst);
-        _expectUni(txs, minWst, "Rebalance batch: wrong target/selector");
+        _expectUni(txs, minWst, "WethToStEth batch: wrong target/selector");
     }
 
     function testFork_checkBatch_redeemToken_reverts() public {
@@ -704,7 +725,7 @@ contract WethToStEthForkTest is Test {
     function testFork_checkBatch_lidoWrongTarget_reverts() public {
         SafeBatchDecodedLib.Tx[] memory txs = _lido();
         txs[2].to = address(0xdead);
-        _expectLido(txs, "Rebalance batch: wrong target/selector");
+        _expectLido(txs, "WethToStEth batch: wrong target/selector");
     }
 
     // ---- buildAndSimulate invokes _checkBatch on both routes ----
@@ -807,6 +828,22 @@ contract WethToStEthForkTest is Test {
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Uniswap, 10);
     }
 
+    function _mockStethAllowanceLeft() internal {
+        vm.mockCall(STETH, abi.encodeWithSignature("allowance(address,address)", SAFE, ESETH), abi.encode(uint256(1)));
+    }
+
+    function testFork_sim_stethAllowanceLeft_lido_reverts() public {
+        _mockStethAllowanceLeft();
+        vm.expectRevert(bytes("WethToStEth sim: stETH allowance left"));
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_stethAllowanceLeft_uniswap_reverts() public {
+        _mockStethAllowanceLeft();
+        vm.expectRevert(bytes("WethToStEth sim: stETH allowance left"));
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Uniswap, 10);
+    }
+
     function testFork_sim_safeWstethFell_reverts() public {
         bytes[] memory rets = new bytes[](2);
         rets[0] = abi.encode(uint256(10 ether)); // before the simulation
@@ -821,7 +858,7 @@ contract WethToStEthForkTest is Test {
     function testFork_simulate_wethStranded_reverts() public {
         SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
         txs[0] = _lido()[0]; // redeem only: WETH lands in the Safe and stays
-        vm.expectRevert(bytes("Rebalance sim: WETH stranded in Safe"));
+        vm.expectRevert(bytes("WethToStEth sim: WETH stranded in Safe"));
         harness.exposed_simulate(txs);
     }
 
@@ -830,7 +867,7 @@ contract WethToStEthForkTest is Test {
         SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](2);
         txs[0] = l[0];
         txs[1] = l[1]; // redeem + withdraw: ETH lands in the Safe and stays
-        vm.expectRevert(bytes("Rebalance sim: ETH stranded in Safe"));
+        vm.expectRevert(bytes("WethToStEth sim: ETH stranded in Safe"));
         harness.exposed_simulate(txs);
     }
 
@@ -841,11 +878,11 @@ contract WethToStEthForkTest is Test {
             keccak256("execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)")
         );
         vm.mockCall(SAFE, abi.encodePacked(exec), abi.encode(false));
-        vm.expectRevert(bytes("Rebalance sim: execTransaction returned false"));
+        vm.expectRevert(bytes("WethToStEth sim: execTransaction returned false"));
         harness.exposed_simulate(txs);
     }
 
-    // ---- shared RebalanceBase checks (_checkCommon, threshold override, index scan) ----
+    // ---- shared pre-checks (_checkCommon, threshold override, index scan) ----
 
     function testFork_thresholdAboveOne_passes() public {
         vm.store(SAFE, bytes32(uint256(4)), bytes32(uint256(2)));
@@ -854,37 +891,37 @@ contract WethToStEthForkTest is Test {
 
     function testFork_aboveWethBalance_reverts() public {
         uint256 over = IERC20(WETH).balanceOf(ESETH) / 1e18 + 1;
-        vm.expectRevert(bytes("Rebalance: AMOUNT > WETH.balanceOf(esETH)"));
+        vm.expectRevert(bytes("WethToStEth: AMOUNT > WETH.balanceOf(esETH)"));
         harness.exposed_buildAndSimulate(over, WethToStEth.Route.Lido, 10);
     }
 
     function testFork_weiPassedByMistake_reverts() public {
-        vm.expectRevert(bytes("Rebalance: AMOUNT > WETH.balanceOf(esETH)"));
+        vm.expectRevert(bytes("WethToStEth: AMOUNT > WETH.balanceOf(esETH)"));
         harness.exposed_buildAndSimulate(50000000000000000000, WethToStEth.Route.Lido, 10);
     }
 
     function testFork_aboveTotalMinted_reverts() public {
         (,,, uint256 totalMinted) = esETH(payable(ESETH)).tokenConfigs(WETH);
         deal(WETH, ESETH, totalMinted + 5 ether);
-        vm.expectRevert(bytes("Rebalance: AMOUNT > esETH WETH totalMinted"));
+        vm.expectRevert(bytes("WethToStEth: AMOUNT > esETH WETH totalMinted"));
         harness.exposed_buildAndSimulate(totalMinted / 1e18 + 1, WethToStEth.Route.Lido, 10);
     }
 
     function testFork_safeEsEthZero_reverts() public {
         deal(ESETH, SAFE, 0);
-        vm.expectRevert(bytes("Rebalance: AMOUNT + 1 > esETH.balanceOf(Safe)"));
+        vm.expectRevert(bytes("WethToStEth: AMOUNT + 1 > esETH.balanceOf(Safe)"));
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
     function testFork_treasuryManagerNotSafe_reverts() public {
         vm.mockCall(ESETH, abi.encodeWithSignature("treasuryManager()"), abi.encode(address(1)));
-        vm.expectRevert(bytes("Rebalance: esETH.treasuryManager() != Safe"));
+        vm.expectRevert(bytes("WethToStEth: esETH.treasuryManager() != Safe"));
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
     function testFork_safeNotMinter_reverts() public {
         vm.mockCall(ESETH, abi.encodeWithSignature("isMinter(address)", SAFE), abi.encode(false));
-        vm.expectRevert(bytes("Rebalance: Safe is not an esETH minter"));
+        vm.expectRevert(bytes("WethToStEth: Safe is not an esETH minter"));
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
@@ -892,7 +929,7 @@ contract WethToStEthForkTest is Test {
         vm.mockCall(
             ESETH, abi.encodeWithSignature("tokenConfigs(address)", WETH), abi.encode(uint8(0), true, true, uint256(0))
         );
-        vm.expectRevert(bytes("Rebalance: WETH tokenType != ERC20"));
+        vm.expectRevert(bytes("WethToStEth: WETH tokenType != ERC20"));
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
