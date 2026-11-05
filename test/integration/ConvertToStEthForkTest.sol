@@ -638,4 +638,24 @@ contract ConvertToStEthForkTest is Test {
         vm.expectRevert(bytes("Rebalance sim: ETH stranded in Safe"));
         harness.exposed_simulate(txs);
     }
+
+    function testFork_simulate_execReturnsFalse_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = _lido()[0];
+        bytes4 exec = bytes4(
+            keccak256("execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)")
+        );
+        vm.mockCall(SAFE, abi.encodePacked(exec), abi.encode(false));
+        vm.expectRevert(bytes("Rebalance sim: execTransaction returned false"));
+        harness.exposed_simulate(txs);
+    }
+
+    function testFork_lido_doesNotNeedUniswapQuote() public {
+        vm.mockCallRevert(
+            QUOTER,
+            abi.encodePacked(bytes4(keccak256("quoteExactInputSingle((address,address,uint256,uint24,uint160))"))),
+            "no pool"
+        );
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
 }
