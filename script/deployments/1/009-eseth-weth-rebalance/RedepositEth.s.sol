@@ -39,6 +39,26 @@ contract RedepositEth is RebalanceBase {
         address s = safe();
         address e = eseth();
         address w = weth();
+        txs = _txs(amt);
+
+        uint256 wethEsEthBefore = IERC20(w).balanceOf(e);
+        (,,, uint256 mintedBefore) = esETH(payable(e)).tokenConfigs(w);
+        uint256 supplyBefore = IERC20(e).totalSupply();
+        uint256 safeEsEthBefore = IERC20(e).balanceOf(s);
+
+        _simulate(txs);
+
+        (,,, uint256 mintedAfter) = esETH(payable(e)).tokenConfigs(w);
+        require(IERC20(w).balanceOf(e) == wethEsEthBefore, "RedepositEth sim: esETH WETH changed");
+        require(mintedAfter == mintedBefore, "RedepositEth sim: WETH totalMinted changed");
+        require(IERC20(e).totalSupply() + 1 == supplyBefore, "RedepositEth sim: esETH supply delta != 1");
+        require(IERC20(e).balanceOf(s) + 1 == safeEsEthBefore, "RedepositEth sim: Safe esETH delta != 1");
+    }
+
+    function _txs(uint256 amt) internal view returns (SafeBatchDecodedLib.Tx[] memory txs) {
+        address s = safe();
+        address e = eseth();
+        address w = weth();
         txs = new SafeBatchDecodedLib.Tx[](3);
 
         SafeBatchDecodedLib.Input[] memory in0 = new SafeBatchDecodedLib.Input[](3);
@@ -54,18 +74,5 @@ contract RedepositEth is RebalanceBase {
         SafeBatchDecodedLib.Input[] memory in2 = new SafeBatchDecodedLib.Input[](1);
         in2[0] = _in("receiver", "address", vm.toString(s));
         txs[2] = SafeBatchDecodedLib.Tx(e, amt, abi.encodeCall(esETH.wrapAndMint, (s)), "wrapAndMint", in2);
-
-        uint256 wethEsEthBefore = IERC20(w).balanceOf(e);
-        (,,, uint256 mintedBefore) = esETH(payable(e)).tokenConfigs(w);
-        uint256 supplyBefore = IERC20(e).totalSupply();
-        uint256 safeEsEthBefore = IERC20(e).balanceOf(s);
-
-        _simulate(txs);
-
-        (,,, uint256 mintedAfter) = esETH(payable(e)).tokenConfigs(w);
-        require(IERC20(w).balanceOf(e) == wethEsEthBefore, "RedepositEth sim: esETH WETH changed");
-        require(mintedAfter == mintedBefore, "RedepositEth sim: WETH totalMinted changed");
-        require(IERC20(e).totalSupply() + 1 == supplyBefore, "RedepositEth sim: esETH supply delta != 1");
-        require(IERC20(e).balanceOf(s) + 1 == safeEsEthBefore, "RedepositEth sim: Safe esETH delta != 1");
     }
 }

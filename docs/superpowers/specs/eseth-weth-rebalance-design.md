@@ -136,6 +136,23 @@ stETH stock). Lido route also: stETH received `>= amt - 2`, measured as
 `getPooledEthByShares(delta(sharesOf(SAFE) + sharesOf(esETH)))` (no other stETH moves in the batch).
 Uniswap route also: `WETH.allowance(SAFE, SwapRouter02) == 0` after, Safe wstETH delta `>= 0`.
 
+### In-script batch guards (ConvertToStEth)
+
+`_checkBatch` runs on the built batch before simulation and before any file is written (named reverts):
+- Allowlist: every tx `(to, selector)` is one of esETH `redeem|mint`, WETH `approve|withdraw`, stETH
+  `submit|approve`, SwapRouter02 `exactInputSingle`, wstETH `unwrap`; value is 0 except Lido `submit` (`== amt`).
+- Decodes every tx and asserts position, target, selector and args: `redeem(WETH, amt, SAFE)`; stETH
+  `approve(esETH, stMint)`; `mint(stETH, stMint, SAFE)`. Lido: `withdraw(amt)`, `submit(0)`, `stMint == amt - 2`.
+  Uniswap: WETH `approve(router, amt)`; swap `tokenIn/tokenOut/fee/recipient/amountIn/sqrtPriceLimitX96`,
+  `amountOutMinimum == minWst`, calldata length exactly 7 words (no deadline); `unwrap <= minWst` and
+  `getStETHByWstETH(unwrap) >= stMint`; `stMint == getStETHByWstETH(minWst) - 2`.
+- Par floor (Uniswap, any route-selection reason): `stMint >= amt * (10000 - SLIPPAGE_BPS) / 10000`, rate from
+  `wstETH.getStETHByWstETH`, not the pool quote. Fails closed ("Uniswap stMint below par floor"), also when
+  Lido is paused/capped and `auto` falls back to Uniswap. Effective bound: pool quote must be ~>= 1 stETH per ETH.
+- Tests: fork tests decode `txs[2]` and tamper (`minWst = 0`, non-allowlisted target, wrong mint amount),
+  mocked low quote / manipulated rate hit the par floor; the default `yarn test` (no fork) writes the real
+  descriptors (redeem, withdraw, submit, approve, mint, unwrap, wrapAndMint) through `_write`/`verify`.
+
 ## Shared parameters and checks
 
 Env:

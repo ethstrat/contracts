@@ -148,6 +148,7 @@ contract ConvertToStEth is RebalanceBase {
             require(!ILido(steth()).isStakingPaused(), "ConvertToStEth: Lido staking paused");
             require(amt <= ILido(steth()).getCurrentStakeLimit(), "ConvertToStEth: AMOUNT > Lido stake limit");
             txs = _lidoTxs(amt);
+            _checkBatch(txs, chosen, amt, 0, slippageBps);
             _simulate(txs);
             _assertConverted(amt, lidoMint, b);
             require(
@@ -158,6 +159,7 @@ contract ConvertToStEth is RebalanceBase {
             require(minWst > 0, "ConvertToStEth: Uniswap minWst == 0");
             require(stMintUni > 0, "ConvertToStEth: Uniswap stMint == 0");
             txs = _uniTxs(amt, minWst, stMintUni);
+            _checkBatch(txs, chosen, amt, minWst, slippageBps);
             uint256 wstBefore = IERC20(wsteth()).balanceOf(safe());
             _simulate(txs);
             _assertConverted(amt, stMintUni, b);
@@ -174,11 +176,98 @@ contract ConvertToStEth is RebalanceBase {
         (quoteWst,,,) = IQuoterV2(quoterV2())
             .quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(weth(), wsteth(), amt, POOL_FEE, 0));
         minWst = quoteWst * (10_000 - slippageBps) / 10_000;
-        uint256 st = IWstETH(wsteth()).getStETHByWstETH(minWst);
-        stMintUni = st < 2 ? 0 : st - 2;
+        stMintUni = _stMintFor(minWst);
         console2.log("Uniswap quote (wstETH)", quoteWst);
         console2.log("Uniswap minWst", minWst);
         console2.log("Uniswap stMint", stMintUni);
+    }
+
+    /// @dev stETH minted for `minWst` wstETH, rate from wstETH itself (not the pool quote), less 2 wei rounding.
+    function _stMintFor(uint256 minWst) internal view returns (uint256) {
+        uint256 st = IWstETH(wsteth()).getStETHByWstETH(minWst);
+        return st < 2 ? 0 : st - 2;
+    }
+
+    function _allowed(address to, bytes4 sel) internal view returns (bool) {
+        return (to == eseth() && (sel == esETH.redeem.selector || sel == esETH.mint.selector))
+            || (to == weth() && (sel == IWETH9.approve.selector || sel == IWETH9.withdraw.selector))
+            || (to == steth() && (sel == ILido.submit.selector || sel == ILido.approve.selector))
+            || (to == swapRouter02() && sel == ISwapRouter02.exactInputSingle.selector)
+            || (to == wsteth() && sel == IWstETH.unwrap.selector);
+    }
+
+    /// @dev Returns the calldata args of `t` after asserting its target and selector.
+    function _at(SafeBatchDecodedLib.Tx memory t, address to, bytes4 sel) internal pure returns (bytes memory a) {
+        require(t.to == to && bytes4(t.data) == sel, "ConvertToStEth batch: wrong target/selector");
+        a = new bytes(t.data.length - 4);
+        for (uint256 i; i < a.length; i++) {
+            a[i] = t.data[i + 4];
+        }
+    }
+
+    /// @dev Decodes the built batch and asserts it matches intent, before simulation and before any file is
+    /// written. `minWst` is the quote-derived minimum (Uniswap only). On Uniswap, the minted stETH must also
+    /// be >= par (`amt * (10000 - slippageBps) / 10000`), rate from wstETH, so a skewed pool fails closed.
+    function _checkBatch(
+        SafeBatchDecodedLib.Tx[] memory txs,
+        Route chosen,
+        uint256 amt,
+        uint256 minWst,
+        uint256 slippageBps
+    ) internal view {
+        bool uni = chosen == Route.Uniswap;
+        require(uni || chosen == Route.Lido, "ConvertToStEth batch: route unresolved");
+        uint256 n = txs.length;
+        require(n == (uni ? 6 : 5), "ConvertToStEth batch: tx count");
+        for (uint256 i; i < n; i++) {
+            require(_allowed(txs[i].to, bytes4(txs[i].data)), "ConvertToStEth batch: tx not allowlisted");
+            require(txs[i].value == (!uni && i == 2 ? amt : 0), "ConvertToStEth batch: unexpected tx value");
+        }
+
+        (address t, uint256 a, address r) =
+            abi.decode(_at(txs[0], eseth(), esETH.redeem.selector), (address, uint256, address));
+        require(t == weth() && a == amt && r == safe(), "ConvertToStEth batch: redeem args");
+
+        uint256 stMint;
+        if (uni) {
+            stMint = _stMintFor(minWst);
+            _checkSwap(txs, amt, minWst);
+        } else {
+            stMint = amt - 2;
+            a = abi.decode(_at(txs[1], weth(), IWETH9.withdraw.selector), (uint256));
+            require(a == amt, "ConvertToStEth batch: withdraw amount");
+            r = abi.decode(_at(txs[2], steth(), ILido.submit.selector), (address));
+            require(r == address(0), "ConvertToStEth batch: submit referral");
+        }
+
+        (r, a) = abi.decode(_at(txs[n - 2], steth(), ILido.approve.selector), (address, uint256));
+        require(r == eseth() && a == stMint, "ConvertToStEth batch: approve args");
+        (t, a, r) = abi.decode(_at(txs[n - 1], eseth(), esETH.mint.selector), (address, uint256, address));
+        require(t == steth() && a == stMint && r == safe(), "ConvertToStEth batch: mint args");
+        if (uni) {
+            require(stMint >= amt * (10_000 - slippageBps) / 10_000, "ConvertToStEth: Uniswap stMint below par floor");
+        }
+    }
+
+    function _checkSwap(SafeBatchDecodedLib.Tx[] memory txs, uint256 amt, uint256 minWst) internal view {
+        (address g, uint256 w) = abi.decode(_at(txs[1], weth(), IWETH9.approve.selector), (address, uint256));
+        require(g == swapRouter02() && w == amt, "ConvertToStEth batch: WETH approve args");
+
+        bytes memory sa = _at(txs[2], swapRouter02(), ISwapRouter02.exactInputSingle.selector);
+        require(sa.length == 7 * 32, "ConvertToStEth batch: swap calldata length"); // no deadline field
+        ISwapRouter02.ExactInputSingleParams memory p = abi.decode(sa, (ISwapRouter02.ExactInputSingleParams));
+        require(p.amountOutMinimum == minWst, "ConvertToStEth batch: swap amountOutMinimum != minWst");
+        require(
+            p.tokenIn == weth() && p.tokenOut == wsteth() && p.fee == POOL_FEE && p.recipient == safe()
+                && p.amountIn == amt && p.sqrtPriceLimitX96 == 0,
+            "ConvertToStEth batch: swap params"
+        );
+
+        uint256 u = abi.decode(_at(txs[3], wsteth(), IWstETH.unwrap.selector), (uint256));
+        require(u <= minWst, "ConvertToStEth batch: unwrap > minWst");
+        require(
+            IWstETH(wsteth()).getStETHByWstETH(u) >= _stMintFor(minWst), "ConvertToStEth batch: unwrap short of mint"
+        );
     }
 
     function _uniTxs(uint256 amt, uint256 minWst, uint256 stMint)
