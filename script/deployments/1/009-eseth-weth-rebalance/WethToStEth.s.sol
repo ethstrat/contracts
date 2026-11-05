@@ -58,6 +58,8 @@ interface IWstETH {
 /// Uniswap v3 WETH/wstETH 0.01% + `wstETH.unwrap`. `auto` picks Uniswap only if its post-slippage stETH
 /// mint is strictly greater than Lido's `amt - 2`, or Lido is unavailable. esETH receives exactly the
 /// minted `stMint`; Lido rounding leaves 1 wei under-backed per run, left to `burnExcess`. Never broadcasts.
+/// `ROUTE=compare` is read-only: prints both routes' post-slippage mint, Lido availability, the par floor and
+/// the auto winner at the current block, writes nothing.
 /// Pipeline: `[AMOUNT=<ETH>] [ROUTE=..] [SLIPPAGE_BPS=..] forge script ... --fork-url $RPC_URL` ->
 /// `yarn safe:hash <raw> --write [--nonce N]` -> `yarn safe:simulate <raw>` -> `yarn safe:propose <raw>`.
 contract WethToStEth is RebalanceBase {
@@ -67,7 +69,19 @@ contract WethToStEth is RebalanceBase {
     enum Route {
         Auto,
         Lido,
-        Uniswap
+        Uniswap,
+        Compare
+    }
+
+    struct Cmp {
+        uint256 lidoMint;
+        bool lidoPaused;
+        uint256 stakeLimit;
+        uint256 headroom; // stakeLimit - amt, 0 if AMOUNT > stakeLimit
+        uint256 quoteWst;
+        uint256 uniMint;
+        bool parOk;
+        Route winner;
     }
 
     struct Before {
@@ -97,9 +111,12 @@ contract WethToStEth is RebalanceBase {
     }
 
     function run() external {
-        uint256 amountEth = vm.envOr("AMOUNT", RebalanceParams.AMOUNT);
-        (SafeBatchDecodedLib.Tx[] memory txs, Route chosen) =
-            buildAndSimulate(amountEth, _route(), vm.envOr("SLIPPAGE_BPS", RebalanceParams.SLIPPAGE_BPS));
+        (uint256 amountEth, Route route, uint256 slippageBps) = _params();
+        if (route == Route.Compare) {
+            _compare(amountEth, slippageBps);
+            return;
+        }
+        (SafeBatchDecodedLib.Tx[] memory txs, Route chosen) = buildAndSimulate(amountEth, route, slippageBps);
         _write(
             OPERATION,
             "esETH WETH -> stETH rebalance",
@@ -114,6 +131,51 @@ contract WethToStEth is RebalanceBase {
         );
     }
 
+    function _params() internal view returns (uint256 amountEth, Route route, uint256 slippageBps) {
+        amountEth = vm.envOr("AMOUNT", RebalanceParams.AMOUNT);
+        route = _route();
+        slippageBps = vm.envOr("SLIPPAGE_BPS", RebalanceParams.SLIPPAGE_BPS);
+    }
+
+    /// @dev Read-only: quotes both routes at the current block and logs what `auto` would pick. No simulation,
+    /// no files. Same pre-checks as a real run so a wrong AMOUNT fails here too.
+    function _compare(uint256 amountEth, uint256 slippageBps) internal returns (Cmp memory c) {
+        uint256 amt = _amountWei(amountEth);
+        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "WethToStEth: SLIPPAGE_BPS > 100");
+        _checkCommon(amt);
+        console2.log("block", block.number);
+        _logNonce();
+
+        c.lidoMint = amt - 2;
+        c.lidoPaused = ILido(steth()).isStakingPaused();
+        c.stakeLimit = ILido(steth()).getCurrentStakeLimit();
+        c.headroom = c.stakeLimit > amt ? c.stakeLimit - amt : 0;
+        bool lidoOk = _lidoOk(amt);
+        (c.quoteWst,, c.uniMint) = _quoteUni(amt, slippageBps);
+        c.parOk = c.uniMint >= _parFloor(amt, slippageBps);
+        c.winner = _pick(c.uniMint, c.lidoMint, lidoOk);
+
+        console2.log("Lido mint after slippage (wei)", c.lidoMint);
+        console2.log("Lido paused", c.lidoPaused);
+        console2.log("Lido stake limit (wei)", c.stakeLimit);
+        console2.log("Lido headroom over AMOUNT (wei, 0 = AMOUNT > limit)", c.headroom);
+        console2.log("Uniswap mint after slippage (wei)", c.uniMint);
+        console2.log("Uniswap par floor ok (run reverts if 0)", c.parOk);
+        console2.log("auto winner (1 lido, 2 uniswap)", uint256(c.winner));
+    }
+
+    function _lidoOk(uint256 amt) internal view returns (bool) {
+        return !ILido(steth()).isStakingPaused() && amt <= ILido(steth()).getCurrentStakeLimit();
+    }
+
+    function _pick(uint256 stMintUni, uint256 lidoMint, bool lidoOk) internal pure returns (Route) {
+        return (stMintUni > lidoMint || !lidoOk) ? Route.Uniswap : Route.Lido;
+    }
+
+    function _parFloor(uint256 amt, uint256 slippageBps) internal pure returns (uint256) {
+        return amt * (10_000 - slippageBps) / 10_000;
+    }
+
     function _route() internal view returns (Route) {
         return _parseRoute(vm.envOr("ROUTE", RebalanceParams.ROUTE));
     }
@@ -123,7 +185,8 @@ contract WethToStEth is RebalanceBase {
         if (h == keccak256("auto")) return Route.Auto;
         if (h == keccak256("lido")) return Route.Lido;
         if (h == keccak256("uniswap")) return Route.Uniswap;
-        revert("WethToStEth: ROUTE must be auto|lido|uniswap");
+        if (h == keccak256("compare")) return Route.Compare;
+        revert("WethToStEth: ROUTE must be auto|lido|uniswap|compare");
     }
 
     function buildAndSimulate(uint256 amountEth, Route route, uint256 slippageBps)
@@ -138,12 +201,12 @@ contract WethToStEth is RebalanceBase {
         _logNonce();
 
         uint256 lidoMint = amt - 2;
-        bool lidoOk = !ILido(steth()).isStakingPaused() && amt <= ILido(steth()).getCurrentStakeLimit();
+        bool lidoOk = _lidoOk(amt);
         uint256 minWst;
         uint256 stMintUni;
         if (route != Route.Lido) (, minWst, stMintUni) = _quoteUni(amt, slippageBps);
         chosen = route;
-        if (route == Route.Auto) chosen = (stMintUni > lidoMint || !lidoOk) ? Route.Uniswap : Route.Lido;
+        if (route == Route.Auto) chosen = _pick(stMintUni, lidoMint, lidoOk);
         console2.log("Lido mint (wei)", lidoMint);
         console2.log("Uniswap mint (wei)", stMintUni);
         console2.log("route (1 lido, 2 uniswap)", uint256(chosen));
@@ -225,7 +288,7 @@ contract WethToStEth is RebalanceBase {
 
         if (uni) {
             _checkSwap(txs, amt, minWst, stMint);
-            require(stMint >= amt * (10_000 - slippageBps) / 10_000, "WethToStEth: Uniswap stMint below par floor");
+            require(stMint >= _parFloor(amt, slippageBps), "WethToStEth: Uniswap stMint below par floor");
         } else {
             a = abi.decode(_at(txs[1], weth(), IWETH9.withdraw.selector), (uint256));
             require(a == amt, "WethToStEth batch: withdraw amount");

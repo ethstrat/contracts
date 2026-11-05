@@ -31,6 +31,10 @@ contract WethToStEthHarness is WethToStEth {
     function route() external view returns (Route) {
         return _route();
     }
+
+    function parse(string memory s) external pure returns (Route) {
+        return _parseRoute(s);
+    }
 }
 
 contract ScriptLibsTest is Test {
@@ -324,8 +328,9 @@ contract ScriptLibsTest is Test {
 
     function test_009_params_defaultsAreValid() public {
         WethToStEthHarness h = new WethToStEthHarness();
-        assertEq(uint8(h.route()), uint8(WethToStEth.Route.Auto)); // Params.ROUTE = "auto", no ROUTE env in unit
-        // runs
+        // Valid whatever Params.ROUTE or the ROUTE env var holds: both must parse.
+        h.parse(RebalanceParams.ROUTE);
+        h.route();
         assertLe(RebalanceParams.SLIPPAGE_BPS, RebalanceParams.MAX_SLIPPAGE_BPS);
     }
 }

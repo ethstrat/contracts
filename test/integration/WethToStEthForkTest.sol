@@ -13,6 +13,7 @@ import {
     ISwapRouter02,
     IWstETH
 } from "../../script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol";
+import {RebalanceParams} from "../../script/deployments/1/009-eseth-weth-rebalance/Params.sol";
 
 contract WethToStEthHarness is WethToStEth {
     function exposed_buildAndSimulate(uint256 amountEth, Route route, uint256 slippageBps)
@@ -54,6 +55,34 @@ contract WethToStEthHarness is WethToStEth {
 
     function exposed_firstFreeIndex(string memory op) external view returns (uint256) {
         return _firstFreeIndex(op);
+    }
+
+    function exposed_compare(uint256 amountEth, uint256 slippageBps) external returns (Cmp memory) {
+        return _compare(amountEth, slippageBps);
+    }
+
+    function exposed_params() external view returns (uint256, Route, uint256) {
+        return _params();
+    }
+}
+
+/// @dev Calls `run()` without touching disk: records what `_write` was handed.
+contract WethToStEthRunHarness is WethToStEthHarness {
+    uint256 public writes;
+    uint256 public lastLen;
+    bytes public lastRedeem;
+    bytes public lastSwap;
+
+    function _write(string memory, string memory, string memory, SafeBatchDecodedLib.Tx[] memory txs)
+        internal
+        override
+        returns (string memory, string memory)
+    {
+        writes++;
+        lastLen = txs.length;
+        lastRedeem = txs[0].data;
+        lastSwap = txs[2].data;
+        return ("", "");
     }
 }
 
@@ -164,6 +193,11 @@ contract WethToStEthForkTest is Test {
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 101);
     }
 
+    function testFork_slippageAtCap_passes() public {
+        (, WethToStEth.Route chosen) = harness.exposed_buildAndSimulate(1, WethToStEth.Route.Uniswap, 100);
+        assertEq(uint8(chosen), uint8(WethToStEth.Route.Uniswap));
+    }
+
     function testFork_lidoPaused_forcedLido_reverts() public {
         vm.mockCall(STETH, abi.encodeWithSignature("isStakingPaused()"), abi.encode(true));
         vm.expectRevert(bytes("WethToStEth: Lido staking paused"));
@@ -176,8 +210,108 @@ contract WethToStEthForkTest is Test {
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
+    function test_parseRoute_compare() public view {
+        assertEq(uint8(harness.exposed_parseRoute("compare")), uint8(WethToStEth.Route.Compare));
+    }
+
+    function testFork_compareRoute_inBuild_reverts() public {
+        vm.expectRevert(bytes("WethToStEth batch: route unresolved"));
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Compare, 10);
+    }
+
+    // ---- compare mode ----
+
+    function testFork_compare_defaultSlippage_picksLido() public {
+        WethToStEth.Cmp memory c = harness.exposed_compare(50, 10);
+        assertEq(uint8(c.winner), uint8(WethToStEth.Route.Lido));
+        assertEq(c.lidoMint, 50 ether - 2);
+        assertFalse(c.lidoPaused);
+        assertEq(c.headroom, ILido(STETH).getCurrentStakeLimit() - 50 ether);
+        assertEq(c.quoteWst, _quote(50 ether));
+        assertEq(c.uniMint, IWstETH(WSTETH).getStETHByWstETH(c.quoteWst * 9990 / 10_000) - 2);
+        assertTrue(c.parOk);
+    }
+
+    function testFork_compare_zeroSlippage_picksUniswap() public {
+        WethToStEth.Cmp memory c = harness.exposed_compare(50, 0);
+        assertEq(uint8(c.winner), uint8(WethToStEth.Route.Uniswap));
+        assertGt(c.uniMint, c.lidoMint);
+        assertTrue(c.parOk);
+    }
+
+    function testFork_compare_lidoPaused() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("isStakingPaused()"), abi.encode(true));
+        WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
+        assertTrue(c.lidoPaused);
+        assertEq(uint8(c.winner), uint8(WethToStEth.Route.Uniswap));
+    }
+
+    function testFork_compare_stakeLimitBelowAmount() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(0.5 ether)));
+        WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
+        assertEq(c.stakeLimit, 0.5 ether);
+        assertEq(c.headroom, 0);
+        assertEq(uint8(c.winner), uint8(WethToStEth.Route.Uniswap));
+    }
+
+    function testFork_compare_belowPar() public {
+        _mockLowQuote();
+        WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
+        assertFalse(c.parOk);
+    }
+
+    function testFork_compare_aboveWethBalance_reverts() public {
+        uint256 over = IERC20(WETH).balanceOf(ESETH) / 1e18 + 1;
+        vm.expectRevert(bytes("Rebalance: AMOUNT > WETH.balanceOf(esETH)"));
+        harness.exposed_compare(over, 10);
+    }
+
+    function testFork_compare_slippageAboveCap_reverts() public {
+        vm.expectRevert(bytes("WethToStEth: SLIPPAGE_BPS > 100"));
+        harness.exposed_compare(1, 101);
+    }
+
+    /// @dev One test owns the process-global env vars. `run()` must read AMOUNT, ROUTE, SLIPPAGE_BPS from
+    /// Params with env override; ROUTE=compare must write nothing.
+    function testFork_run_readsParamsWithEnvOverride() public {
+        WethToStEthRunHarness r = new WethToStEthRunHarness();
+        uint256 fullQuote = _quote(2 ether);
+
+        vm.setEnv("ROUTE", "uniswap");
+        vm.setEnv("AMOUNT", "2");
+        vm.setEnv("SLIPPAGE_BPS", "0");
+        r.run();
+        assertEq(r.writes(), 1);
+        assertEq(r.lastLen(), 6);
+        (, uint256 redeemed,) = abi.decode(_args(r.lastRedeem()), (address, uint256, address));
+        assertEq(redeemed, 2 ether);
+        ISwapRouter02.ExactInputSingleParams memory p =
+            abi.decode(_args(r.lastSwap()), (ISwapRouter02.ExactInputSingleParams));
+        assertEq(p.amountOutMinimum, fullQuote); // SLIPPAGE_BPS=0
+
+        vm.setEnv("ROUTE", "lido");
+        r.run();
+        assertEq(r.writes(), 2);
+        assertEq(r.lastLen(), 5);
+
+        uint256 filesBefore = vm.readDir("script/deployments/1/multisig", 3).length;
+        vm.setEnv("ROUTE", "compare");
+        r.run();
+        assertEq(r.writes(), 2);
+        assertEq(vm.readDir("script/deployments/1/multisig", 3).length, filesBefore);
+
+        // env unset: AMOUNT and SLIPPAGE_BPS fall back to Params (an empty uint env var reads as unset)
+        vm.setEnv("AMOUNT", "");
+        vm.setEnv("SLIPPAGE_BPS", "");
+        vm.setEnv("ROUTE", RebalanceParams.ROUTE);
+        (uint256 a, WethToStEth.Route rt, uint256 s) = r.exposed_params();
+        assertEq(a, RebalanceParams.AMOUNT);
+        assertEq(s, RebalanceParams.SLIPPAGE_BPS);
+        assertEq(uint8(rt), uint8(r.exposed_parseRoute(RebalanceParams.ROUTE)));
+    }
+
     function test_parseRoute_unknownReverts() public {
-        vm.expectRevert(bytes("WethToStEth: ROUTE must be auto|lido|uniswap"));
+        vm.expectRevert(bytes("WethToStEth: ROUTE must be auto|lido|uniswap|compare"));
         harness.exposed_parseRoute("curve");
     }
 
@@ -597,12 +731,27 @@ contract WethToStEthForkTest is Test {
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 
-    function testFork_sim_safeStethStock_reverts() public {
+    function _mockSafeStethSeq(uint256 beforeSim, uint256 afterSim) internal {
         bytes[] memory rets = new bytes[](2);
-        rets[0] = abi.encode(uint256(100 ether)); // _before
-        rets[1] = abi.encode(uint256(0)); // after the simulation
+        rets[0] = abi.encode(beforeSim); // _before
+        rets[1] = abi.encode(afterSim); // after the simulation
         vm.mockCalls(STETH, abi.encodeWithSignature("balanceOf(address)", SAFE), rets);
+    }
+
+    function testFork_sim_safeStethStock_reverts() public {
+        _mockSafeStethSeq(100 ether, 0);
         vm.expectRevert(bytes("WethToStEth sim: mint drew on Safe stETH stock"));
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_safeStethStock_oneWeiDrop_reverts() public {
+        _mockSafeStethSeq(100 ether, 100 ether - 1);
+        vm.expectRevert(bytes("WethToStEth sim: mint drew on Safe stETH stock"));
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_safeStethStock_unchanged_passes() public {
+        _mockSafeStethSeq(100 ether, 100 ether);
         harness.exposed_buildAndSimulate(1, WethToStEth.Route.Lido, 10);
     }
 

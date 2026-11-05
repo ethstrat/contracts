@@ -130,7 +130,7 @@ abstract contract RebalanceBase is Script {
         string memory name,
         string memory description,
         SafeBatchDecodedLib.Tx[] memory txs
-    ) internal returns (string memory rawPath, string memory decodedPath) {
+    ) internal virtual returns (string memory rawPath, string memory decodedPath) {
         uint256 index = _firstFreeIndex(operation);
         rawPath = SafeBatchLib.path(safe(), operation, index);
         decodedPath = vm.replace(rawPath, ".json", ".tx-builder.json");

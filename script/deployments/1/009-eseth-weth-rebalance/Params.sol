@@ -6,7 +6,8 @@ pragma solidity ^0.8.24;
 library RebalanceParams {
     /// @dev Whole ETH to pull from esETH. 0 = unset: the script reverts unless `AMOUNT` is given.
     uint256 internal constant AMOUNT = 0;
-    /// @dev `lido` | `uniswap` | `auto` (Uniswap only if its post-slippage mint beats Lido's).
+    /// @dev `lido` | `uniswap` | `auto` (Uniswap only if its post-slippage mint beats Lido's) | `compare`
+    /// (read-only: prints both routes' mint and the auto winner, writes no files).
     string internal constant ROUTE = "auto";
     /// @dev Uniswap route only: max slippage vs the QuoterV2 quote, in bps.
     uint256 internal constant SLIPPAGE_BPS = 10;
