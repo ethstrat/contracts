@@ -1,0 +1,101 @@
+{
+  "description": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306, 0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF as TripwireController operator(s) where missing; make WETH redeemable on esETH if not already (8 txs)",
+  "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+  "chainId": 1,
+  "transactions": [
+    {
+      "label": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306 as TripwireController operator on convertible-note",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+        "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      ]
+    },
+    {
+      "label": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306 as TripwireController operator on desETH",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      ]
+    },
+    {
+      "label": "Add 0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF as TripwireController operator on desETH",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF"
+      ]
+    },
+    {
+      "label": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306 as TripwireController operator on cdt",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+        "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      ]
+    },
+    {
+      "label": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306 as TripwireController operator on esETH",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      ]
+    },
+    {
+      "label": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306 as TripwireController operator on staked-earn",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0x2B5ab0a6CAb343edeeF46A2e90F23460bc852938",
+        "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      ]
+    },
+    {
+      "label": "Add 0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF as TripwireController operator on staked-earn",
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "contractName": "TripwireController",
+      "signature": "addOperator(address,address)",
+      "args": [
+        "0x2B5ab0a6CAb343edeeF46A2e90F23460bc852938",
+        "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF"
+      ]
+    },
+    {
+      "label": "Make WETH redeemable from esETH (type 1, isMintable stays true, isRedeemable true)",
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "contractName": "esETH",
+      "signature": "setTokenConfig(address,uint8,bool,bool)",
+      "args": [
+        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "1",
+        true,
+        true
+      ]
+    }
+  ],
+  "hashes": {
+    "safeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "chainId": 1,
+    "safeVersion": "1.4.1",
+    "nonce": 240,
+    "multisendTo": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
+    "operation": 1,
+    "innerDataHash": "0x1599eef8c0a9fc0931cf2ef8e08aa917cf7e6ae37f14d2dfefecea82311ac0f6",
+    "domainSeparatorHash": "0x630a7dd416b2b021666e43a3b8462b769d17e2f2bdbc2a33c25c0b0d81e50826",
+    "messageHash": "0xd582d021cf13cc7b73fc0c5ad5a5d466d27033f46e7bd8105775cbd077663002",
+    "safeTxHash": "0x0eb067d49961a8a5e3057915aba275996a1122c94fc194b8df22a64172d8df2b"
+  }
+}

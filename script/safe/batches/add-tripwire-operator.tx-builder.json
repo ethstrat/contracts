@@ -1,0 +1,227 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 1792455330007,
+  "meta": {
+    "name": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306, 0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF as TripwireController operator(s) where missing; make WETH redeemable on esETH if not already (8 txs)",
+    "description": "Add 0x27F60886045Eb16a2464E055d48508F46D93e306, 0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF as TripwireController operator(s) where missing; make WETH redeemable on esETH if not already (8 txs)",
+    "txBuilderVersion": "1.18.0",
+    "createdFromSafeAddress": "0xC53CCed6332D06972A7eaEDc64FDF6d4aF5220b8",
+    "createdFromOwnerAddress": "",
+    "checksum": null
+  },
+  "transactions": [
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x3B4eC3deCfEC8E2260be01018f6fE04741A8aa56",
+        "arg1": "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "arg1": "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x2e65e2Fa50E8338d2CC81821D15364cF9516145f",
+        "arg1": "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xD4598307B5507A2b04d0502FCC9b68bbcA9275F3",
+        "arg1": "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+        "arg1": "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x2B5ab0a6CAb343edeeF46A2e90F23460bc852938",
+        "arg1": "0x27F60886045Eb16a2464E055d48508F46D93e306"
+      }
+    },
+    {
+      "to": "0x328aED8F7a01f45A959c187F3cb97eC508064854",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "arg1",
+            "type": "address"
+          }
+        ],
+        "name": "addOperator",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0x2B5ab0a6CAb343edeeF46A2e90F23460bc852938",
+        "arg1": "0xEfa9f0766638Fc2258e13A0Ce1b9dA522412D6dF"
+      }
+    },
+    {
+      "to": "0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb",
+      "value": "0",
+      "data": null,
+      "contractMethod": {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "arg0",
+            "type": "address"
+          },
+          {
+            "internalType": "uint8",
+            "name": "arg1",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg2",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "arg3",
+            "type": "bool"
+          }
+        ],
+        "name": "setTokenConfig",
+        "payable": false
+      },
+      "contractInputsValues": {
+        "arg0": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "arg1": "1",
+        "arg2": "true",
+        "arg3": "true"
+      }
+    }
+  ]
+}
