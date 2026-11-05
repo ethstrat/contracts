@@ -31,9 +31,9 @@ interface IWETH9 {
     function approve(address guy, uint256 wad) external returns (bool);
 }
 
-/// @notice Shared plumbing for the fortnightly esETH WETH rebalance scripts (RedepositEth,
-/// ConvertToStEth): `AMOUNT` parsing (whole ETH), pre-checks, Safe nonce log, Safe simulation through
-/// the real `execTransaction` + MultiSendCallOnly, and the raw + decoded batch writers. Never broadcasts.
+/// @notice Shared plumbing for the fortnightly esETH WETH rebalance script (WethToStEth): `AMOUNT` parsing (whole ETH),
+/// pre-checks, Safe nonce log, Safe simulation through the real `execTransaction` + MultiSendCallOnly, and the raw +
+/// decoded batch writers. Never broadcasts.
 abstract contract RebalanceBase is Script {
     function safe() internal view returns (address) {
         return ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.unencumbered");

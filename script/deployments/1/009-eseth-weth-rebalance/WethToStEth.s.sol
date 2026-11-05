@@ -60,7 +60,7 @@ interface IWstETH {
 /// minted `stMint`; Lido rounding leaves 1 wei under-backed per run, left to `burnExcess`. Never broadcasts.
 /// Pipeline: `[AMOUNT=<ETH>] [ROUTE=..] [SLIPPAGE_BPS=..] forge script ... --fork-url $RPC_URL` ->
 /// `yarn safe:hash <raw> --write [--nonce N]` -> `yarn safe:simulate <raw>` -> `yarn safe:propose <raw>`.
-contract ConvertToStEth is RebalanceBase {
+contract WethToStEth is RebalanceBase {
     string internal constant OPERATION = "009-eseth-weth-rebalance/steth";
     uint24 internal constant POOL_FEE = 100; // v3 WETH/wstETH 0.01%, best Uniswap WETH->stETH liquidity (spec A5)
 
@@ -123,7 +123,7 @@ contract ConvertToStEth is RebalanceBase {
         if (h == keccak256("auto")) return Route.Auto;
         if (h == keccak256("lido")) return Route.Lido;
         if (h == keccak256("uniswap")) return Route.Uniswap;
-        revert("ConvertToStEth: ROUTE must be auto|lido|uniswap");
+        revert("WethToStEth: ROUTE must be auto|lido|uniswap");
     }
 
     function buildAndSimulate(uint256 amountEth, Route route, uint256 slippageBps)
@@ -131,10 +131,10 @@ contract ConvertToStEth is RebalanceBase {
         returns (SafeBatchDecodedLib.Tx[] memory txs, Route chosen)
     {
         uint256 amt = _amountWei(amountEth);
-        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "ConvertToStEth: SLIPPAGE_BPS > 100");
+        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "WethToStEth: SLIPPAGE_BPS > 100");
         _checkCommon(amt);
         (esETH.TokenType tokenType,,,) = esETH(payable(eseth())).tokenConfigs(steth());
-        require(tokenType == esETH.TokenType.ERC20, "ConvertToStEth: stETH tokenType != ERC20");
+        require(tokenType == esETH.TokenType.ERC20, "WethToStEth: stETH tokenType != ERC20");
         _logNonce();
 
         uint256 lidoMint = amt - 2;
@@ -150,26 +150,26 @@ contract ConvertToStEth is RebalanceBase {
 
         Before memory b = _before();
         if (chosen == Route.Lido) {
-            require(!ILido(steth()).isStakingPaused(), "ConvertToStEth: Lido staking paused");
-            require(amt <= ILido(steth()).getCurrentStakeLimit(), "ConvertToStEth: AMOUNT > Lido stake limit");
+            require(!ILido(steth()).isStakingPaused(), "WethToStEth: Lido staking paused");
+            require(amt <= ILido(steth()).getCurrentStakeLimit(), "WethToStEth: AMOUNT > Lido stake limit");
             txs = _lidoTxs(amt);
             _checkBatch(txs, chosen, amt, 0, slippageBps);
             _simulate(txs);
             _assertConverted(amt, lidoMint, b);
             require(
                 ILido(steth()).getPooledEthByShares(_lidoShares() - b.lidoShares) >= lidoMint,
-                "ConvertToStEth sim: Lido stETH received < amt - 2"
+                "WethToStEth sim: Lido stETH received < amt - 2"
             );
         } else {
-            require(minWst > 0, "ConvertToStEth: Uniswap minWst == 0");
-            require(stMintUni > 0, "ConvertToStEth: Uniswap stMint == 0");
+            require(minWst > 0, "WethToStEth: Uniswap minWst == 0");
+            require(stMintUni > 0, "WethToStEth: Uniswap stMint == 0");
             txs = _uniTxs(amt, minWst, stMintUni);
             _checkBatch(txs, chosen, amt, minWst, slippageBps);
             uint256 wstBefore = IERC20(wsteth()).balanceOf(safe());
             _simulate(txs);
             _assertConverted(amt, stMintUni, b);
-            require(IERC20(weth()).allowance(safe(), swapRouter02()) == 0, "ConvertToStEth sim: router allowance left");
-            require(IERC20(wsteth()).balanceOf(safe()) >= wstBefore, "ConvertToStEth sim: Safe wstETH fell");
+            require(IERC20(weth()).allowance(safe(), swapRouter02()) == 0, "WethToStEth sim: router allowance left");
+            require(IERC20(wsteth()).balanceOf(safe()) >= wstBefore, "WethToStEth sim: Safe wstETH fell");
         }
     }
 
@@ -206,32 +206,32 @@ contract ConvertToStEth is RebalanceBase {
         uint256 slippageBps
     ) internal view {
         bool uni = chosen == Route.Uniswap;
-        require(uni || chosen == Route.Lido, "ConvertToStEth batch: route unresolved");
+        require(uni || chosen == Route.Lido, "WethToStEth batch: route unresolved");
         uint256 n = txs.length;
-        require(n == (uni ? 6 : 5), "ConvertToStEth batch: tx count");
+        require(n == (uni ? 6 : 5), "WethToStEth batch: tx count");
         for (uint256 i; i < n; i++) {
-            require(txs[i].value == (!uni && i == 2 ? amt : 0), "ConvertToStEth batch: unexpected tx value");
+            require(txs[i].value == (!uni && i == 2 ? amt : 0), "WethToStEth batch: unexpected tx value");
         }
 
         (address t, uint256 a, address r) =
             abi.decode(_at(txs[0], eseth(), esETH.redeem.selector), (address, uint256, address));
-        require(t == weth() && a == amt && r == safe(), "ConvertToStEth batch: redeem args");
+        require(t == weth() && a == amt && r == safe(), "WethToStEth batch: redeem args");
 
         (t, a, r) = abi.decode(_at(txs[n - 1], eseth(), esETH.mint.selector), (address, uint256, address));
-        require(t == steth() && r == safe(), "ConvertToStEth batch: mint args");
+        require(t == steth() && r == safe(), "WethToStEth batch: mint args");
         uint256 stMint = a;
         (r, a) = abi.decode(_at(txs[n - 2], steth(), ILido.approve.selector), (address, uint256));
-        require(r == eseth() && a == stMint, "ConvertToStEth batch: approve args");
+        require(r == eseth() && a == stMint, "WethToStEth batch: approve args");
 
         if (uni) {
             _checkSwap(txs, amt, minWst, stMint);
-            require(stMint >= amt * (10_000 - slippageBps) / 10_000, "ConvertToStEth: Uniswap stMint below par floor");
+            require(stMint >= amt * (10_000 - slippageBps) / 10_000, "WethToStEth: Uniswap stMint below par floor");
         } else {
             a = abi.decode(_at(txs[1], weth(), IWETH9.withdraw.selector), (uint256));
-            require(a == amt, "ConvertToStEth batch: withdraw amount");
+            require(a == amt, "WethToStEth batch: withdraw amount");
             r = abi.decode(_at(txs[2], steth(), ILido.submit.selector), (address));
-            require(r == address(0), "ConvertToStEth batch: submit referral");
-            require(stMint + 2 >= amt && stMint <= amt, "ConvertToStEth batch: Lido stMint range");
+            require(r == address(0), "WethToStEth batch: submit referral");
+            require(stMint + 2 >= amt && stMint <= amt, "WethToStEth batch: Lido stMint range");
         }
     }
 
@@ -240,22 +240,22 @@ contract ConvertToStEth is RebalanceBase {
         view
     {
         (address g, uint256 w) = abi.decode(_at(txs[1], weth(), IWETH9.approve.selector), (address, uint256));
-        require(g == swapRouter02() && w == amt, "ConvertToStEth batch: WETH approve args");
+        require(g == swapRouter02() && w == amt, "WethToStEth batch: WETH approve args");
 
         bytes memory sa = _at(txs[2], swapRouter02(), ISwapRouter02.exactInputSingle.selector);
-        require(sa.length == 7 * 32, "ConvertToStEth batch: swap calldata length"); // no deadline field
+        require(sa.length == 7 * 32, "WethToStEth batch: swap calldata length"); // no deadline field
         ISwapRouter02.ExactInputSingleParams memory p = abi.decode(sa, (ISwapRouter02.ExactInputSingleParams));
-        require(p.amountOutMinimum == minWst, "ConvertToStEth batch: swap amountOutMinimum != minWst");
+        require(p.amountOutMinimum == minWst, "WethToStEth batch: swap amountOutMinimum != minWst");
         require(
             p.tokenIn == weth() && p.tokenOut == wsteth() && p.fee == POOL_FEE && p.recipient == safe()
                 && p.amountIn == amt && p.sqrtPriceLimitX96 == 0,
-            "ConvertToStEth batch: swap params"
+            "WethToStEth batch: swap params"
         );
 
         uint256 u = abi.decode(_at(txs[3], wsteth(), IWstETH.unwrap.selector), (uint256));
-        require(u <= minWst, "ConvertToStEth batch: unwrap > minWst");
+        require(u <= minWst, "WethToStEth batch: unwrap > minWst");
         // unwrap must cover the mint plus the 2 wei stETH transfer rounding
-        require(IWstETH(wsteth()).getStETHByWstETH(u) >= stMint + 2, "ConvertToStEth batch: unwrap short of mint");
+        require(IWstETH(wsteth()).getStETHByWstETH(u) >= stMint + 2, "WethToStEth batch: unwrap short of mint");
     }
 
     function _uniTxs(uint256 amt, uint256 minWst, uint256 stMint)
@@ -361,13 +361,13 @@ contract ConvertToStEth is RebalanceBase {
         address e = eseth();
         address s = safe();
         (,,, uint256 mintedAfter) = esETH(payable(e)).tokenConfigs(steth());
-        require(IERC20(weth()).balanceOf(e) + amt == b.wethEsEth, "ConvertToStEth sim: esETH WETH delta != amt");
+        require(IERC20(weth()).balanceOf(e) + amt == b.wethEsEth, "WethToStEth sim: esETH WETH delta != amt");
         require(
-            IERC20(steth()).balanceOf(e) + 2 >= b.stEsEth + stMint, "ConvertToStEth sim: esETH stETH delta < stMint - 2"
+            IERC20(steth()).balanceOf(e) + 2 >= b.stEsEth + stMint, "WethToStEth sim: esETH stETH delta < stMint - 2"
         );
-        require(mintedAfter == b.stMinted + stMint, "ConvertToStEth sim: stETH totalMinted delta != stMint");
-        require(IERC20(e).totalSupply() + amt + 1 == b.supply + stMint, "ConvertToStEth sim: esETH supply delta");
-        require(IERC20(e).balanceOf(s) + amt + 1 == b.safeEsEth + stMint, "ConvertToStEth sim: Safe esETH delta");
-        require(IERC20(steth()).balanceOf(s) >= b.safeSt, "ConvertToStEth sim: mint drew on Safe stETH stock");
+        require(mintedAfter == b.stMinted + stMint, "WethToStEth sim: stETH totalMinted delta != stMint");
+        require(IERC20(e).totalSupply() + amt + 1 == b.supply + stMint, "WethToStEth sim: esETH supply delta");
+        require(IERC20(e).balanceOf(s) + amt + 1 == b.safeEsEth + stMint, "WethToStEth sim: Safe esETH delta");
+        require(IERC20(steth()).balanceOf(s) >= b.safeSt, "WethToStEth sim: mint drew on Safe stETH stock");
     }
 }

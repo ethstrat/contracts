@@ -7,13 +7,12 @@ import {ConfigLib} from "../../script/deployments/1/lib/ConfigLib.sol";
 import {HoldersLib} from "../../script/deployments/1/lib/HoldersLib.sol";
 import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
 import {SafeBatchDecodedLib} from "../../script/deployments/1/lib/SafeBatchDecodedLib.sol";
-import {ConvertToStEth} from "../../script/deployments/1/009-eseth-weth-rebalance/ConvertToStEth.s.sol";
+import {WethToStEth} from "../../script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol";
 import {RebalanceParams} from "../../script/deployments/1/009-eseth-weth-rebalance/Params.sol";
-import {RedepositEth} from "../../script/deployments/1/009-eseth-weth-rebalance/RedepositEth.s.sol";
 
 /// @dev Exposes the real 009 batch builders and writer so the default (no-fork) CI run exercises the
 /// real decoded descriptors: `_write` -> `SafeBatchDecodedLib.verify` reverts on any wrong descriptor.
-contract ConvertHarness is ConvertToStEth {
+contract WethToStEthHarness is WethToStEth {
     function lido(uint256 amt) external view returns (SafeBatchDecodedLib.Tx[] memory) {
         return _lidoTxs(amt);
     }
@@ -31,19 +30,6 @@ contract ConvertHarness is ConvertToStEth {
 
     function route() external view returns (Route) {
         return _route();
-    }
-}
-
-contract RedepositHarness is RedepositEth {
-    function txs(uint256 amt) external view returns (SafeBatchDecodedLib.Tx[] memory) {
-        return _txs(amt);
-    }
-
-    function write(string memory op, SafeBatchDecodedLib.Tx[] memory t)
-        external
-        returns (string memory, string memory)
-    {
-        return _write(op, "n", "d", t);
     }
 }
 
@@ -322,27 +308,23 @@ contract ScriptLibsTest is Test {
         string memory op = "999-test-fixture-descriptors";
         string memory dir = string.concat("script/deployments/1/multisig/", op);
         if (vm.exists(dir)) vm.removeDir(dir, true); // left behind by a prior failed run
-        ConvertHarness c = new ConvertHarness();
-        RedepositHarness r = new RedepositHarness();
+        WethToStEthHarness c = new WethToStEthHarness();
         (, string memory lidoJson) = c.write(op, c.lido(50 ether));
         (, string memory uniJson) = c.write(op, c.uni(1 ether, 0.8 ether, 0.9 ether));
-        (, string memory ethJson) = r.write(op, r.txs(50 ether));
 
         string memory lido = vm.readFile(lidoJson);
         string memory uniswap = vm.readFile(uniJson);
-        string memory eth = vm.readFile(ethJson);
         string[5] memory lidoNames = ["redeem", "withdraw", "submit", "approve", "mint"];
         for (uint256 i; i < lidoNames.length; i++) {
             assertTrue(vm.contains(lido, string.concat("\"name\":\"", lidoNames[i], "\"")));
         }
         assertTrue(vm.contains(uniswap, "\"name\":\"unwrap\""));
-        assertTrue(vm.contains(eth, "\"name\":\"wrapAndMint\""));
         vm.removeDir(dir, true);
     }
 
     function test_009_params_defaultsAreValid() public {
-        ConvertHarness h = new ConvertHarness();
-        assertEq(uint8(h.route()), uint8(ConvertToStEth.Route.Auto)); // Params.ROUTE = "auto", no ROUTE env in unit
+        WethToStEthHarness h = new WethToStEthHarness();
+        assertEq(uint8(h.route()), uint8(WethToStEth.Route.Auto)); // Params.ROUTE = "auto", no ROUTE env in unit
         // runs
         assertLe(RebalanceParams.SLIPPAGE_BPS, RebalanceParams.MAX_SLIPPAGE_BPS);
     }

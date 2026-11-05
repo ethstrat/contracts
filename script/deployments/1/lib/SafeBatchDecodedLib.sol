@@ -7,7 +7,7 @@ import {Vm} from "forge-std/Vm.sol";
 /// human signer in the Safe UI sees function names and arguments for a batch that sends ETH.
 /// Port of script/lib/SafeBatchLib.sol (left untouched; its Tx has no value and it hardcodes
 /// `"value":"0"`, `"payable":false`). Writes to a caller-chosen path. Used by
-/// 009-eseth-weth-rebalance (RedepositEth, ConvertToStEth). The raw-calldata file, not this one, is what
+/// 009-eseth-weth-rebalance (WethToStEth). The raw-calldata file, not this one, is what
 /// gets hashed and proposed.
 library SafeBatchDecodedLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));

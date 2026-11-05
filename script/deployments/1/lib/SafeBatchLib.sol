@@ -6,7 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 /// @notice Writes Safe Transaction Builder JSON batches using the raw-calldata transaction form
 /// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol,
 /// PeriodicYield.s.sol and 005-earn-lp/ProposeLp.s.sol; `execute` also by the Verify scripts.
-/// The `write` overload with per-tx `values` is used by 009-eseth-weth-rebalance (RedepositEth, ConvertToStEth).
+/// The `write` overload with per-tx `values` is used by 009-eseth-weth-rebalance (WethToStEth).
 library SafeBatchLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
