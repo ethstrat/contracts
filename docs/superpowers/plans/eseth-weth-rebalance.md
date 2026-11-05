@@ -193,7 +193,7 @@ require(ok, "Rebalance sim: execTransaction returned false");
 - Produces:
   - `contract WethToStEth is RebalanceBase`, `string internal constant OPERATION = "009-eseth-weth-rebalance/steth";`, `enum Route { Auto, Lido, Uniswap }`
   - getter `steth()` (`ConfigLib.addr("externalAddresses.json", ".lido.stETH")`), `internal view`, in this contract (not the base).
-  - `function _parseRoute(string memory s) internal pure returns (Route)` — `"auto"|"lido"|"uniswap"`, else revert `WethToStEth: ROUTE must be auto|lido|uniswap`.
+  - `function _parseRoute(string memory s) internal pure returns (Route)` — `"auto"|"lido"|"uniswap"|"compare"`, else revert `WethToStEth: ROUTE must be auto|lido|uniswap|compare`.
   - `function buildAndSimulate(uint256 amountEth, Route route, uint256 slippageBps) internal returns (SafeBatchDecodedLib.Tx[] memory txs, Route chosen)` — `_amountWei`, `require(slippageBps <= 100, "WethToStEth: SLIPPAGE_BPS > 100")`, `_checkCommon`, `require(tokenConfigs(stETH).tokenType == ERC20, "WethToStEth: stETH tokenType != ERC20")`, `_logNonce`. In this task: `Auto` and `Lido` both resolve to Lido (Task 7 adds Uniswap); `Uniswap` reverts `WethToStEth: uniswap route not implemented` (removed in Task 7). Lido requires: `!isStakingPaused()` (`WethToStEth: Lido staking paused`), `amt <= getCurrentStakeLimit()` (`WethToStEth: AMOUNT > Lido stake limit`). Logs Lido mint `amt - 2` and the chosen route.
   - `function _lidoTxs(uint256 amt) internal view returns (SafeBatchDecodedLib.Tx[] memory)`; `stMint = amt - 2`.
   - `function _assertConverted(uint256 amt, uint256 stMint, Before memory b) internal view` — shared sim asserts below; `struct Before` holds the pre-values.
@@ -245,7 +245,7 @@ function testFork_auto_defaultSlippage_picksLido() public {
 | `testFork_slippageAbove100_reverts` | none | `(1, Lido, 101)` | `WethToStEth: SLIPPAGE_BPS > 100` |
 | `testFork_lidoPaused_forcedLido_reverts` | `vm.mockCall(STETH, abi.encodeWithSignature("isStakingPaused()"), abi.encode(true))` | `(1, Lido, 10)` | `WethToStEth: Lido staking paused` |
 | `testFork_stakeLimit_forcedLido_reverts` | `vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(0.5 ether)))` | `(1, Lido, 10)` | `WethToStEth: AMOUNT > Lido stake limit` |
-| `test_parseRoute_unknownReverts` | none | `exposed_parseRoute("curve")` | `WethToStEth: ROUTE must be auto|lido|uniswap` |
+| `test_parseRoute_unknownReverts` | none | `exposed_parseRoute("curve")` | `WethToStEth: ROUTE must be auto|lido|uniswap|compare` |
 
 - [x] **Step 2: Run to verify it fails**
 

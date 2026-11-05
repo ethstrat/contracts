@@ -83,7 +83,7 @@ QuoterV2 `0x61fFE014bA17989E743c5F6cB21bF9697530B21e`. Gas price at check: 0.037
 
 ## WethToStEth
 
-Route chosen on the fork (A6). `RebalanceParams.ROUTE` (`Params.sol`, env `ROUTE` overrides): `auto` (default) | `lido` | `uniswap`.
+Route chosen on the fork (A6). `RebalanceParams.ROUTE` (`Params.sol`, env `ROUTE` overrides): `auto` (default) | `lido` | `uniswap` | `compare` (read-only, below).
 
 Lido route (5 txs):
 
@@ -149,7 +149,7 @@ imports it; an env var of the same name overrides per run via `vm.envOr`):
   `require(AMOUNT > 0)`. Log `AMOUNT` and `amt` (wei). A wei value passed by mistake
   (e.g. `50000000000000000000`) exceeds the cap and reverts with the cap reason.
 - `SLIPPAGE_BPS` (default 10, `require <= MAX_SLIPPAGE_BPS` = 100): Uniswap route only.
-- `ROUTE` (default `"auto"`, `auto|lido|uniswap`): selects Lido vs Uniswap.
+- `ROUTE` (default `"auto"`, `auto|lido|uniswap|compare`): selects Lido vs Uniswap; `compare` writes nothing (see Compare mode).
 - `RPC_URL`: loaded by forge/node. The script author never reads `.env`.
 
 Pre-conditions (named revert, before any file is written):
@@ -207,12 +207,27 @@ node --env-file=.env script/safe/tenderly-simulate.mjs <raw.json>   # optional
 node --env-file=.env script/safe/propose-batch.mjs <raw.json>
 ```
 
+## Compare mode
+
+`AMOUNT=<ETH> [SLIPPAGE_BPS=<n>] ROUTE=compare forge script script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol --fork-url $RPC_URL`
+
+Read-only: no simulation, no `vm.broadcast`, no files. Same pre-checks as a real run (`AMOUNT`, slippage cap,
+`_checkCommon`). Prints, at the current block:
+- block number; Safe on-chain nonce (excludes the Safe queue).
+- Lido: mint after slippage (`amt - 2`), paused, stake limit, headroom over `AMOUNT` (0 = `AMOUNT` > limit).
+- Uniswap: raw QuoterV2 quote (wstETH), `minWst`, mint after slippage, par floor pass/fail (a real run reverts on fail).
+- `auto` winner (1 lido, 2 uniswap), by the same rule and code as `ROUTE=auto`.
+
+Use: (1) before signing, to see which route `auto` picks and the margin; a real run is deterministic only for the
+block it ran on. (2) before executing a signed batch, re-run with the batch's `AMOUNT` and `SLIPPAGE_BPS`: if
+Lido is now paused or under the limit, or the Uniswap mint fell below the par floor, regenerate the batch.
+
 ## Failure modes
 
 | condition | behaviour |
 |---|---|
 | `AMOUNT` unset / 0 / above any cap | named revert, nothing written |
-| `SLIPPAGE_BPS > 100`, unknown `ROUTE` | named revert |
+| `SLIPPAGE_BPS > 100`, unknown `ROUTE` | named revert (also in `compare`) |
 | `ROUTE=lido` while paused or limit < amt | named revert |
 | `ROUTE=uniswap` or auto-picked Uniswap; price moves below `minWst` before execution | swap reverts, whole Safe tx reverts; regenerate |
 | stETH negative rebase between build and execution | unwrap / submit yields < `stMint`; `mint` does **not** revert, the shortfall is drawn from the Safe's stETH stock (Safe holds 1591.86 stETH); esETH still receives `stMint` |
@@ -234,6 +249,11 @@ node --env-file=.env script/safe/propose-batch.mjs <raw.json>
     block 26345235: +1.56 bps); Lido paused (`vm.mockCall isStakingPaused`) + `ROUTE=lido` reverts and
     `auto` picks Uniswap; `ROUTE=uniswap` with a zero QuoterV2 quote (`vm.mockCall`) reverts `minWst == 0`;
     totalMinted < amt (`deal` WETH to esETH) reverts with the totalMinted reason (shared `RebalanceBase` check).
+  - `compare`: picks Lido at default slippage, Uniswap at `SLIPPAGE_BPS=0`, reports Lido paused / stake limit
+    below `AMOUNT` / below-par Uniswap quote (mocks); reverts on the slippage cap and an `AMOUNT` above the WETH
+    balance. `run()` with env `ROUTE`, `AMOUNT`, `SLIPPAGE_BPS` set uses them (recording `_write` override);
+    with env unset falls back to `Params.sol`; `ROUTE=compare` calls `_write` zero times and adds no files.
+  - Slippage cap: `SLIPPAGE_BPS=100` passes, `101` reverts. Safe stETH stock: 1 wei drop reverts, unchanged passes.
 - Lib unit tests as listed above; existing `ScriptLibsTest` cases pass unchanged.
 
 ## Assumptions
