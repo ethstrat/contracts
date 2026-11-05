@@ -1,6 +1,6 @@
 # esETH WETH rebalance — design (one script)
 
-Branch: `eseth-weth-rebalance`. Status: design rev 5. Script 1 (`RedepositEth`: redeem -> unwrap -> `wrapAndMint`) was
+Branch: `eseth-weth-rebalance`. Status: design rev 6. Script 1 (`RedepositEth`: redeem -> unwrap -> `wrapAndMint`) was
 dropped: esETH cannot hold native ETH (no receive/fallback, no ETH token type; `wrapAndMint` re-wraps to WETH),
 so it was an economic no-op (net -1 wei esETH plus gas). Only `WethToStEth` remains.
 
@@ -116,6 +116,7 @@ Safe esETH and esETH `totalSupply` changed by exactly `stMint - amt - 1`; `WETH.
 `SAFE.balance` unchanged; `stETH.balanceOf(SAFE)` after `>=` before (the mint did not draw on the Safe's
 stETH stock). Lido route also: stETH received `>= amt - 2`, measured as
 `getPooledEthByShares(delta(sharesOf(SAFE) + sharesOf(esETH)))` (no other stETH moves in the batch).
+Both routes: `stETH.allowance(SAFE, esETH) == 0` after (the mint consumed the approval).
 Uniswap route also: `WETH.allowance(SAFE, SwapRouter02) == 0` after, Safe wstETH delta `>= 0`.
 
 ### In-script batch guards
@@ -174,26 +175,27 @@ truncated `value` still executes).
 
 - `script/deployments/1/009-eseth-weth-rebalance/Params.sol` — `RebalanceParams`: AMOUNT, ROUTE, SLIPPAGE_BPS,
   MAX_SLIPPAGE_BPS.
-- `script/deployments/1/009-eseth-weth-rebalance/RebalanceBase.s.sol` — abstract: amount parse, caps,
-  nonce log, MultiSend simulate, `_at`, index scan, both writes.
-- `.../WethToStEth.s.sol`.
+- `.../WethToStEth.s.sol` — single contract: amount parse, caps, shared `_prep` (pre-checks + route numbers,
+  used by real runs and `compare`), nonce log, MultiSend simulate, `_at`, index scan, both writes.
 - Outputs: `script/deployments/1/multisig/009-eseth-weth-rebalance/steth/NNN-0xF89f49e2-multisig.json`
   (raw, `SafeBatchLib.write` values overload) and `...NNN-0xF89f49e2-multisig.tx-builder.json`
   (decoded, `SafeBatchDecodedLib.write`). First free `NNN` per subdir via `vm.exists` scan.
 - `externalAddresses.json`: add `safe.multiSendCallOnly` (`0x9641d764fc13c8B624c04430C7356C1C7C8102e2`)
   and `uniswap-v3.swapRouter02`, `uniswap-v3.quoterV2` for the Uniswap route.
-- Base holds only shared getters (Safe, esETH, WETH, MultiSendCallOnly); stETH/wstETH/Uniswap getters
-  live in `WethToStEth`.
+- One revert prefix: `WethToStEth: `, `WethToStEth batch: `, `WethToStEth sim: `.
 
 ## Library changes (fold-in of review findings on 4d2bc563 / 6977cfaf)
 
 - `SafeBatchDecodedLib.write` calls `verify(txs[i], i)` for every decoded tx before writing.
 - JSON string guard: `write` reverts if any of `name`, `description`, `method`, input
-  `name`/`typ`/`internalTyp`/`value` contains `"` or `\` (A12).
+  `name`/`typ`/`value` contains `"` or `\` (A12).
 - Raw-data fallback: a `Tx` with empty `method` is written as `"data":"0x..."`,
   `"contractMethod":null,"contractInputsValues":null`; `verify` skipped for it (A12).
 - Comments in both libs: replace `008-eseth-weth-rebalance/ProposeRebalance.s.sol` with the 009 paths.
-- Tests (`test/unit/ScriptLibsTest.sol`): `verify` mismatch reverts; `uint256` input branch
+- `Input` has no separate `internalTyp`: `typ` is written as both `type` and `internalType` (identical for
+  `address`/`uint256`). `verify` handles `address` and `uint256` only; any other input type reverts
+  ("unhandled input type").
+- Tests (`test/unit/ScriptLibsTest.sol`): `verify` mismatch reverts; unhandled input type reverts; `uint256` input branch
   round-trips; `SafeBatchLib.write` values-length mismatch reverts; quote guard reverts; raw-data
   fallback writes `data` and null `contractMethod`.
 
@@ -211,11 +213,12 @@ node --env-file=.env script/safe/propose-batch.mjs <raw.json>
 
 `AMOUNT=<ETH> [SLIPPAGE_BPS=<n>] ROUTE=compare forge script script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol --fork-url $RPC_URL`
 
-Read-only: no simulation, no `vm.broadcast`, no files. Same pre-checks as a real run (`AMOUNT`, slippage cap,
-`_checkCommon`). Prints, at the current block:
+Read-only: no simulation, no `vm.broadcast`, no files. Same pre-checks as a real run (shared `_prep`: `AMOUNT`,
+slippage cap, `_checkCommon`, stETH `tokenType == ERC20`). Prints, at the current block:
 - block number; Safe on-chain nonce (excludes the Safe queue).
-- Lido: mint after slippage (`amt - 2`), paused, stake limit, headroom over `AMOUNT` (0 = `AMOUNT` > limit).
-- Uniswap: raw QuoterV2 quote (wstETH), `minWst`, mint after slippage, par floor pass/fail (a real run reverts on fail).
+- Lido: mint after slippage (`amt - 2`), paused, stake limit, usable (`!paused && AMOUNT <= limit`; equal to the limit is usable).
+- Uniswap: raw QuoterV2 quote (wstETH), `minWst`, mint after slippage, par floor pass/fail (enforced only if the Uniswap
+  route is chosen, by `auto` or `ROUTE=uniswap`; a Lido run does not check it).
 - `auto` winner (1 lido, 2 uniswap), by the same rule and code as `ROUTE=auto`.
 
 Use: (1) before signing, to see which route `auto` picks and the margin; a real run is deterministic only for the
@@ -248,10 +251,10 @@ Lido is now paused or under the limit, or the Uniswap mint fell below the par fl
     Lido); `auto` with `SLIPPAGE_BPS=0` picks Uniswap when the fork-block quote beats Lido (true at
     block 26345235: +1.56 bps); Lido paused (`vm.mockCall isStakingPaused`) + `ROUTE=lido` reverts and
     `auto` picks Uniswap; `ROUTE=uniswap` with a zero QuoterV2 quote (`vm.mockCall`) reverts `minWst == 0`;
-    totalMinted < amt (`deal` WETH to esETH) reverts with the totalMinted reason (shared `RebalanceBase` check).
+    totalMinted < amt (`deal` WETH to esETH) reverts with the totalMinted reason (shared pre-check).
   - `compare`: picks Lido at default slippage, Uniswap at `SLIPPAGE_BPS=0`, reports Lido paused / stake limit
-    below `AMOUNT` / below-par Uniswap quote (mocks); reverts on the slippage cap and an `AMOUNT` above the WETH
-    balance. `run()` with env `ROUTE`, `AMOUNT`, `SLIPPAGE_BPS` set uses them (recording `_write` override);
+    below `AMOUNT` / equal to `AMOUNT` (usable) / below-par Uniswap quote (mocks); reverts on the slippage cap, an
+    `AMOUNT` above the WETH balance and a non-ERC20 stETH config. `run()` with env `ROUTE`, `AMOUNT`, `SLIPPAGE_BPS` set uses them (recording `_write` override);
     with env unset falls back to `Params.sol`; `ROUTE=compare` calls `_write` zero times and adds no files.
   - Slippage cap: `SLIPPAGE_BPS=100` passes, `101` reverts. Safe stETH stock: 1 wei drop reverts, unchanged passes.
 - Lib unit tests as listed above; existing `ScriptLibsTest` cases pass unchanged.
@@ -346,9 +349,9 @@ A12. Decoded lib: reject `"`/`\` in strings instead of escaping; raw-data fallba
   `verify` and the writer is ~30 lines for one tx. The swap's params are logged on the console.
 - Alternatives: JSON escaping helper; tuple support so the swap is decoded in the Safe UI.
 
-A13. Shared abstract base contract `RebalanceBase` (kept after Script 1 was dropped).
-- Reason: caps, nonce, simulation and writes are already factored and tested there.
-- Alternative: inline into `WethToStEth`.
+A13. No shared base contract: the former `RebalanceBase` is inlined into `WethToStEth`.
+- Reason: with Script 1 dropped there is a single child; the base only added a file and a second revert prefix.
+- Alternative: keep an abstract base (only worth it if a second rebalance script returns).
 
 A14. QuoterV2 is called on the fork from the script (state-changing ABI, revert-based quote).
 - Reason: on-chain quote at build time, as required; no broadcast, so no cost.
