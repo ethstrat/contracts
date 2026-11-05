@@ -102,6 +102,15 @@ abstract contract RebalanceBase is Script {
         require(s.balance == ethBefore, "Rebalance sim: ETH stranded in Safe");
     }
 
+    /// @dev Returns the calldata args of `t` after asserting its target and selector.
+    function _at(SafeBatchDecodedLib.Tx memory t, address to, bytes4 sel) internal pure returns (bytes memory a) {
+        require(t.to == to && bytes4(t.data) == sel, "Rebalance batch: wrong target/selector");
+        a = new bytes(t.data.length - 4);
+        for (uint256 i; i < a.length; i++) {
+            a[i] = t.data[i + 4];
+        }
+    }
+
     function _in(string memory name, string memory typ, string memory value)
         internal
         pure

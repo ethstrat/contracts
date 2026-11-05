@@ -2,9 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {esETH} from "../../src/esETH.sol";
 import {SafeBatchDecodedLib} from "../../script/deployments/1/lib/SafeBatchDecodedLib.sol";
 import {
     ConvertToStEth,
+    ILido,
     IQuoterV2,
     ISwapRouter02,
     IWstETH
@@ -26,6 +28,14 @@ contract ConvertToStEthHarness is ConvertToStEth {
         return _uniTxs(amt, minWst, stMint);
     }
 
+    function exposed_lidoTxs(uint256 amt) external view returns (SafeBatchDecodedLib.Tx[] memory) {
+        return _lidoTxs(amt);
+    }
+
+    function exposed_simulate(SafeBatchDecodedLib.Tx[] memory txs) external {
+        _simulate(txs);
+    }
+
     function exposed_checkBatch(
         SafeBatchDecodedLib.Tx[] memory txs,
         Route chosen,
@@ -41,6 +51,31 @@ contract ConvertToStEthHarness is ConvertToStEth {
     }
 }
 
+/// @dev Builders emit a batch only `_checkBatch` rejects; proves `buildAndSimulate` invokes it on each route.
+contract ConvertToStEthTampered is ConvertToStEthHarness {
+    function _lidoTxs(uint256 amt) internal view override returns (SafeBatchDecodedLib.Tx[] memory txs) {
+        txs = super._lidoTxs(amt);
+        txs[2].data = abi.encodeCall(ILido.submit, (address(1))); // referral: the simulation does not care
+    }
+
+    function _uniTxs(uint256 amt, uint256 minWst, uint256 stMint)
+        internal
+        view
+        override
+        returns (SafeBatchDecodedLib.Tx[] memory txs)
+    {
+        txs = super._uniTxs(amt, minWst, stMint);
+        txs[2].data = abi.encodeCall(
+            ISwapRouter02.exactInputSingle,
+            (ISwapRouter02.ExactInputSingleParams(WETH_, WSTETH_, 100, SAFE_, amt, minWst - 1, 0))
+        ); // looser minimum: the simulation does not care
+    }
+
+    address internal constant WETH_ = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address internal constant WSTETH_ = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
+    address internal constant SAFE_ = 0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1;
+}
+
 /// @notice Fork test for ConvertToStEth. Run: yarn test:integration --match-contract ConvertToStEthForkTest -vv
 contract ConvertToStEthForkTest is Test {
     uint256 internal constant FORK_BLOCK = 26345235;
@@ -50,6 +85,8 @@ contract ConvertToStEthForkTest is Test {
     address internal constant WSTETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
     address internal constant ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
     address internal constant SAFE = 0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1;
+    address internal constant ESETH = 0xE7A2F9b5fE8a3bb067c15ad08644d96b9dfDf9cb;
+    uint256 internal constant AMT = 1 ether;
 
     ConvertToStEthHarness internal harness;
 
@@ -197,15 +234,7 @@ contract ConvertToStEthForkTest is Test {
         uint256 stMint = IWstETH(WSTETH).getStETHByWstETH(minWst) - 2;
         SafeBatchDecodedLib.Tx[] memory txs = harness.exposed_uniTxs(1 ether, minWst, stMint);
         txs[3].to = address(0xdead);
-        vm.expectRevert(bytes("ConvertToStEth batch: tx not allowlisted"));
-        harness.exposed_checkBatch(txs, ConvertToStEth.Route.Uniswap, 1 ether, minWst, 10);
-    }
-
-    function testFork_checkBatch_wrongMintAmount_reverts() public {
-        uint256 minWst = _quote(1 ether) * 9990 / 10_000;
-        uint256 stMint = IWstETH(WSTETH).getStETHByWstETH(minWst) - 2;
-        SafeBatchDecodedLib.Tx[] memory txs = harness.exposed_uniTxs(1 ether, minWst, stMint + 1);
-        vm.expectRevert(bytes("ConvertToStEth batch: approve args"));
+        vm.expectRevert(bytes("Rebalance batch: wrong target/selector"));
         harness.exposed_checkBatch(txs, ConvertToStEth.Route.Uniswap, 1 ether, minWst, 10);
     }
 
@@ -236,5 +265,377 @@ contract ConvertToStEthForkTest is Test {
         vm.mockCall(WSTETH, abi.encodeWithSelector(IWstETH.getStETHByWstETH.selector), abi.encode(uint256(0.5 ether)));
         vm.expectRevert(bytes("ConvertToStEth: Uniswap stMint below par floor"));
         harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+    }
+
+    // ---- _checkBatch negative tests: one tampered field per test ----
+
+    function _uni() internal returns (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, uint256 stMint) {
+        minWst = _quote(AMT) * 9990 / 10_000;
+        stMint = IWstETH(WSTETH).getStETHByWstETH(minWst) - 2;
+        txs = harness.exposed_uniTxs(AMT, minWst, stMint);
+    }
+
+    function _lido() internal view returns (SafeBatchDecodedLib.Tx[] memory) {
+        return harness.exposed_lidoTxs(AMT);
+    }
+
+    function _expectUni(SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, string memory reason) internal {
+        vm.expectRevert(bytes(reason));
+        harness.exposed_checkBatch(txs, ConvertToStEth.Route.Uniswap, AMT, minWst, 10);
+    }
+
+    function _expectLido(SafeBatchDecodedLib.Tx[] memory txs, string memory reason) internal {
+        vm.expectRevert(bytes(reason));
+        harness.exposed_checkBatch(txs, ConvertToStEth.Route.Lido, AMT, 0, 10);
+    }
+
+    function _redeem(address token, uint256 amt, address receiver) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(esETH.redeem.selector, token, amt, receiver);
+    }
+
+    function _mint(address token, uint256 amt, address receiver) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(esETH.mint.selector, token, amt, receiver);
+    }
+
+    function _swapParams(SafeBatchDecodedLib.Tx[] memory txs)
+        internal
+        pure
+        returns (ISwapRouter02.ExactInputSingleParams memory)
+    {
+        return abi.decode(_args(txs[2].data), (ISwapRouter02.ExactInputSingleParams));
+    }
+
+    function _setSwap(SafeBatchDecodedLib.Tx[] memory txs, ISwapRouter02.ExactInputSingleParams memory p)
+        internal
+        pure
+    {
+        txs[2].data = abi.encodeCall(ISwapRouter02.exactInputSingle, (p));
+    }
+
+    /// @dev Sets approve and mint (last two txs) to `amt` so only the amount bound can trip.
+    function _setStMint(SafeBatchDecodedLib.Tx[] memory txs, uint256 amt) internal pure {
+        uint256 n = txs.length;
+        txs[n - 2].data = abi.encodeCall(ILido.approve, (ESETH, amt));
+        txs[n - 1].data = _mint(STETH, amt, SAFE);
+    }
+
+    function testFork_checkBatch_routeUnresolved_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        vm.expectRevert(bytes("ConvertToStEth batch: route unresolved"));
+        harness.exposed_checkBatch(txs, ConvertToStEth.Route.Auto, AMT, 0, 10);
+    }
+
+    function testFork_checkBatch_uniTxsOnLidoRoute_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs,,) = _uni();
+        _expectLido(txs, "ConvertToStEth batch: tx count");
+    }
+
+    function testFork_checkBatch_lidoTxsOnUniRoute_reverts() public {
+        (, uint256 minWst,) = _uni();
+        _expectUni(_lido(), minWst, "ConvertToStEth batch: tx count");
+    }
+
+    function testFork_checkBatch_lidoSubmitValueZero_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        txs[2].value = 0;
+        _expectLido(txs, "ConvertToStEth batch: unexpected tx value");
+    }
+
+    function testFork_checkBatch_lidoApproveValue_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        txs[3].value = AMT;
+        _expectLido(txs, "ConvertToStEth batch: unexpected tx value");
+    }
+
+    function testFork_checkBatch_lidoRedeemValue_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        txs[0].value = 1;
+        _expectLido(txs, "ConvertToStEth batch: unexpected tx value");
+    }
+
+    function testFork_checkBatch_uniSwapValue_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[2].value = AMT;
+        _expectUni(txs, minWst, "ConvertToStEth batch: unexpected tx value");
+    }
+
+    function testFork_checkBatch_wrongSelector_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[3].data = abi.encodeWithSelector(bytes4(0xdeadbeef), minWst);
+        _expectUni(txs, minWst, "Rebalance batch: wrong target/selector");
+    }
+
+    function testFork_checkBatch_redeemToken_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[0].data = _redeem(STETH, AMT, SAFE);
+        _expectUni(txs, minWst, "ConvertToStEth batch: redeem args");
+    }
+
+    function testFork_checkBatch_redeemAmount_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[0].data = _redeem(WETH, AMT + 1, SAFE);
+        _expectUni(txs, minWst, "ConvertToStEth batch: redeem args");
+    }
+
+    function testFork_checkBatch_redeemReceiver_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[0].data = _redeem(WETH, AMT, address(1));
+        _expectUni(txs, minWst, "ConvertToStEth batch: redeem args");
+    }
+
+    function testFork_checkBatch_mintToken_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, uint256 stMint) = _uni();
+        txs[5].data = _mint(WETH, stMint, SAFE);
+        _expectUni(txs, minWst, "ConvertToStEth batch: mint args");
+    }
+
+    function testFork_checkBatch_mintReceiver_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, uint256 stMint) = _uni();
+        txs[5].data = _mint(STETH, stMint, address(1));
+        _expectUni(txs, minWst, "ConvertToStEth batch: mint args");
+    }
+
+    function testFork_checkBatch_approveSpender_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, uint256 stMint) = _uni();
+        txs[4].data = abi.encodeCall(ILido.approve, (address(1), stMint));
+        _expectUni(txs, minWst, "ConvertToStEth batch: approve args");
+    }
+
+    function testFork_checkBatch_approveAmountNeqMint_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, uint256 stMint) = _uni();
+        txs[4].data = abi.encodeCall(ILido.approve, (ESETH, stMint + 1));
+        _expectUni(txs, minWst, "ConvertToStEth batch: approve args");
+    }
+
+    function testFork_checkBatch_wethApproveSpender_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[1].data = abi.encodeWithSelector(bytes4(keccak256("approve(address,uint256)")), address(1), AMT);
+        _expectUni(txs, minWst, "ConvertToStEth batch: WETH approve args");
+    }
+
+    function testFork_checkBatch_wethApproveAmount_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[1].data = abi.encodeWithSelector(bytes4(keccak256("approve(address,uint256)")), ROUTER, AMT + 1);
+        _expectUni(txs, minWst, "ConvertToStEth batch: WETH approve args");
+    }
+
+    function testFork_checkBatch_swapCalldataLength_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[2].data = bytes.concat(txs[2].data, bytes32(0)); // e.g. a deadline field
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap calldata length");
+    }
+
+    function testFork_checkBatch_swapTokenIn_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        ISwapRouter02.ExactInputSingleParams memory p = _swapParams(txs);
+        p.tokenIn = STETH;
+        _setSwap(txs, p);
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap params");
+    }
+
+    function testFork_checkBatch_swapTokenOut_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        ISwapRouter02.ExactInputSingleParams memory p = _swapParams(txs);
+        p.tokenOut = STETH;
+        _setSwap(txs, p);
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap params");
+    }
+
+    function testFork_checkBatch_swapFee_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        ISwapRouter02.ExactInputSingleParams memory p = _swapParams(txs);
+        p.fee = 500;
+        _setSwap(txs, p);
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap params");
+    }
+
+    function testFork_checkBatch_swapRecipient_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        ISwapRouter02.ExactInputSingleParams memory p = _swapParams(txs);
+        p.recipient = address(1);
+        _setSwap(txs, p);
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap params");
+    }
+
+    function testFork_checkBatch_swapAmountIn_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        ISwapRouter02.ExactInputSingleParams memory p = _swapParams(txs);
+        p.amountIn = AMT + 1;
+        _setSwap(txs, p);
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap params");
+    }
+
+    function testFork_checkBatch_swapSqrtPriceLimit_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        ISwapRouter02.ExactInputSingleParams memory p = _swapParams(txs);
+        p.sqrtPriceLimitX96 = 1;
+        _setSwap(txs, p);
+        _expectUni(txs, minWst, "ConvertToStEth batch: swap params");
+    }
+
+    function testFork_checkBatch_unwrapAboveMinWst_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[3].data = abi.encodeCall(IWstETH.unwrap, (minWst + 1));
+        _expectUni(txs, minWst, "ConvertToStEth batch: unwrap > minWst");
+    }
+
+    function testFork_checkBatch_unwrapShortOfMint_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        txs[3].data = abi.encodeCall(IWstETH.unwrap, (minWst - 10));
+        _expectUni(txs, minWst, "ConvertToStEth batch: unwrap short of mint");
+    }
+
+    function testFork_checkBatch_mintAboveUnwrap_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst, uint256 stMint) = _uni();
+        _setStMint(txs, stMint + 1);
+        _expectUni(txs, minWst, "ConvertToStEth batch: unwrap short of mint");
+    }
+
+    function testFork_checkBatch_belowParFloor_reverts() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, uint256 minWst,) = _uni();
+        _setStMint(txs, AMT * 9990 / 10_000 - 1);
+        _expectUni(txs, minWst, "ConvertToStEth: Uniswap stMint below par floor");
+    }
+
+    function testFork_checkBatch_lidoWithdrawAmount_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        txs[1].data = abi.encodeWithSelector(bytes4(keccak256("withdraw(uint256)")), AMT + 1);
+        _expectLido(txs, "ConvertToStEth batch: withdraw amount");
+    }
+
+    function testFork_checkBatch_lidoReferral_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        txs[2].data = abi.encodeCall(ILido.submit, (address(1)));
+        _expectLido(txs, "ConvertToStEth batch: submit referral");
+    }
+
+    function testFork_checkBatch_lidoMintTooLow_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        _setStMint(txs, AMT - 3);
+        _expectLido(txs, "ConvertToStEth batch: Lido stMint range");
+    }
+
+    function testFork_checkBatch_lidoMintTooHigh_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        _setStMint(txs, AMT + 1);
+        _expectLido(txs, "ConvertToStEth batch: Lido stMint range");
+    }
+
+    function testFork_checkBatch_lidoWrongTarget_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = _lido();
+        txs[2].to = address(0xdead);
+        _expectLido(txs, "Rebalance batch: wrong target/selector");
+    }
+
+    // ---- buildAndSimulate invokes _checkBatch on both routes ----
+
+    function testFork_lido_buildRunsCheckBatch() public {
+        ConvertToStEthTampered t = new ConvertToStEthTampered();
+        vm.expectRevert(bytes("ConvertToStEth batch: submit referral"));
+        t.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_uniswap_buildRunsCheckBatch() public {
+        ConvertToStEthTampered t = new ConvertToStEthTampered();
+        vm.expectRevert(bytes("ConvertToStEth batch: swap amountOutMinimum != minWst"));
+        t.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+    }
+
+    // ---- buildAndSimulate pre-checks and post-simulation asserts ----
+
+    function _mockCfg(address token, uint8 tokenType, uint256 minted) internal {
+        vm.mockCall(
+            ESETH, abi.encodeWithSignature("tokenConfigs(address)", token), abi.encode(tokenType, true, true, minted)
+        );
+    }
+
+    function testFork_stethTokenTypeNotErc20_reverts() public {
+        _mockCfg(STETH, 0, 0);
+        vm.expectRevert(bytes("ConvertToStEth: stETH tokenType != ERC20"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_uniswap_zeroStMint_reverts() public {
+        vm.mockCall(WSTETH, abi.encodeWithSelector(IWstETH.getStETHByWstETH.selector), abi.encode(uint256(1)));
+        vm.expectRevert(bytes("ConvertToStEth: Uniswap stMint == 0"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+    }
+
+    function testFork_sim_wethDelta_reverts() public {
+        vm.mockCall(WETH, abi.encodeWithSignature("balanceOf(address)", ESETH), abi.encode(uint256(1000 ether)));
+        vm.expectRevert(bytes("ConvertToStEth sim: esETH WETH delta != amt"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_stethDelta_reverts() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("balanceOf(address)", ESETH), abi.encode(uint256(1000 ether)));
+        vm.expectRevert(bytes("ConvertToStEth sim: esETH stETH delta < stMint - 2"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_totalMintedDelta_reverts() public {
+        _mockCfg(STETH, 1, 1000 ether);
+        vm.expectRevert(bytes("ConvertToStEth sim: stETH totalMinted delta != stMint"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_supplyDelta_reverts() public {
+        vm.mockCall(ESETH, abi.encodeWithSignature("totalSupply()"), abi.encode(uint256(1_000_000 ether)));
+        vm.expectRevert(bytes("ConvertToStEth sim: esETH supply delta"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_safeEsEthDelta_reverts() public {
+        vm.mockCall(ESETH, abi.encodeWithSignature("balanceOf(address)", SAFE), abi.encode(uint256(1000 ether)));
+        vm.expectRevert(bytes("ConvertToStEth sim: Safe esETH delta"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_safeStethStock_reverts() public {
+        bytes[] memory rets = new bytes[](2);
+        rets[0] = abi.encode(uint256(100 ether)); // _before
+        rets[1] = abi.encode(uint256(0)); // after the simulation
+        vm.mockCalls(STETH, abi.encodeWithSignature("balanceOf(address)", SAFE), rets);
+        vm.expectRevert(bytes("ConvertToStEth sim: mint drew on Safe stETH stock"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_lidoReceived_reverts() public {
+        vm.mockCall(STETH, abi.encodeWithSelector(ILido.getPooledEthByShares.selector), abi.encode(uint256(0)));
+        vm.expectRevert(bytes("ConvertToStEth sim: Lido stETH received < amt - 2"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Lido, 10);
+    }
+
+    function testFork_sim_routerAllowanceLeft_reverts() public {
+        vm.mockCall(WETH, abi.encodeWithSignature("allowance(address,address)", SAFE, ROUTER), abi.encode(uint256(1)));
+        vm.expectRevert(bytes("ConvertToStEth sim: router allowance left"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+    }
+
+    function testFork_sim_safeWstethFell_reverts() public {
+        bytes[] memory rets = new bytes[](2);
+        rets[0] = abi.encode(uint256(10 ether)); // before the simulation
+        rets[1] = abi.encode(uint256(0)); // after
+        vm.mockCalls(WSTETH, abi.encodeWithSignature("balanceOf(address)", SAFE), rets);
+        vm.expectRevert(bytes("ConvertToStEth sim: Safe wstETH fell"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+    }
+
+    // ---- _simulate ----
+
+    function testFork_simulate_wethStranded_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = _lido()[0]; // redeem only: WETH lands in the Safe and stays
+        vm.expectRevert(bytes("Rebalance sim: WETH stranded in Safe"));
+        harness.exposed_simulate(txs);
+    }
+
+    function testFork_simulate_ethStranded_reverts() public {
+        SafeBatchDecodedLib.Tx[] memory l = _lido();
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](2);
+        txs[0] = l[0];
+        txs[1] = l[1]; // redeem + withdraw: ETH lands in the Safe and stays
+        vm.expectRevert(bytes("Rebalance sim: ETH stranded in Safe"));
+        harness.exposed_simulate(txs);
     }
 }

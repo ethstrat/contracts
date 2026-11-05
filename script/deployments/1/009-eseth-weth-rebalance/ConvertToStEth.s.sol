@@ -193,26 +193,11 @@ contract ConvertToStEth is RebalanceBase {
         return st < 2 ? 0 : st - 2;
     }
 
-    function _allowed(address to, bytes4 sel) internal view returns (bool) {
-        return (to == eseth() && (sel == esETH.redeem.selector || sel == esETH.mint.selector))
-            || (to == weth() && (sel == IWETH9.approve.selector || sel == IWETH9.withdraw.selector))
-            || (to == steth() && (sel == ILido.submit.selector || sel == ILido.approve.selector))
-            || (to == swapRouter02() && sel == ISwapRouter02.exactInputSingle.selector)
-            || (to == wsteth() && sel == IWstETH.unwrap.selector);
-    }
-
-    /// @dev Returns the calldata args of `t` after asserting its target and selector.
-    function _at(SafeBatchDecodedLib.Tx memory t, address to, bytes4 sel) internal pure returns (bytes memory a) {
-        require(t.to == to && bytes4(t.data) == sel, "ConvertToStEth batch: wrong target/selector");
-        a = new bytes(t.data.length - 4);
-        for (uint256 i; i < a.length; i++) {
-            a[i] = t.data[i + 4];
-        }
-    }
-
     /// @dev Decodes the built batch and asserts it matches intent, before simulation and before any file is
-    /// written. `minWst` is the quote-derived minimum (Uniswap only). On Uniswap, the minted stETH must also
-    /// be >= par (`amt * (10000 - slippageBps) / 10000`), rate from wstETH, so a skewed pool fails closed.
+    /// written. `stMint` is read back from the batch's mint tx and bounded against independent values (amt,
+    /// wstETH's own rate, the par floor), not recomputed the way the builder does. `minWst` is the quote-derived
+    /// minimum (Uniswap only). On Uniswap the minted stETH must also be >= par (`amt * (10000 - slippageBps) /
+    /// 10000`), rate from wstETH, so a skewed pool fails closed.
     function _checkBatch(
         SafeBatchDecodedLib.Tx[] memory txs,
         Route chosen,
@@ -225,7 +210,6 @@ contract ConvertToStEth is RebalanceBase {
         uint256 n = txs.length;
         require(n == (uni ? 6 : 5), "ConvertToStEth batch: tx count");
         for (uint256 i; i < n; i++) {
-            require(_allowed(txs[i].to, bytes4(txs[i].data)), "ConvertToStEth batch: tx not allowlisted");
             require(txs[i].value == (!uni && i == 2 ? amt : 0), "ConvertToStEth batch: unexpected tx value");
         }
 
@@ -233,28 +217,28 @@ contract ConvertToStEth is RebalanceBase {
             abi.decode(_at(txs[0], eseth(), esETH.redeem.selector), (address, uint256, address));
         require(t == weth() && a == amt && r == safe(), "ConvertToStEth batch: redeem args");
 
-        uint256 stMint;
+        (t, a, r) = abi.decode(_at(txs[n - 1], eseth(), esETH.mint.selector), (address, uint256, address));
+        require(t == steth() && r == safe(), "ConvertToStEth batch: mint args");
+        uint256 stMint = a;
+        (r, a) = abi.decode(_at(txs[n - 2], steth(), ILido.approve.selector), (address, uint256));
+        require(r == eseth() && a == stMint, "ConvertToStEth batch: approve args");
+
         if (uni) {
-            stMint = _stMintFor(minWst);
-            _checkSwap(txs, amt, minWst);
+            _checkSwap(txs, amt, minWst, stMint);
+            require(stMint >= amt * (10_000 - slippageBps) / 10_000, "ConvertToStEth: Uniswap stMint below par floor");
         } else {
-            stMint = amt - 2;
             a = abi.decode(_at(txs[1], weth(), IWETH9.withdraw.selector), (uint256));
             require(a == amt, "ConvertToStEth batch: withdraw amount");
             r = abi.decode(_at(txs[2], steth(), ILido.submit.selector), (address));
             require(r == address(0), "ConvertToStEth batch: submit referral");
-        }
-
-        (r, a) = abi.decode(_at(txs[n - 2], steth(), ILido.approve.selector), (address, uint256));
-        require(r == eseth() && a == stMint, "ConvertToStEth batch: approve args");
-        (t, a, r) = abi.decode(_at(txs[n - 1], eseth(), esETH.mint.selector), (address, uint256, address));
-        require(t == steth() && a == stMint && r == safe(), "ConvertToStEth batch: mint args");
-        if (uni) {
-            require(stMint >= amt * (10_000 - slippageBps) / 10_000, "ConvertToStEth: Uniswap stMint below par floor");
+            require(stMint + 2 >= amt && stMint <= amt, "ConvertToStEth batch: Lido stMint range");
         }
     }
 
-    function _checkSwap(SafeBatchDecodedLib.Tx[] memory txs, uint256 amt, uint256 minWst) internal view {
+    function _checkSwap(SafeBatchDecodedLib.Tx[] memory txs, uint256 amt, uint256 minWst, uint256 stMint)
+        internal
+        view
+    {
         (address g, uint256 w) = abi.decode(_at(txs[1], weth(), IWETH9.approve.selector), (address, uint256));
         require(g == swapRouter02() && w == amt, "ConvertToStEth batch: WETH approve args");
 
@@ -270,14 +254,14 @@ contract ConvertToStEth is RebalanceBase {
 
         uint256 u = abi.decode(_at(txs[3], wsteth(), IWstETH.unwrap.selector), (uint256));
         require(u <= minWst, "ConvertToStEth batch: unwrap > minWst");
-        require(
-            IWstETH(wsteth()).getStETHByWstETH(u) >= _stMintFor(minWst), "ConvertToStEth batch: unwrap short of mint"
-        );
+        // unwrap must cover the mint plus the 2 wei stETH transfer rounding
+        require(IWstETH(wsteth()).getStETHByWstETH(u) >= stMint + 2, "ConvertToStEth batch: unwrap short of mint");
     }
 
     function _uniTxs(uint256 amt, uint256 minWst, uint256 stMint)
         internal
         view
+        virtual
         returns (SafeBatchDecodedLib.Tx[] memory txs)
     {
         address w = weth();
@@ -310,7 +294,7 @@ contract ConvertToStEth is RebalanceBase {
         txs[5] = _mintTx(stMint);
     }
 
-    function _lidoTxs(uint256 amt) internal view returns (SafeBatchDecodedLib.Tx[] memory txs) {
+    function _lidoTxs(uint256 amt) internal view virtual returns (SafeBatchDecodedLib.Tx[] memory txs) {
         address w = weth();
         address st = steth();
         uint256 stMint = amt - 2;

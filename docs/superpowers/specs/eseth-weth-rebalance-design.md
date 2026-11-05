@@ -101,7 +101,7 @@ Simulation asserts: the three equalities above; `WETH.balanceOf(SAFE)` and `SAFE
 
 ## Script 2 — ConvertToStEth
 
-Route chosen on the fork (A6). `ROUTE` env: `auto` (default) | `lido` | `uniswap`.
+Route chosen on the fork (A6). `RebalanceParams.ROUTE` (`Params.sol`, env `ROUTE` overrides): `auto` (default) | `lido` | `uniswap`.
 
 Lido route (5 txs):
 
@@ -136,32 +136,43 @@ stETH stock). Lido route also: stETH received `>= amt - 2`, measured as
 `getPooledEthByShares(delta(sharesOf(SAFE) + sharesOf(esETH)))` (no other stETH moves in the batch).
 Uniswap route also: `WETH.allowance(SAFE, SwapRouter02) == 0` after, Safe wstETH delta `>= 0`.
 
+### In-script batch guards (RedepositEth)
+
+`RedepositEth._checkBatch` (same pattern, `_at` shared in `RebalanceBase`): 3 txs; values `0, 0, amt`;
+`redeem(WETH, amt, SAFE)`; WETH `withdraw(amt)`; esETH `wrapAndMint(SAFE)`. Negative fork test per field.
+
 ### In-script batch guards (ConvertToStEth)
 
 `_checkBatch` runs on the built batch before simulation and before any file is written (named reverts):
-- Allowlist: every tx `(to, selector)` is one of esETH `redeem|mint`, WETH `approve|withdraw`, stETH
-  `submit|approve`, SwapRouter02 `exactInputSingle`, wstETH `unwrap`; value is 0 except Lido `submit` (`== amt`).
-- Decodes every tx and asserts position, target, selector and args: `redeem(WETH, amt, SAFE)`; stETH
-  `approve(esETH, stMint)`; `mint(stETH, stMint, SAFE)`. Lido: `withdraw(amt)`, `submit(0)`, `stMint == amt - 2`.
+- Route resolved (`Lido` | `Uniswap`, not `Auto`); tx count (5 Lido, 6 Uniswap); value is 0 except Lido
+  `submit` (`== amt`).
+- Decodes every tx via `_at` (asserts position, target and selector) and asserts args: `redeem(WETH, amt, SAFE)`;
+  `mint(stETH, stMint, SAFE)`, with `stMint` read back from the mint tx; stETH `approve(esETH, stMint)`.
+  Lido: `withdraw(amt)`, `submit(0)`, `amt - 2 <= stMint <= amt`.
   Uniswap: WETH `approve(router, amt)`; swap `tokenIn/tokenOut/fee/recipient/amountIn/sqrtPriceLimitX96`,
   `amountOutMinimum == minWst`, calldata length exactly 7 words (no deadline); `unwrap <= minWst` and
-  `getStETHByWstETH(unwrap) >= stMint`; `stMint == getStETHByWstETH(minWst) - 2`.
+  `getStETHByWstETH(unwrap) >= stMint + 2` (2 wei transfer rounding).
+- No allowlist loop and no recomputation of `stMint` from `minWst`: `_at` already pins every tx, and `stMint`
+  is bounded against independent values (`amt`, wstETH's own rate, the par floor).
 - Par floor (Uniswap, any route-selection reason): `stMint >= amt * (10000 - SLIPPAGE_BPS) / 10000`, rate from
   `wstETH.getStETHByWstETH`, not the pool quote. Fails closed ("Uniswap stMint below par floor"), also when
   Lido is paused/capped and `auto` falls back to Uniswap. Effective bound: pool quote must be ~>= 1 stETH per ETH.
-- Tests: fork tests decode `txs[2]` and tamper (`minWst = 0`, non-allowlisted target, wrong mint amount),
-  mocked low quote / manipulated rate hit the par floor; the default `yarn test` (no fork) writes the real
+- Tests: one negative fork test per guard (a single tampered field each: counts, values, every redeem/mint/
+  approve/withdraw/submit/swap arg, unwrap bounds, Lido range, par floor, route unresolved); tampering
+  builders prove `buildAndSimulate` runs `_checkBatch` on both routes; mocks trigger each pre-check and
+  post-simulation assert; mocked low quote / manipulated rate hit the par floor; the default `yarn test` (no fork) writes the real
   descriptors (redeem, withdraw, submit, approve, mint, unwrap, wrapAndMint) through `_write`/`verify`.
 
 ## Shared parameters and checks
 
-Env:
-- `AMOUNT` (required): whole ETH integer, `vm.envUint("AMOUNT")` (unset or non-integer such as `0.5`:
-  cheatcode error, nothing written). `amt = AMOUNT * 1 ether` (checked; overflow panics).
+Params (`script/deployments/1/009-eseth-weth-rebalance/Params.sol`, library `RebalanceParams`; both scripts
+import it; an env var of the same name overrides per run via `vm.envOr`):
+- `AMOUNT` (default 0 = unset, reverts unless `AMOUNT` is given): whole ETH integer, `vm.envOr("AMOUNT", ...)`
+  (non-integer such as `0.5`: cheatcode error, nothing written). `amt = AMOUNT * 1 ether` (checked; overflow panics).
   `require(AMOUNT > 0)`. Log `AMOUNT` and `amt` (wei). A wei value passed by mistake
   (e.g. `50000000000000000000`) exceeds the cap and reverts with the cap reason.
-- `SLIPPAGE_BPS` (Script 2 only, default 10, `require <= 100`): Uniswap route only.
-- `ROUTE` (Script 2 only, default `auto`).
+- `SLIPPAGE_BPS` (Script 2 only, default 10, `require <= MAX_SLIPPAGE_BPS` = 100): Uniswap route only.
+- `ROUTE` (Script 2 only, default `"auto"`, `auto|lido|uniswap`): selects Lido vs Uniswap.
 - `RPC_URL`: loaded by forge/node. The script author never reads `.env`.
 
 Pre-conditions (named revert, before any file is written):
@@ -184,8 +195,10 @@ truncated `value` still executes).
 
 ## Code layout
 
-- `script/deployments/1/009-eseth-weth-rebalance/RebalanceBase.s.sol` — abstract: env parse, caps,
-  nonce log, MultiSend simulate, index scan, both writes.
+- `script/deployments/1/009-eseth-weth-rebalance/Params.sol` — `RebalanceParams`: AMOUNT, ROUTE, SLIPPAGE_BPS,
+  MAX_SLIPPAGE_BPS.
+- `script/deployments/1/009-eseth-weth-rebalance/RebalanceBase.s.sol` — abstract: amount parse, caps,
+  nonce log, MultiSend simulate, `_at`, index scan, both writes.
 - `.../RedepositEth.s.sol` (Script 1), `.../ConvertToStEth.s.sol` (Script 2).
 - Outputs: `script/deployments/1/multisig/009-eseth-weth-rebalance/{eth,steth}/NNN-0xF89f49e2-multisig.json`
   (raw, `SafeBatchLib.write` values overload) and `...NNN-0xF89f49e2-multisig.tx-builder.json`
@@ -210,8 +223,9 @@ truncated `value` still executes).
 ## User flow
 
 ```
-AMOUNT=50 forge script script/deployments/1/009-eseth-weth-rebalance/RedepositEth.s.sol --fork-url $RPC_URL
-AMOUNT=50 [ROUTE=auto] [SLIPPAGE_BPS=10] forge script .../ConvertToStEth.s.sol --fork-url $RPC_URL
+# defaults live in Params.sol (edit there, or override per run with env)
+[AMOUNT=50] forge script script/deployments/1/009-eseth-weth-rebalance/RedepositEth.s.sol --fork-url $RPC_URL
+[AMOUNT=50] [ROUTE=auto] [SLIPPAGE_BPS=10] forge script .../ConvertToStEth.s.sol --fork-url $RPC_URL
 node --env-file=.env script/safe/hash-batch.mjs <raw.json> --write [--nonce N if Safe queue non-empty]
 node --env-file=.env script/safe/tenderly-simulate.mjs <raw.json>   # optional
 node --env-file=.env script/safe/propose-batch.mjs <raw.json>

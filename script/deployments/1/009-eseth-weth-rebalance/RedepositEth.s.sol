@@ -41,6 +41,7 @@ contract RedepositEth is RebalanceBase {
         address e = eseth();
         address w = weth();
         txs = _txs(amt);
+        _checkBatch(txs, amt);
 
         uint256 wethEsEthBefore = IERC20(w).balanceOf(e);
         (,,, uint256 mintedBefore) = esETH(payable(e)).tokenConfigs(w);
@@ -56,7 +57,7 @@ contract RedepositEth is RebalanceBase {
         require(IERC20(e).balanceOf(s) + 1 == safeEsEthBefore, "RedepositEth sim: Safe esETH delta != 1");
     }
 
-    function _txs(uint256 amt) internal view returns (SafeBatchDecodedLib.Tx[] memory txs) {
+    function _txs(uint256 amt) internal view virtual returns (SafeBatchDecodedLib.Tx[] memory txs) {
         address s = safe();
         address e = eseth();
         address w = weth();
@@ -75,5 +76,21 @@ contract RedepositEth is RebalanceBase {
         SafeBatchDecodedLib.Input[] memory in2 = new SafeBatchDecodedLib.Input[](1);
         in2[0] = _in("receiver", "address", vm.toString(s));
         txs[2] = SafeBatchDecodedLib.Tx(e, amt, abi.encodeCall(esETH.wrapAndMint, (s)), "wrapAndMint", in2);
+    }
+
+    /// @dev Decodes the built batch and asserts it matches intent, before simulation and before any file is
+    /// written.
+    function _checkBatch(SafeBatchDecodedLib.Tx[] memory txs, uint256 amt) internal view {
+        require(txs.length == 3, "RedepositEth batch: tx count");
+        require(
+            txs[0].value == 0 && txs[1].value == 0 && txs[2].value == amt, "RedepositEth batch: unexpected tx value"
+        );
+        (address t, uint256 a, address r) =
+            abi.decode(_at(txs[0], eseth(), esETH.redeem.selector), (address, uint256, address));
+        require(t == weth() && a == amt && r == safe(), "RedepositEth batch: redeem args");
+        a = abi.decode(_at(txs[1], weth(), IWETH9.withdraw.selector), (uint256));
+        require(a == amt, "RedepositEth batch: withdraw amount");
+        r = abi.decode(_at(txs[2], eseth(), esETH.wrapAndMint.selector), (address));
+        require(r == safe(), "RedepositEth batch: wrapAndMint receiver");
     }
 }
