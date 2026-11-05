@@ -4,16 +4,16 @@
 
 **Goal:** One fortnightly Foundry script that builds one Safe batch for the unencumbered Safe: `WethToStEth` (redeem WETH, convert to stETH by Lido `submit` or Uniswap, whichever mints more into esETH, mint the stETH back).
 
-**Architecture:** Abstract `RebalanceBase.s.sol` holds env parsing (`AMOUNT` whole ETH), shared pre-checks, Safe nonce log, Safe simulation through the real `execTransaction` + MultiSendCallOnly, first-free-index scan, and writes of a raw propose JSON (`SafeBatchLib.write` values overload) and a decoded tx-builder JSON (`SafeBatchDecodedLib.write`). `WethToStEth.s.sol` implements `buildAndSimulate` (txs + script-specific asserts) and a `run()` that writes. Hashing/proposing stay in `script/safe/*.mjs`. Nothing broadcasts.
+**Architecture:** `WethToStEth.s.sol` (single script; the former `RebalanceBase` was inlined) holds env parsing (`AMOUNT` whole ETH), shared pre-checks, Safe nonce log, Safe simulation through the real `execTransaction` + MultiSendCallOnly, first-free-index scan, and writes of a raw propose JSON (`SafeBatchLib.write` values overload) and a decoded tx-builder JSON (`SafeBatchDecodedLib.write`). It builds the batch in `buildAndSimulate` (txs + asserts), has a read-only `ROUTE=compare`, and `run()` writes. Hashing/proposing stay in `script/safe/*.mjs`. Nothing broadcasts.
 
 **Tech Stack:** Solidity 0.8.24, Foundry (forge script / forge test, via-ir), forge-std, Safe v1.4.1, WETH9, Lido stETH/wstETH, Uniswap v3 SwapRouter02 + QuoterV2.
 
-**Spec:** `docs/superpowers/specs/eseth-weth-rebalance-design.md` (rev 5). The earlier Script 1 (`RedepositEth`, redeem -> unwrap -> `wrapAndMint`) was dropped: esETH cannot hold native ETH (no receive/fallback; `wrapAndMint` re-wraps to WETH), so it was an economic no-op.
+**Spec:** `docs/superpowers/specs/eseth-weth-rebalance-design.md` (rev 6). The earlier Script 1 (`RedepositEth`, redeem -> unwrap -> `wrapAndMint`) was dropped: esETH cannot hold native ETH (no receive/fallback; `wrapAndMint` re-wraps to WETH), so it was an economic no-op.
 
 ## Global Constraints
 
 - Safe: `ConfigLib.addr("internalAddresses.json", ".protocol.multisigs.unencumbered")` (= `0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1`). esETH: `ConfigLib.addr("deploymentAddresses.json", ".esETH")`. WETH: `externalAddresses.json` `.WETH`. stETH / wstETH: `.lido.stETH` / `.lido.wstETH`. New in `externalAddresses.json`: `.safe.multiSendCallOnly` = `0x9641d764fc13c8B624c04430C7356C1C7C8102e2`, `.uniswap-v3.swapRouter02` = `0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45`, `.uniswap-v3.quoterV2` = `0x61fFE014bA17989E743c5F6cB21bF9697530B21e`. No hardcoded addresses in scripts.
-- Sequence number `009` (`008-add-tripwire-operator` exists on main; no `009-*` on origin/main or any remote branch, re-checked 2026-11-05). Scripts: `script/deployments/1/009-eseth-weth-rebalance/{RebalanceBase,WethToStEth}.s.sol`. Operation string: `"009-eseth-weth-rebalance/steth"`. Outputs: `script/deployments/1/multisig/009-eseth-weth-rebalance/steth/NNN-0xF89f49e2-multisig.json` (raw) and `NNN-0xF89f49e2-multisig.tx-builder.json` (decoded).
+- Sequence number `009` (`008-add-tripwire-operator` exists on main; no `009-*` on origin/main or any remote branch, re-checked 2026-11-05). Scripts: `script/deployments/1/009-eseth-weth-rebalance/{Params,WethToStEth}.s.sol`. Operation string: `"009-eseth-weth-rebalance/steth"`. Outputs: `script/deployments/1/multisig/009-eseth-weth-rebalance/steth/NNN-0xF89f49e2-multisig.json` (raw) and `NNN-0xF89f49e2-multisig.tx-builder.json` (decoded).
 - `AMOUNT` = `vm.envUint("AMOUNT")`, whole ETH integer, required, no default. `amt = AMOUNT * 1 ether`. `AMOUNT == 0` reverts. Log both `AMOUNT` (ETH) and `amt` (wei).
 - Script env: `ROUTE` = `vm.envOr("ROUTE", string("auto"))`, one of `auto|lido|uniswap`; `SLIPPAGE_BPS` = `vm.envOr("SLIPPAGE_BPS", uint256(10))`, max 100.
 - Uniswap route: v3 WETH/wstETH fee 100 (pool `0x109830a1AAaD605BbF02a9dFA7B0B92EC2FB7dAa`), SwapRouter02 `exactInputSingle`, then `wstETH.unwrap`. Recorded assumption (spec A5): best Uniswap liquidity for WETH->stETH is this pool. Re-checked block 26345256: QuoterV2 50 WETH -> 40.0568 wstETH; Lido not paused, stake limit 150000 ETH.
@@ -58,7 +58,7 @@
 **Files:** `script/deployments/1/lib/SafeBatchDecodedLib.sol`, `test/unit/ScriptLibsTest.sol`
 
 **Interfaces:**
-- Produces: `struct Input { string name; string typ; string internalTyp; string value; }`, `struct Tx { address to; uint256 value; bytes data; string method; Input[] inputs; }`, `verify(Tx memory t, uint256 index) internal pure`, `write(string memory filePath, address safe, string memory name, string memory description, Tx[] memory txs) internal` (`payable` = `value > 0`).
+- Produces: `struct Input { string name; string typ; string value; }`, `struct Tx { address to; uint256 value; bytes data; string method; Input[] inputs; }`, `verify(Tx memory t, uint256 index) internal pure`, `write(string memory filePath, address safe, string memory name, string memory description, Tx[] memory txs) internal` (`payable` = `value > 0`).
 
 - [x] **Step 1: Write the failing test** `test_SafeBatchDecodedLib_write_valueAndPayable`
 - [x] **Step 2: Run test to verify it fails**
@@ -78,7 +78,7 @@
 **Interfaces:**
 - Consumes: Tasks 1-2.
 - Produces (signatures unchanged):
-  - `SafeBatchDecodedLib.write` now, before building any string, in this order: (1) reverts `"SafeBatchDecodedLib: quote or backslash in string"` if any of `name`, `description`, each `method`, each input `name`/`typ`/`internalTyp`/`value` contains `"` or `\` (guard first: `verify` would otherwise fail inside `vm.parseUint` with a cheatcode error); (2) for each tx with `bytes(method).length > 0`, `verify(txs[i], i)`. Nothing written on revert.
+  - `SafeBatchDecodedLib.write` now, before building any string, in this order: (1) reverts `"SafeBatchDecodedLib: quote or backslash in string"` if any of `name`, `description`, each `method`, each input `name`/`typ`/`value` contains `"` or `\` (guard first: `verify` would otherwise fail inside `vm.parseUint` with a cheatcode error); (2) for each tx with `bytes(method).length > 0`, `verify(txs[i], i)`. Nothing written on revert.
   - Raw-data fallback: a `Tx` with empty `method` is written as `{"to":..,"value":"<v>","data":"0x<data>","contractMethod":null,"contractInputsValues":null}` (`verify` skipped; `inputs` ignored). Used for the `exactInputSingle` tuple tx (spec A12).
   - NatSpec in both libs: replace `008-eseth-weth-rebalance/ProposeRebalance.s.sol` with `009-eseth-weth-rebalance (WethToStEth)`.
 
@@ -132,18 +132,18 @@ git log -1 --format=%B
 
 ---
 
-### Task 4: `RebalanceBase` (DONE)
+### Task 4: shared base (DONE, since inlined into `WethToStEth.s.sol`)
 
 > Script 1 (`RedepositEth`, a redeem -> withdraw -> wrapAndMint no-op) was built, then dropped: esETH cannot hold native ETH, so the ETH is re-wrapped to WETH and nothing changes. Its former Task 4/5 content is removed; only the shared base remains.
 
 **Files:**
 - Modify: `script/deployments/1/config/externalAddresses.json` — add `"safe": {"multiSendCallOnly": ...}` only (value in Global Constraints; `uniswap-v3` entries land in Task 7, where they are first used)
-- Create: `script/deployments/1/009-eseth-weth-rebalance/RebalanceBase.s.sol`
+- Originally `RebalanceBase.s.sol`; now inside `script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol`
 
 **Interfaces:**
 - Consumes: `SafeBatchDecodedLib.Tx/Input/verify` (Tasks 2-3), `ConfigLib.addr`, `esETH` from `src/esETH.sol` (`tokenConfigs(t)` returns `(TokenType tokenType, bool isMintable, bool isRedeemable, uint256 totalMinted)`).
-- Produces in `RebalanceBase.s.sol`:
-  - `abstract contract RebalanceBase is Script`
+- Produces in `WethToStEth.s.sol` (historical: first built as an abstract base):
+  - shared helpers formerly in `abstract contract RebalanceBase is Script`
   - address getters `safe()`, `eseth()`, `weth()`, `multiSendCallOnly()` — `internal view returns (address)`, each one `ConfigLib.addr` call. Script-only getters live in `WethToStEth.s.sol` (Tasks 6-7).
   - `function _amountWei(uint256 amountEth) internal returns (uint256 amt)` — require `amountEth > 0` (`Rebalance: AMOUNT must be > 0`), `amt = amountEth * 1 ether`, logs `AMOUNT (ETH)` and `amt (wei)`.
   - `function _checkCommon(uint256 amt) internal view` — pre-checks below, in this order.
@@ -167,8 +167,8 @@ bool ok = s.execTransaction(ms, 0, msData, 1, 0, 0, 0, address(0), payable(addre
 require(ok, "Rebalance sim: execTransaction returned false");
 ```
   Post: `Rebalance sim: WETH stranded in Safe`, `Rebalance sim: ETH stranded in Safe`. Not `SafeBatchLib.execute`: `WETH.withdraw` reverts under `vm.prank(SAFE)` (spec, Fork verification).
-  - File-local interfaces in `RebalanceBase.s.sol`: `ISafe { nonce(); getOwners(); getThreshold(); execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes) payable returns (bool) }`, `IWETH9 { withdraw(uint256); approve(address,uint256) returns (bool) }`.
-  - Helper `function _in(string memory name, string memory typ, string memory value) internal pure returns (SafeBatchDecodedLib.Input memory)` (`internalTyp = typ`).
+  - File-local interfaces in `WethToStEth.s.sol`: `ISafe { nonce(); getOwners(); getThreshold(); execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes) payable returns (bool) }`, `IWETH9 { withdraw(uint256); approve(address,uint256) returns (bool) }`.
+  - Helper `function _in(string memory name, string memory typ, string memory value) internal pure returns (SafeBatchDecodedLib.Input memory)`.
 **Shared pre-checks** (`_checkCommon`, this order):
 
 | # | condition | reason |
@@ -189,9 +189,9 @@ require(ok, "Rebalance sim: execTransaction returned false");
 - Test: `test/integration/WethToStEthForkTest.sol`
 
 **Interfaces:**
-- Consumes: `RebalanceBase` (Tasks 4-5).
+- Consumes: shared helpers (Task 4).
 - Produces:
-  - `contract WethToStEth is RebalanceBase`, `string internal constant OPERATION = "009-eseth-weth-rebalance/steth";`, `enum Route { Auto, Lido, Uniswap }`
+  - `contract WethToStEth is Script`, `string internal constant OPERATION = "009-eseth-weth-rebalance/steth";`, `enum Route { Auto, Lido, Uniswap, Compare }`
   - getter `steth()` (`ConfigLib.addr("externalAddresses.json", ".lido.stETH")`), `internal view`, in this contract (not the base).
   - `function _parseRoute(string memory s) internal pure returns (Route)` — `"auto"|"lido"|"uniswap"|"compare"`, else revert `WethToStEth: ROUTE must be auto|lido|uniswap|compare`.
   - `function buildAndSimulate(uint256 amountEth, Route route, uint256 slippageBps) internal returns (SafeBatchDecodedLib.Tx[] memory txs, Route chosen)` — `_amountWei`, `require(slippageBps <= 100, "WethToStEth: SLIPPAGE_BPS > 100")`, `_checkCommon`, `require(tokenConfigs(stETH).tokenType == ERC20, "WethToStEth: stETH tokenType != ERC20")`, `_logNonce`. In this task: `Auto` and `Lido` both resolve to Lido (Task 7 adds Uniswap); `Uniswap` reverts `WethToStEth: uniswap route not implemented` (removed in Task 7). Lido requires: `!isStakingPaused()` (`WethToStEth: Lido staking paused`), `amt <= getCurrentStakeLimit()` (`WethToStEth: AMOUNT > Lido stake limit`). Logs Lido mint `amt - 2` and the chosen route.
@@ -374,7 +374,7 @@ git log -1 --format=%B
 - Modify: `script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol`
 
 **Interfaces:**
-- Consumes: `_write` (`RebalanceBase`), `buildAndSimulate` (Tasks 6-7).
+- Consumes: `_write` (`WethToStEth`), `buildAndSimulate` (Tasks 6-7).
 - Produces: `run()` — parse env, `(txs, chosen) = buildAndSimulate(...)`, `_write(OPERATION, "esETH WETH -> stETH rebalance", string.concat("Redeems ", vm.toString(amountEth), " ETH of WETH from esETH, converts to stETH via ", chosen == Route.Lido ? "Lido submit" : "Uniswap v3 WETH/wstETH 0.01% + unwrap", ", mints the stETH into esETH."), txs)`.
 
 - [x] **Step 1: Implement `run()`** per Interfaces.
