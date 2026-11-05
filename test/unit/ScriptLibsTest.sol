@@ -145,4 +145,43 @@ contract ScriptLibsTest is Test {
         // Leave no test artifact behind in the committed multisig output tree.
         vm.removeDir(dir, true);
     }
+
+    function test_SafeBatchLib_writeWithValues_emitsValue() public {
+        address safe = 0x1111111111111111111111111111111111111111;
+        SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](2);
+        txs[0] = SafeBatchLib.Tx({to: address(0xA), data: hex"01"});
+        txs[1] = SafeBatchLib.Tx({to: address(0xB), data: hex"02"});
+        uint256[] memory values = new uint256[](2);
+        values[1] = 1 ether;
+
+        string memory operation = "999-test-fixture-values";
+        SafeBatchLib.write(safe, operation, 1, "n", "d", txs, values);
+        string memory json = vm.readFile(SafeBatchLib.path(safe, operation, 1));
+
+        assertEq(vm.parseJsonString(json, ".transactions[0].value"), "0");
+        assertEq(vm.parseJsonString(json, ".transactions[1].value"), "1000000000000000000");
+        vm.removeDir(string.concat("script/deployments/1/multisig/", operation), true);
+    }
+
+    /// @dev Pins the 6-arg writer's exact bytes (format copied from the pre-change writer), so the
+    /// delegation is proven byte-identical. The existing round-trip test does not check `value`.
+    function test_SafeBatchLib_write_sixArgBytesUnchanged() public {
+        address safe = 0x1111111111111111111111111111111111111111;
+        SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](1);
+        txs[0] = SafeBatchLib.Tx({to: address(0xA), data: hex"01"});
+
+        string memory operation = "999-test-fixture-bytes";
+        SafeBatchLib.write(safe, operation, 1, "n", "d", txs);
+        string memory expected = string.concat(
+            "{\"version\":\"1.0\",\"chainId\":\"1\",\"createdAt\":",
+            vm.toString(block.timestamp * 1000),
+            ",\"meta\":{\"name\":\"n\",\"description\":\"d\",\"txBuilderVersion\":\"2.0.1\",\"createdFromSafeAddress\":\"",
+            vm.toString(safe),
+            "\",\"createdFromOwnerAddress\":\"\",\"checksum\":null},\"transactions\":[{\"to\":\"",
+            vm.toString(address(0xA)),
+            "\",\"value\":\"0\",\"data\":\"0x01\",\"contractMethod\":null,\"contractInputsValues\":null}]}"
+        );
+        assertEq(vm.readFile(SafeBatchLib.path(safe, operation, 1)), expected);
+        vm.removeDir(string.concat("script/deployments/1/multisig/", operation), true);
+    }
 }

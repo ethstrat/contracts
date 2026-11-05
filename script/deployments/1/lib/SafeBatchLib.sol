@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 /// @notice Writes Safe Transaction Builder JSON batches using the raw-calldata transaction form
 /// (no ABI-descriptor introspection). Used by BuildOrder.s.sol, Cancel.s.sol, StopEspnYield.s.sol,
 /// PeriodicYield.s.sol and 005-earn-lp/ProposeLp.s.sol; `execute` also by the Verify scripts.
+/// The `write` overload with per-tx `values` is used by 008-eseth-weth-rebalance/ProposeRebalance.s.sol.
 library SafeBatchLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -22,6 +23,19 @@ library SafeBatchLib {
         string memory description,
         Tx[] memory txs
     ) internal {
+        write(safe, operation, index, name, description, txs, new uint256[](txs.length));
+    }
+
+    function write(
+        address safe,
+        string memory operation,
+        uint256 index,
+        string memory name,
+        string memory description,
+        Tx[] memory txs,
+        uint256[] memory values
+    ) internal {
+        require(values.length == txs.length, "SafeBatchLib: values length != txs length");
         vm.createDir(string.concat("script/deployments/1/multisig/", operation, "/"), true);
 
         string memory filePath = path(safe, operation, index);
@@ -31,7 +45,9 @@ library SafeBatchLib {
             string memory entry = string.concat(
                 "{\"to\":\"",
                 vm.toString(txs[i].to),
-                "\",\"value\":\"0\",\"data\":\"",
+                "\",\"value\":\"",
+                vm.toString(values[i]),
+                "\",\"data\":\"",
                 vm.toString(txs[i].data),
                 "\",\"contractMethod\":null,\"contractInputsValues\":null}"
             );
