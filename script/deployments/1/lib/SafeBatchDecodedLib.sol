@@ -7,7 +7,7 @@ import {Vm} from "forge-std/Vm.sol";
 /// human signer in the Safe UI sees function names and arguments for a batch that sends ETH.
 /// Port of script/lib/SafeBatchLib.sol (left untouched; its Tx has no value and it hardcodes
 /// `"value":"0"`, `"payable":false`). Writes to a caller-chosen path. Used by
-/// 008-eseth-weth-rebalance/ProposeRebalance.s.sol. The raw-calldata file, not this one, is what
+/// 009-eseth-weth-rebalance (RedepositEth, ConvertToStEth). The raw-calldata file, not this one, is what
 /// gets hashed and proposed.
 library SafeBatchDecodedLib {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -67,9 +67,26 @@ library SafeBatchDecodedLib {
         }
     }
 
+    /// @dev Reverts before writing if any string holds `"` or `\` (no escaping) or a decoded tx fails
+    /// `verify`. A tx with empty `method` is written as raw `data` (no descriptor, `verify` skipped).
     function write(string memory filePath, address safe, string memory name, string memory description, Tx[] memory txs)
         internal
     {
+        _assertSafe(name);
+        _assertSafe(description);
+        for (uint256 i = 0; i < txs.length; i++) {
+            _assertSafe(txs[i].method);
+            for (uint256 j = 0; j < txs[i].inputs.length; j++) {
+                _assertSafe(txs[i].inputs[j].name);
+                _assertSafe(txs[i].inputs[j].typ);
+                _assertSafe(txs[i].inputs[j].internalTyp);
+                _assertSafe(txs[i].inputs[j].value);
+            }
+        }
+        for (uint256 i = 0; i < txs.length; i++) {
+            if (bytes(txs[i].method).length > 0) verify(txs[i], i);
+        }
+
         string memory transactions = "";
         for (uint256 i = 0; i < txs.length; i++) {
             string memory entry = string.concat(
@@ -77,10 +94,18 @@ library SafeBatchDecodedLib {
                 vm.toString(txs[i].to),
                 "\",\"value\":\"",
                 vm.toString(txs[i].value),
-                "\",\"data\":null,\"contractMethod\":",
-                _contractMethod(txs[i]),
-                ",\"contractInputsValues\":",
-                _contractInputsValues(txs[i]),
+                bytes(txs[i].method).length > 0
+                    ? string.concat(
+                        "\",\"data\":null,\"contractMethod\":",
+                        _contractMethod(txs[i]),
+                        ",\"contractInputsValues\":",
+                        _contractInputsValues(txs[i])
+                    )
+                    : string.concat(
+                        "\",\"data\":\"",
+                        vm.toString(txs[i].data),
+                        "\",\"contractMethod\":null,\"contractInputsValues\":null"
+                    ),
                 "}"
             );
             transactions = i == 0 ? entry : string.concat(transactions, ",", entry);
@@ -101,6 +126,13 @@ library SafeBatchDecodedLib {
         );
 
         vm.writeFile(filePath, json);
+    }
+
+    function _assertSafe(string memory s) private pure {
+        bytes memory b = bytes(s);
+        for (uint256 i = 0; i < b.length; i++) {
+            require(b[i] != 0x22 && b[i] != 0x5c, "SafeBatchDecodedLib: quote or backslash in string");
+        }
     }
 
     // A non-payable function cannot take value, so value > 0 <=> payable.

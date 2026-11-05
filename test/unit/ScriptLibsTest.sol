@@ -209,4 +209,73 @@ contract ScriptLibsTest is Test {
         assertEq(vm.parseJsonString(json, ".transactions[1].contractInputsValues._referral"), vm.toString(address(0)));
         vm.removeFile(path);
     }
+
+    // External wrappers: library internals revert in the test frame, so expectRevert needs a CALL boundary.
+    function writeDecodedExt(string memory p, string memory name, SafeBatchDecodedLib.Tx[] memory txs) external {
+        SafeBatchDecodedLib.write(p, address(0x1111111111111111111111111111111111111111), name, "d", txs);
+    }
+
+    function writeRawExt(SafeBatchLib.Tx[] memory txs, uint256[] memory values) external {
+        SafeBatchLib.write(
+            address(0x1111111111111111111111111111111111111111), "999-test-fixture-len", 1, "n", "d", txs, values
+        );
+    }
+
+    function _withdrawTx(uint256 encoded, string memory declared)
+        internal
+        pure
+        returns (SafeBatchDecodedLib.Tx[] memory txs)
+    {
+        SafeBatchDecodedLib.Input[] memory ins = new SafeBatchDecodedLib.Input[](1);
+        ins[0] = SafeBatchDecodedLib.Input("wad", "uint256", "uint256", declared);
+        txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = SafeBatchDecodedLib.Tx(
+            address(0xA), 0, abi.encodeWithSignature("withdraw(uint256)", encoded), "withdraw", ins
+        );
+    }
+
+    function test_SafeBatchDecodedLib_verify_mismatchReverts() public {
+        string memory p = "./tmp/decoded-mismatch.tx-builder.json";
+        vm.expectRevert(bytes("SafeBatchDecodedLib.verify: decoded descriptor mismatch for tx 0 (withdraw)"));
+        this.writeDecodedExt(p, "n", _withdrawTx(2, "1"));
+        assertFalse(vm.exists(p));
+    }
+
+    function test_SafeBatchDecodedLib_uint256Input_roundTrips() public {
+        string memory p = "./tmp/decoded-uint.tx-builder.json";
+        SafeBatchDecodedLib.write(p, address(0x1111111111111111111111111111111111111111), "n", "d", _withdrawTx(2, "2"));
+        string memory json = vm.readFile(p);
+        assertEq(vm.parseJsonString(json, ".transactions[0].contractInputsValues.wad"), "2");
+        assertEq(vm.parseJsonString(json, ".transactions[0].contractMethod.inputs[0].type"), "uint256");
+        vm.removeFile(p);
+    }
+
+    function test_SafeBatchLib_write_valuesLengthReverts() public {
+        SafeBatchLib.Tx[] memory txs = new SafeBatchLib.Tx[](2);
+        txs[0] = SafeBatchLib.Tx(address(0xA), hex"01");
+        txs[1] = SafeBatchLib.Tx(address(0xB), hex"02");
+        vm.expectRevert(bytes("SafeBatchLib: values length != txs length"));
+        this.writeRawExt(txs, new uint256[](1));
+    }
+
+    function test_SafeBatchDecodedLib_quoteGuardReverts() public {
+        string memory p = "./tmp/decoded-quote.tx-builder.json";
+        vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
+        this.writeDecodedExt(p, "a\"b", _withdrawTx(1, "1"));
+        assertFalse(vm.exists(p));
+        vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
+        this.writeDecodedExt(p, "n", _withdrawTx(1, "1\\"));
+        assertFalse(vm.exists(p));
+    }
+
+    function test_SafeBatchDecodedLib_rawFallback_writesData() public {
+        string memory p = "./tmp/decoded-raw.tx-builder.json";
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = SafeBatchDecodedLib.Tx(address(0xC), 0, hex"04e45aaf01", "", new SafeBatchDecodedLib.Input[](0));
+        SafeBatchDecodedLib.write(p, address(0x1111111111111111111111111111111111111111), "n", "d", txs);
+        string memory json = vm.readFile(p);
+        assertEq(vm.parseJsonBytes(json, ".transactions[0].data"), hex"04e45aaf01");
+        assertTrue(vm.contains(json, "\"contractMethod\":null,\"contractInputsValues\":null"));
+        vm.removeFile(p);
+    }
 }
