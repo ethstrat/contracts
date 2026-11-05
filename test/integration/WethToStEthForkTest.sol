@@ -61,6 +61,10 @@ contract WethToStEthHarness is WethToStEth {
         return _compare(amountEth, slippageBps);
     }
 
+    function exposed_pick(uint256 stMintUni, uint256 lidoMint, bool lidoOk) external pure returns (Route) {
+        return _pick(stMintUni, lidoMint, lidoOk);
+    }
+
     function exposed_params() external view returns (uint256, Route, uint256) {
         return _params();
     }
@@ -254,6 +258,38 @@ contract WethToStEthForkTest is Test {
         assertEq(uint8(c.winner), uint8(WethToStEth.Route.Uniswap));
     }
 
+    function test_pick_tie_picksLido() public view {
+        assertEq(uint8(harness.exposed_pick(100, 100, true)), uint8(WethToStEth.Route.Lido));
+        assertEq(uint8(harness.exposed_pick(101, 100, true)), uint8(WethToStEth.Route.Uniswap));
+        assertEq(uint8(harness.exposed_pick(1, 100, false)), uint8(WethToStEth.Route.Uniswap));
+    }
+
+    function testFork_compare_stakeLimitEqualsAmount_lidoOk() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(1 ether)));
+        WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
+        assertEq(c.headroom, 0);
+        assertEq(uint8(c.winner), uint8(WethToStEth.Route.Lido));
+    }
+
+    /// @dev wstETH rate mocked so the Uniswap mint lands exactly on the par floor (1 ETH, 10 bps: 0.999 ether).
+    function _mockMintAtFloor(uint256 delta) internal {
+        vm.mockCall(
+            WSTETH,
+            abi.encodeWithSelector(IWstETH.getStETHByWstETH.selector),
+            abi.encode(uint256(0.999 ether) + 2 + delta)
+        );
+    }
+
+    function testFork_compare_atParFloor() public {
+        _mockMintAtFloor(0);
+        assertTrue(harness.exposed_compare(1, 10).parOk);
+    }
+
+    function testFork_uniswap_atParFloor_passes() public {
+        _mockMintAtFloor(0);
+        harness.exposed_buildAndSimulate(1, WethToStEth.Route.Uniswap, 10);
+    }
+
     function testFork_compare_belowPar() public {
         _mockLowQuote();
         WethToStEth.Cmp memory c = harness.exposed_compare(1, 10);
@@ -264,6 +300,10 @@ contract WethToStEthForkTest is Test {
         uint256 over = IERC20(WETH).balanceOf(ESETH) / 1e18 + 1;
         vm.expectRevert(bytes("Rebalance: AMOUNT > WETH.balanceOf(esETH)"));
         harness.exposed_compare(over, 10);
+    }
+
+    function testFork_compare_slippageAtCap_passes() public {
+        harness.exposed_compare(1, 100);
     }
 
     function testFork_compare_slippageAboveCap_reverts() public {

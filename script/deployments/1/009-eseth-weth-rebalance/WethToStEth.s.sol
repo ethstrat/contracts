@@ -160,7 +160,7 @@ contract WethToStEth is RebalanceBase {
         console2.log("Lido stake limit (wei)", c.stakeLimit);
         console2.log("Lido headroom over AMOUNT (wei, 0 = AMOUNT > limit)", c.headroom);
         console2.log("Uniswap mint after slippage (wei)", c.uniMint);
-        console2.log("Uniswap par floor ok (run reverts if 0)", c.parOk);
+        console2.log("Uniswap par floor ok (run reverts if false)", c.parOk);
         console2.log("auto winner (1 lido, 2 uniswap)", uint256(c.winner));
     }
 
