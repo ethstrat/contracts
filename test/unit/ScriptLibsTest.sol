@@ -8,6 +8,7 @@ import {HoldersLib} from "../../script/deployments/1/lib/HoldersLib.sol";
 import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
 import {SafeBatchDecodedLib} from "../../script/deployments/1/lib/SafeBatchDecodedLib.sol";
 import {ConvertToStEth} from "../../script/deployments/1/009-eseth-weth-rebalance/ConvertToStEth.s.sol";
+import {RebalanceParams} from "../../script/deployments/1/009-eseth-weth-rebalance/Params.sol";
 import {RedepositEth} from "../../script/deployments/1/009-eseth-weth-rebalance/RedepositEth.s.sol";
 
 /// @dev Exposes the real 009 batch builders and writer so the default (no-fork) CI run exercises the
@@ -26,6 +27,10 @@ contract ConvertHarness is ConvertToStEth {
         returns (string memory, string memory)
     {
         return _write(op, "n", "d", txs);
+    }
+
+    function route() external view returns (Route) {
+        return _route();
     }
 }
 
@@ -333,5 +338,12 @@ contract ScriptLibsTest is Test {
         assertTrue(vm.contains(uniswap, "\"name\":\"unwrap\""));
         assertTrue(vm.contains(eth, "\"name\":\"wrapAndMint\""));
         vm.removeDir(dir, true);
+    }
+
+    function test_009_params_defaultsAreValid() public {
+        ConvertHarness h = new ConvertHarness();
+        assertEq(uint8(h.route()), uint8(ConvertToStEth.Route.Auto)); // Params.ROUTE = "auto", no ROUTE env in unit
+        // runs
+        assertLe(RebalanceParams.SLIPPAGE_BPS, RebalanceParams.MAX_SLIPPAGE_BPS);
     }
 }

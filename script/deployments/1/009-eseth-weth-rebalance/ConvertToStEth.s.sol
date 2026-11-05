@@ -7,6 +7,7 @@ import {esETH} from "src/esETH.sol";
 import {ConfigLib} from "../lib/ConfigLib.sol";
 import {SafeBatchDecodedLib} from "../lib/SafeBatchDecodedLib.sol";
 import {RebalanceBase, IWETH9} from "./RebalanceBase.s.sol";
+import {RebalanceParams} from "./Params.sol";
 
 interface ILido {
     function submit(address referral) external payable returns (uint256);
@@ -51,12 +52,13 @@ interface IWstETH {
 }
 
 /// @notice Unencumbered-Safe batch, run each fortnight: redeems AMOUNT (whole ETH) of WETH from esETH,
-/// converts it to stETH, mints the stETH into esETH. Route (`ROUTE` = auto|lido|uniswap, default auto):
+/// converts it to stETH, mints the stETH into esETH. Route (`RebalanceParams.ROUTE` = auto|lido|uniswap,
+/// env `ROUTE` overrides):
 /// Lido `submit` (1:1 ETH->stETH, no price impact; needs staking not paused and amt <= stake limit) or
 /// Uniswap v3 WETH/wstETH 0.01% + `wstETH.unwrap`. `auto` picks Uniswap only if its post-slippage stETH
 /// mint is strictly greater than Lido's `amt - 2`, or Lido is unavailable. esETH receives exactly the
 /// minted `stMint`; Lido rounding leaves 1 wei under-backed per run, left to `burnExcess`. Never broadcasts.
-/// Pipeline: `AMOUNT=<ETH> [ROUTE=..] [SLIPPAGE_BPS=..] forge script ... --fork-url $RPC_URL` ->
+/// Pipeline: `[AMOUNT=<ETH>] [ROUTE=..] [SLIPPAGE_BPS=..] forge script ... --fork-url $RPC_URL` ->
 /// `yarn safe:hash <raw> --write [--nonce N]` -> `yarn safe:simulate <raw>` -> `yarn safe:propose <raw>`.
 contract ConvertToStEth is RebalanceBase {
     string internal constant OPERATION = "009-eseth-weth-rebalance/steth";
@@ -95,10 +97,9 @@ contract ConvertToStEth is RebalanceBase {
     }
 
     function run() external {
-        uint256 amountEth = vm.envUint("AMOUNT");
-        (SafeBatchDecodedLib.Tx[] memory txs, Route chosen) = buildAndSimulate(
-            amountEth, _parseRoute(vm.envOr("ROUTE", string("auto"))), vm.envOr("SLIPPAGE_BPS", uint256(10))
-        );
+        uint256 amountEth = vm.envOr("AMOUNT", RebalanceParams.AMOUNT);
+        (SafeBatchDecodedLib.Tx[] memory txs, Route chosen) =
+            buildAndSimulate(amountEth, _route(), vm.envOr("SLIPPAGE_BPS", RebalanceParams.SLIPPAGE_BPS));
         _write(
             OPERATION,
             "esETH WETH -> stETH rebalance",
@@ -111,6 +112,10 @@ contract ConvertToStEth is RebalanceBase {
             ),
             txs
         );
+    }
+
+    function _route() internal view returns (Route) {
+        return _parseRoute(vm.envOr("ROUTE", RebalanceParams.ROUTE));
     }
 
     function _parseRoute(string memory s) internal pure returns (Route) {
@@ -126,7 +131,7 @@ contract ConvertToStEth is RebalanceBase {
         returns (SafeBatchDecodedLib.Tx[] memory txs, Route chosen)
     {
         uint256 amt = _amountWei(amountEth);
-        require(slippageBps <= 100, "ConvertToStEth: SLIPPAGE_BPS > 100");
+        require(slippageBps <= RebalanceParams.MAX_SLIPPAGE_BPS, "ConvertToStEth: SLIPPAGE_BPS > 100");
         _checkCommon(amt);
         (esETH.TokenType tokenType,,,) = esETH(payable(eseth())).tokenConfigs(steth());
         require(tokenType == esETH.TokenType.ERC20, "ConvertToStEth: stETH tokenType != ERC20");

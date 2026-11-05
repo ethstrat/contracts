@@ -5,19 +5,20 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {esETH} from "src/esETH.sol";
 import {SafeBatchDecodedLib} from "../lib/SafeBatchDecodedLib.sol";
 import {RebalanceBase, IWETH9} from "./RebalanceBase.s.sol";
+import {RebalanceParams} from "./Params.sol";
 
 /// @notice Unencumbered-Safe batch, run each fortnight: redeems AMOUNT (whole ETH) of WETH from esETH,
 /// unwraps it to ETH, deposits the ETH back into esETH via `wrapAndMint`. esETH has no native-ETH path
 /// (no receive/fallback, no ETH token type); `wrapAndMint` re-wraps to WETH, so esETH's WETH balance and
 /// WETH totalMinted are unchanged and the net effect is esETH supply and Safe esETH -1 wei (redeem burns
 /// amt + 1, mint gives amt). Never broadcasts.
-/// Pipeline: `AMOUNT=<ETH> forge script ... --fork-url $RPC_URL` -> `yarn safe:hash <raw> --write [--nonce N]`
+/// Pipeline: `[AMOUNT=<ETH>] forge script ... --fork-url $RPC_URL` -> `yarn safe:hash <raw> --write [--nonce N]`
 /// -> `yarn safe:simulate <raw>` -> `yarn safe:propose <raw>`.
 contract RedepositEth is RebalanceBase {
     string internal constant OPERATION = "009-eseth-weth-rebalance/eth";
 
     function run() external {
-        uint256 amountEth = vm.envUint("AMOUNT");
+        uint256 amountEth = vm.envOr("AMOUNT", RebalanceParams.AMOUNT);
         SafeBatchDecodedLib.Tx[] memory txs = buildAndSimulate(amountEth);
         _write(
             OPERATION,
