@@ -45,6 +45,45 @@ contract ConvertToStEthForkTest is Test {
         assertEq(uint8(chosen), uint8(ConvertToStEth.Route.Lido));
     }
 
+    function testFork_uniswap_one_passes() public {
+        (SafeBatchDecodedLib.Tx[] memory txs, ConvertToStEth.Route chosen) =
+            harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+        assertEq(uint8(chosen), uint8(ConvertToStEth.Route.Uniswap));
+        assertEq(txs.length, 6);
+        assertEq(bytes4(txs[2].data), bytes4(0x04e45aaf));
+        for (uint256 i; i < 6; i++) {
+            assertEq(txs[i].value, 0);
+        }
+    }
+
+    function testFork_auto_zeroSlippage_picksUniswap() public {
+        // fork block quote beats Lido by ~1.56 bps
+        (, ConvertToStEth.Route chosen) = harness.exposed_buildAndSimulate(50, ConvertToStEth.Route.Auto, 0);
+        assertEq(uint8(chosen), uint8(ConvertToStEth.Route.Uniswap));
+    }
+
+    function testFork_lidoPaused_auto_picksUniswap() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("isStakingPaused()"), abi.encode(true));
+        (, ConvertToStEth.Route chosen) = harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Auto, 10);
+        assertEq(uint8(chosen), uint8(ConvertToStEth.Route.Uniswap));
+    }
+
+    function testFork_stakeLimit_auto_picksUniswap() public {
+        vm.mockCall(STETH, abi.encodeWithSignature("getCurrentStakeLimit()"), abi.encode(uint256(0.5 ether)));
+        (, ConvertToStEth.Route chosen) = harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Auto, 10);
+        assertEq(uint8(chosen), uint8(ConvertToStEth.Route.Uniswap));
+    }
+
+    function testFork_uniswap_zeroQuote_reverts() public {
+        vm.mockCall(
+            QUOTER,
+            abi.encodePacked(bytes4(keccak256("quoteExactInputSingle((address,address,uint256,uint24,uint160))"))),
+            abi.encode(uint256(0), uint160(0), uint32(0), uint256(0))
+        );
+        vm.expectRevert(bytes("ConvertToStEth: Uniswap minWst == 0"));
+        harness.exposed_buildAndSimulate(1, ConvertToStEth.Route.Uniswap, 10);
+    }
+
     function testFork_zero_reverts() public {
         vm.expectRevert(bytes("Rebalance: AMOUNT must be > 0"));
         harness.exposed_buildAndSimulate(0, ConvertToStEth.Route.Lido, 10);

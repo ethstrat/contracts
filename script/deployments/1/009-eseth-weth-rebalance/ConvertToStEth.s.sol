@@ -17,6 +17,39 @@ interface ILido {
     function approve(address spender, uint256 amount) external returns (bool);
 }
 
+interface IQuoterV2 {
+    struct QuoteExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint256 amountIn;
+        uint24 fee;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    function quoteExactInputSingle(QuoteExactInputSingleParams memory params)
+        external
+        returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate);
+}
+
+interface ISwapRouter02 {
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address recipient;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
+}
+
+interface IWstETH {
+    function unwrap(uint256 wstETHAmount) external returns (uint256);
+    function getStETHByWstETH(uint256 wstETHAmount) external view returns (uint256);
+}
+
 /// @notice Unencumbered-Safe batch, run each fortnight: redeems AMOUNT (whole ETH) of WETH from esETH,
 /// converts it to stETH, mints the stETH into esETH. Route (`ROUTE` = auto|lido|uniswap, default auto):
 /// Lido `submit` (1:1 ETH->stETH, no price impact; needs staking not paused and amt <= stake limit) or
@@ -27,6 +60,7 @@ interface ILido {
 /// `yarn safe:hash <raw> --write [--nonce N]` -> `yarn safe:simulate <raw>` -> `yarn safe:propose <raw>`.
 contract ConvertToStEth is RebalanceBase {
     string internal constant OPERATION = "009-eseth-weth-rebalance/steth";
+    uint24 internal constant POOL_FEE = 100; // v3 WETH/wstETH 0.01%, best Uniswap WETH->stETH liquidity (spec A5)
 
     enum Route {
         Auto,
@@ -46,6 +80,18 @@ contract ConvertToStEth is RebalanceBase {
 
     function steth() internal view returns (address) {
         return ConfigLib.addr("externalAddresses.json", ".lido.stETH");
+    }
+
+    function wsteth() internal view returns (address) {
+        return ConfigLib.addr("externalAddresses.json", ".lido.wstETH");
+    }
+
+    function swapRouter02() internal view returns (address) {
+        return ConfigLib.addr("externalAddresses.json", ".uniswap-v3.swapRouter02");
+    }
+
+    function quoterV2() internal view returns (address) {
+        return ConfigLib.addr("externalAddresses.json", ".uniswap-v3.quoterV2");
     }
 
     function run() external {
@@ -73,22 +119,88 @@ contract ConvertToStEth is RebalanceBase {
         require(tokenType == esETH.TokenType.ERC20, "ConvertToStEth: stETH tokenType != ERC20");
         _logNonce();
 
-        require(route != Route.Uniswap, "ConvertToStEth: uniswap route not implemented");
-        chosen = Route.Lido;
-        require(!ILido(steth()).isStakingPaused(), "ConvertToStEth: Lido staking paused");
-        require(amt <= ILido(steth()).getCurrentStakeLimit(), "ConvertToStEth: AMOUNT > Lido stake limit");
-        uint256 stMint = amt - 2;
-        console2.log("Lido mint (wei)", stMint);
-        console2.log("route (0 auto, 1 lido, 2 uniswap)", uint256(chosen));
-        txs = _lidoTxs(amt);
+        uint256 lidoMint = amt - 2;
+        bool lidoOk = !ILido(steth()).isStakingPaused() && amt <= ILido(steth()).getCurrentStakeLimit();
+        uint256 minWst;
+        uint256 stMintUni;
+        if (route != Route.Lido) (, minWst, stMintUni) = _quoteUni(amt, slippageBps);
+        chosen = route;
+        if (route == Route.Auto) chosen = (stMintUni > lidoMint || !lidoOk) ? Route.Uniswap : Route.Lido;
+        console2.log("Lido mint (wei)", lidoMint);
+        console2.log("Uniswap mint (wei)", stMintUni);
+        console2.log("route (1 lido, 2 uniswap)", uint256(chosen));
 
         Before memory b = _before();
-        _simulate(txs);
-        _assertConverted(amt, stMint, b);
-        require(
-            ILido(steth()).getPooledEthByShares(_lidoShares() - b.lidoShares) >= amt - 2,
-            "ConvertToStEth sim: Lido stETH received < amt - 2"
+        if (chosen == Route.Lido) {
+            require(!ILido(steth()).isStakingPaused(), "ConvertToStEth: Lido staking paused");
+            require(amt <= ILido(steth()).getCurrentStakeLimit(), "ConvertToStEth: AMOUNT > Lido stake limit");
+            txs = _lidoTxs(amt);
+            _simulate(txs);
+            _assertConverted(amt, lidoMint, b);
+            require(
+                ILido(steth()).getPooledEthByShares(_lidoShares() - b.lidoShares) >= lidoMint,
+                "ConvertToStEth sim: Lido stETH received < amt - 2"
+            );
+        } else {
+            require(minWst > 0, "ConvertToStEth: Uniswap minWst == 0");
+            require(stMintUni > 0, "ConvertToStEth: Uniswap stMint == 0");
+            txs = _uniTxs(amt, minWst, stMintUni);
+            uint256 wstBefore = IERC20(wsteth()).balanceOf(safe());
+            _simulate(txs);
+            _assertConverted(amt, stMintUni, b);
+            require(IERC20(weth()).allowance(safe(), swapRouter02()) == 0, "ConvertToStEth sim: router allowance left");
+            require(IERC20(wsteth()).balanceOf(safe()) >= wstBefore, "ConvertToStEth sim: Safe wstETH fell");
+        }
+    }
+
+    /// @dev QuoterV2 is state-changing ABI (revert-based quote); fine on a fork, nothing is broadcast.
+    function _quoteUni(uint256 amt, uint256 slippageBps)
+        internal
+        returns (uint256 quoteWst, uint256 minWst, uint256 stMintUni)
+    {
+        (quoteWst,,,) = IQuoterV2(quoterV2())
+            .quoteExactInputSingle(IQuoterV2.QuoteExactInputSingleParams(weth(), wsteth(), amt, POOL_FEE, 0));
+        minWst = quoteWst * (10_000 - slippageBps) / 10_000;
+        uint256 st = IWstETH(wsteth()).getStETHByWstETH(minWst);
+        stMintUni = st < 2 ? 0 : st - 2;
+        console2.log("Uniswap quote (wstETH)", quoteWst);
+        console2.log("Uniswap minWst", minWst);
+        console2.log("Uniswap stMint", stMintUni);
+    }
+
+    function _uniTxs(uint256 amt, uint256 minWst, uint256 stMint)
+        internal
+        view
+        returns (SafeBatchDecodedLib.Tx[] memory txs)
+    {
+        address w = weth();
+        address router = swapRouter02();
+        txs = new SafeBatchDecodedLib.Tx[](6);
+        txs[0] = _redeemTx(amt);
+
+        SafeBatchDecodedLib.Input[] memory in1 = new SafeBatchDecodedLib.Input[](2);
+        in1[0] = _in("guy", "address", vm.toString(router));
+        in1[1] = _in("wad", "uint256", vm.toString(amt));
+        txs[1] = SafeBatchDecodedLib.Tx(w, 0, abi.encodeCall(IWETH9.approve, (router, amt)), "approve", in1);
+
+        // Tuple arg: raw-data fallback (empty method), decoded view shows only calldata.
+        txs[2] = SafeBatchDecodedLib.Tx(
+            router,
+            0,
+            abi.encodeCall(
+                ISwapRouter02.exactInputSingle,
+                (ISwapRouter02.ExactInputSingleParams(w, wsteth(), POOL_FEE, safe(), amt, minWst, 0))
+            ),
+            "",
+            new SafeBatchDecodedLib.Input[](0)
         );
+
+        SafeBatchDecodedLib.Input[] memory in3 = new SafeBatchDecodedLib.Input[](1);
+        in3[0] = _in("_wstETHAmount", "uint256", vm.toString(minWst));
+        txs[3] = SafeBatchDecodedLib.Tx(wsteth(), 0, abi.encodeCall(IWstETH.unwrap, (minWst)), "unwrap", in3);
+
+        txs[4] = _approveTx(stMint);
+        txs[5] = _mintTx(stMint);
     }
 
     function _lidoTxs(uint256 amt) internal view returns (SafeBatchDecodedLib.Tx[] memory txs) {

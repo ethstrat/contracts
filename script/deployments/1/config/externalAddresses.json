@@ -25,5 +25,9 @@
   },
   "safe": {
     "multiSendCallOnly": "0x9641d764fc13c8B624c04430C7356C1C7C8102e2"
+  },
+  "uniswap-v3": {
+    "swapRouter02": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+    "quoterV2": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e"
   }
 }
