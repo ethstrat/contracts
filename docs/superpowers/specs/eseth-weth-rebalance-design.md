@@ -1,19 +1,18 @@
-# esETH WETH rebalance — design (two scripts)
+# esETH WETH rebalance — design (one script)
 
-Branch: `eseth-weth-rebalance`. Status: design rev 4 (rev 3 + adversarial review fixes: A6 route rule,
-stETH-stock draw guard, fork verification). Supersedes rev 2 (single WETH -> stETH script; old A1).
-A1 resolved by user direction (2026-11-05): build Script 1 first, as specified (economic no-op recorded in NatSpec).
+Branch: `eseth-weth-rebalance`. Status: design rev 5. Script 1 (`RedepositEth`: redeem -> unwrap -> `wrapAndMint`) was
+dropped: esETH cannot hold native ETH (no receive/fallback, no ETH token type; `wrapAndMint` re-wraps to WETH),
+so it was an economic no-op (net -1 wei esETH plus gas). Only `WethToStEth` remains.
 
 ## Goal
 
-Two Foundry scripts, each run every fortnight, each building one Safe batch for Safe
-`0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1` (esETH `treasuryManager` + minter). Neither broadcasts.
+One Foundry script, run every fortnight, builds one Safe batch for Safe
+`0xF89f49e21A2Bd1fb24332462cB21dc1378aA25e1` (esETH `treasuryManager` + minter). It does not broadcast.
 
-- Script 1 `RedepositEth`: redeem `AMOUNT` WETH from esETH, unwrap to ETH, deposit the ETH back into esETH.
-- Script 2 `ConvertToStEth`: redeem `AMOUNT` WETH from esETH, convert to stETH by the cheaper of
+- `WethToStEth`: redeem `AMOUNT` WETH from esETH, convert to stETH by the cheaper of
   Lido `submit` and Uniswap, mint the stETH back into esETH.
 
-Each emits a propose JSON (raw calldata, per-tx `value`; input to `hash-batch.mjs`,
+It emits a propose JSON (raw calldata, per-tx `value`; input to `hash-batch.mjs`,
 `tenderly-simulate.mjs`, `propose-batch.mjs`) and a decoded tx-builder JSON (Safe UI import).
 
 ## On-chain facts (mainnet, blocks 26345192-26345203, 2026-11-05, via cast on publicnode)
@@ -44,12 +43,10 @@ than `x` stETH: the shortfall is drawn from the Safe's stock (fork-verified, see
 
 Executed as the Safe via `execTransaction(MultiSendCallOnly 0x9641...02e2, op 1, approved-hash sig v=1)`
 from the impersonated owner:
-- Script 1 batch, amt 1 ETH: status 1, gas 138,993, `SafeReceived` emitted. `WETH.balanceOf(esETH)` and
-  `tokenConfigs(WETH).totalMinted` unchanged; esETH `totalSupply` -1 wei; Safe ETH unchanged.
 - `WETH.withdraw(1e18)` sent directly from the impersonated Safe (no `execTransaction`): status 0.
   Cause: WETH9 `transfer` 2300 stipend vs cold singleton SLOAD + cold delegatecall in the proxy; inside
   `execTransaction` both are warm. Simulation must go through `execTransaction`, not `vm.prank(SAFE)`.
-- Script 2 Lido batch, amt 50 ETH: status 1, gas 233,851. Safe stETH shares +2 wei; `stETH.balanceOf(esETH)`
+- Lido batch, amt 50 ETH: status 1, gas 233,851. Safe stETH shares +2 wei; `stETH.balanceOf(esETH)`
   +amt-3 wei (minted esETH = amt-2: 1 wei under-backed per run, left to `burnExcess`);
   `tokenConfigs(stETH).totalMinted` +amt-2; esETH `totalSupply` -3 wei; Safe ETH unchanged.
 - Negative control (a packing bug truncated the `submit` value to 50e18 mod 2^64 = 13.1 ETH): batch
@@ -84,22 +81,7 @@ SwapRouter02 `0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45`: `factory()` = v3 fact
 `exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))` selector `0x04e45aaf`.
 QuoterV2 `0x61fFE014bA17989E743c5F6cB21bF9697530B21e`. Gas price at check: 0.037 gwei.
 
-## Script 1 — RedepositEth
-
-Batch (MultiSendCallOnly, outer value 0):
-
-| # | to | value | call |
-|---|---|---|---|
-| 1 | esETH | 0 | `redeem(WETH, amt, SAFE)` — burns amt+1 esETH from Safe, WETH to Safe |
-| 2 | WETH | 0 | `withdraw(amt)` — ETH to Safe |
-| 3 | esETH | amt | `wrapAndMint(SAFE)` — esETH wraps the ETH to WETH, mints amt esETH to Safe |
-
-Net effect (exact): `WETH.balanceOf(esETH)` unchanged, `tokenConfigs(WETH).totalMinted` unchanged,
-esETH `totalSupply` and Safe esETH balance each -1 wei. Backing composition unchanged (see A1).
-
-Simulation asserts: the three equalities above; `WETH.balanceOf(SAFE)` and `SAFE.balance` unchanged.
-
-## Script 2 — ConvertToStEth
+## WethToStEth
 
 Route chosen on the fork (A6). `RebalanceParams.ROUTE` (`Params.sol`, env `ROUTE` overrides): `auto` (default) | `lido` | `uniswap`.
 
@@ -136,12 +118,7 @@ stETH stock). Lido route also: stETH received `>= amt - 2`, measured as
 `getPooledEthByShares(delta(sharesOf(SAFE) + sharesOf(esETH)))` (no other stETH moves in the batch).
 Uniswap route also: `WETH.allowance(SAFE, SwapRouter02) == 0` after, Safe wstETH delta `>= 0`.
 
-### In-script batch guards (RedepositEth)
-
-`RedepositEth._checkBatch` (same pattern, `_at` shared in `RebalanceBase`): 3 txs; values `0, 0, amt`;
-`redeem(WETH, amt, SAFE)`; WETH `withdraw(amt)`; esETH `wrapAndMint(SAFE)`. Negative fork test per field.
-
-### In-script batch guards (ConvertToStEth)
+### In-script batch guards
 
 `_checkBatch` runs on the built batch before simulation and before any file is written (named reverts):
 - Route resolved (`Lido` | `Uniswap`, not `Auto`); tx count (5 Lido, 6 Uniswap); value is 0 except Lido
@@ -161,31 +138,31 @@ Uniswap route also: `WETH.allowance(SAFE, SwapRouter02) == 0` after, Safe wstETH
   approve/withdraw/submit/swap arg, unwrap bounds, Lido range, par floor, route unresolved); tampering
   builders prove `buildAndSimulate` runs `_checkBatch` on both routes; mocks trigger each pre-check and
   post-simulation assert; mocked low quote / manipulated rate hit the par floor; the default `yarn test` (no fork) writes the real
-  descriptors (redeem, withdraw, submit, approve, mint, unwrap, wrapAndMint) through `_write`/`verify`.
+  descriptors (redeem, withdraw, submit, approve, mint, unwrap) through `_write`/`verify`.
 
 ## Shared parameters and checks
 
-Params (`script/deployments/1/009-eseth-weth-rebalance/Params.sol`, library `RebalanceParams`; both scripts
-import it; an env var of the same name overrides per run via `vm.envOr`):
+Params (`script/deployments/1/009-eseth-weth-rebalance/Params.sol`, library `RebalanceParams`; the script
+imports it; an env var of the same name overrides per run via `vm.envOr`):
 - `AMOUNT` (default 0 = unset, reverts unless `AMOUNT` is given): whole ETH integer, `vm.envOr("AMOUNT", ...)`
   (non-integer such as `0.5`: cheatcode error, nothing written). `amt = AMOUNT * 1 ether` (checked; overflow panics).
   `require(AMOUNT > 0)`. Log `AMOUNT` and `amt` (wei). A wei value passed by mistake
   (e.g. `50000000000000000000`) exceeds the cap and reverts with the cap reason.
-- `SLIPPAGE_BPS` (Script 2 only, default 10, `require <= MAX_SLIPPAGE_BPS` = 100): Uniswap route only.
-- `ROUTE` (Script 2 only, default `"auto"`, `auto|lido|uniswap`): selects Lido vs Uniswap.
+- `SLIPPAGE_BPS` (default 10, `require <= MAX_SLIPPAGE_BPS` = 100): Uniswap route only.
+- `ROUTE` (default `"auto"`, `auto|lido|uniswap`): selects Lido vs Uniswap.
 - `RPC_URL`: loaded by forge/node. The script author never reads `.env`.
 
 Pre-conditions (named revert, before any file is written):
 - `esETH.treasuryManager() == SAFE`, `esETH.isMinter(SAFE)`.
-- `tokenConfigs(WETH).tokenType == ERC20`; Script 2 also `tokenConfigs(stETH).tokenType == ERC20`.
+- `tokenConfigs(WETH).tokenType == ERC20`; also `tokenConfigs(stETH).tokenType == ERC20`.
 - `amt <= WETH.balanceOf(esETH)`; `amt <= tokenConfigs(WETH).totalMinted` (line 228 underflow);
   `amt + 1 <= esETH.balanceOf(SAFE)`.
-- Script 2 Lido route: `!isStakingPaused()`, `amt <= getCurrentStakeLimit()`.
-- Script 2 Uniswap route: `minWst > 0`, `stMint > 0`.
+- Lido route: `!isStakingPaused()`, `amt <= getCurrentStakeLimit()`.
+- Uniswap route: `minWst > 0`, `stMint > 0`.
 - `Safe.nonce()` read (latest) and logged before simulation.
 - Tripwire: not checked separately; a tripped wire reverts the simulation.
 
-Simulation (both scripts, unchanged from rev 2 A2): pack the txs as MultiSendCallOnly bytes, prank
+Simulation (unchanged from rev 2 A2): pack the txs as MultiSendCallOnly bytes, prank
 `getOwners()[0]`, call `Safe.execTransaction(MULTISEND_CALL_ONLY, 0, multiSend(packed), 1, 0,0,0,0,0, sig)`
 with the approved-hash signature; if `getThreshold() > 1`, `vm.store` threshold slot 4 to 1
 (fork-only). Not `SafeBatchLib.execute`: `WETH.withdraw` reverts under `vm.prank(SAFE)` but succeeds
@@ -199,14 +176,14 @@ truncated `value` still executes).
   MAX_SLIPPAGE_BPS.
 - `script/deployments/1/009-eseth-weth-rebalance/RebalanceBase.s.sol` — abstract: amount parse, caps,
   nonce log, MultiSend simulate, `_at`, index scan, both writes.
-- `.../RedepositEth.s.sol` (Script 1), `.../ConvertToStEth.s.sol` (Script 2).
-- Outputs: `script/deployments/1/multisig/009-eseth-weth-rebalance/{eth,steth}/NNN-0xF89f49e2-multisig.json`
+- `.../WethToStEth.s.sol`.
+- Outputs: `script/deployments/1/multisig/009-eseth-weth-rebalance/steth/NNN-0xF89f49e2-multisig.json`
   (raw, `SafeBatchLib.write` values overload) and `...NNN-0xF89f49e2-multisig.tx-builder.json`
   (decoded, `SafeBatchDecodedLib.write`). First free `NNN` per subdir via `vm.exists` scan.
 - `externalAddresses.json`: add `safe.multiSendCallOnly` (`0x9641d764fc13c8B624c04430C7356C1C7C8102e2`)
-  with Script 1; `uniswap-v3.swapRouter02`, `uniswap-v3.quoterV2` with Script 2's Uniswap route.
+  and `uniswap-v3.swapRouter02`, `uniswap-v3.quoterV2` for the Uniswap route.
 - Base holds only shared getters (Safe, esETH, WETH, MultiSendCallOnly); stETH/wstETH/Uniswap getters
-  live in `ConvertToStEth`.
+  live in `WethToStEth`.
 
 ## Library changes (fold-in of review findings on 4d2bc563 / 6977cfaf)
 
@@ -224,8 +201,7 @@ truncated `value` still executes).
 
 ```
 # defaults live in Params.sol (edit there, or override per run with env)
-[AMOUNT=50] forge script script/deployments/1/009-eseth-weth-rebalance/RedepositEth.s.sol --fork-url $RPC_URL
-[AMOUNT=50] [ROUTE=auto] [SLIPPAGE_BPS=10] forge script .../ConvertToStEth.s.sol --fork-url $RPC_URL
+[AMOUNT=50] [ROUTE=auto] [SLIPPAGE_BPS=10] forge script script/deployments/1/009-eseth-weth-rebalance/WethToStEth.s.sol --fork-url $RPC_URL
 node --env-file=.env script/safe/hash-batch.mjs <raw.json> --write [--nonce N if Safe queue non-empty]
 node --env-file=.env script/safe/tenderly-simulate.mjs <raw.json>   # optional
 node --env-file=.env script/safe/propose-batch.mjs <raw.json>
@@ -252,30 +228,26 @@ node --env-file=.env script/safe/propose-batch.mjs <raw.json>
 
 - Fork tests in `test/integration/` (`FOUNDRY_PROFILE=integration forge test --fork-url $FORK_URL`),
   via a harness exposing `buildAndSimulate` (no files written):
-  - Script 1: `AMOUNT=1` and `AMOUNT=50` pass (50 ETH > 2^64 wei, catches truncated value packing),
-    assert exact no-op deltas; `AMOUNT=0` reverts; `AMOUNT = WETH.balanceOf(esETH) / 1e18 + 1` reverts
-    (cap, computed at the fork block, not hardcoded 75).
-  - Script 2: `ROUTE=lido AMOUNT=50` passes; `ROUTE=uniswap AMOUNT=1` passes; `auto` picks Lido unless
+  - `ROUTE=lido AMOUNT=50` passes; `ROUTE=uniswap AMOUNT=1` passes; `auto` picks Lido unless
     the Uniswap floor `stMint` exceeds Lido's `amt - 2` (at today's prices with `SLIPPAGE_BPS=10`:
     Lido); `auto` with `SLIPPAGE_BPS=0` picks Uniswap when the fork-block quote beats Lido (true at
     block 26345235: +1.56 bps); Lido paused (`vm.mockCall isStakingPaused`) + `ROUTE=lido` reverts and
     `auto` picks Uniswap; `ROUTE=uniswap` with a zero QuoterV2 quote (`vm.mockCall`) reverts `minWst == 0`;
-    totalMinted < amt (`deal` WETH to esETH) reverts with the totalMinted reason (Script 1 suite, shared check).
+    totalMinted < amt (`deal` WETH to esETH) reverts with the totalMinted reason (shared `RebalanceBase` check).
 - Lib unit tests as listed above; existing `ScriptLibsTest` cases pass unchanged.
 
 ## Assumptions
 
 Each: recommendation; reason; alternatives.
 
-A1. Script 1 is built as the 3-tx `redeem -> withdraw -> wrapAndMint` batch (resolved: user directed Script 1 to be built first).
+A1. Script 1 (`RedepositEth`) dropped (supersedes the rev 4 resolution to build it).
 - Reason: esETH cannot hold native ETH (no receive/fallback, no ETH token type, plain send reverts).
-  The only ETH entry, `wrapAndMint`, re-wraps to WETH. Result: esETH ends up holding the same WETH
-  as before; net effect is -1 wei esETH plus gas. Nothing in esETH changes composition.
-- Alternatives: (a) drop Script 1, ship Script 2 only (it is the one that changes backing);
-  (b) Script 1 stops after `withdraw` (ETH left in the Safe) — removes backing from esETH, the
-  opposite of the intent; (c) owner adds a native-ETH path to esETH — contract change, out of scope.
+  The only ETH entry, `wrapAndMint`, re-wraps to WETH, so the batch left esETH with the same WETH
+  and cost -1 wei esETH plus gas. Nothing in esETH changed composition.
+- Alternatives: (a) keep it as a no-op; (b) stop after `withdraw` (ETH left in the Safe) — removes
+  backing from esETH; (c) owner adds a native-ETH path to esETH — contract change, out of scope.
 
-A2. WETH -> ETH is `WETH.withdraw(amt)` called by the Safe; simulation via `execTransaction`.
+A2. WETH -> ETH (Lido route) is `WETH.withdraw(amt)` called by the Safe; simulation via `execTransaction`.
 - Reason: fork-verified in rev 2; no router or helper needed.
 - Alternative: UniversalRouter `UNWRAP_WETH` — extra address, unwraps the router's whole balance.
 
@@ -331,16 +303,16 @@ A8. No swap deadline.
   `DEADLINE_HOURS` param.
 
 A9. Lido: `submit(address(0))` (no referral); mint `amt - 2`; assert stETH received `>= amt - 2`
-(shares-based, see Script 2 simulation asserts).
+(shares-based, see the simulation asserts).
 - Reason: share rounding loses at most 1-2 wei (measured: 1 wei at 50 ETH; fork: esETH balance
   +amt-3, Safe +2 shares). Without the assert a short `submit` is masked by the Safe's stETH stock.
 - Alternative: referral = Safe (no effect on amounts).
 
 A10. Sequence number 009 (`008-add-tripwire-operator` exists on main; no `009-*` on origin/main or any
-remote branch, checked 2026-11-05); outputs in subdirs `eth/` and
+remote branch, checked 2026-11-05); outputs in subdir
 `steth/` of `multisig/009-eseth-weth-rebalance/`.
-- Reason: one operation, two scripts, independent index scans.
-- Alternatives: two sequence numbers (009, 010); shared dir with one index scan.
+- Reason: one operation; the `steth/` subdir keeps the index scan per script.
+- Alternative: no subdir.
 
 A11. Nonce: script reads and logs `Safe.nonce()`; writes no `hashes` block; `hash-batch.mjs --write`
 records it (unchanged from rev 2 A7).
@@ -354,9 +326,9 @@ A12. Decoded lib: reject `"`/`\` in strings instead of escaping; raw-data fallba
   `verify` and the writer is ~30 lines for one tx. The swap's params are logged on the console.
 - Alternatives: JSON escaping helper; tuple support so the swap is decoded in the Safe UI.
 
-A13. Shared abstract base contract for the two scripts.
-- Reason: identical caps, nonce, simulation and writes; two callers.
-- Alternative: one script with `MODE=eth|steth` (fewer files; user asked for separate scripts).
+A13. Shared abstract base contract `RebalanceBase` (kept after Script 1 was dropped).
+- Reason: caps, nonce, simulation and writes are already factored and tested there.
+- Alternative: inline into `WethToStEth`.
 
 A14. QuoterV2 is called on the fork from the script (state-changing ABI, revert-based quote).
 - Reason: on-chain quote at build time, as required; no broadcast, so no cost.
