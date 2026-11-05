@@ -95,8 +95,21 @@ contract ConvertToStEth is RebalanceBase {
     }
 
     function run() external {
-        buildAndSimulate(
-            vm.envUint("AMOUNT"), _parseRoute(vm.envOr("ROUTE", string("auto"))), vm.envOr("SLIPPAGE_BPS", uint256(10))
+        uint256 amountEth = vm.envUint("AMOUNT");
+        (SafeBatchDecodedLib.Tx[] memory txs, Route chosen) = buildAndSimulate(
+            amountEth, _parseRoute(vm.envOr("ROUTE", string("auto"))), vm.envOr("SLIPPAGE_BPS", uint256(10))
+        );
+        _write(
+            OPERATION,
+            "esETH WETH -> stETH rebalance",
+            string.concat(
+                "Redeems ",
+                vm.toString(amountEth),
+                " ETH of WETH from esETH, converts to stETH via ",
+                chosen == Route.Lido ? "Lido submit" : "Uniswap v3 WETH/wstETH 0.01% + unwrap",
+                ", mints the stETH into esETH."
+            ),
+            txs
         );
     }
 
