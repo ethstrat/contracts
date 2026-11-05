@@ -17,7 +17,18 @@ contract RedepositEth is RebalanceBase {
     string internal constant OPERATION = "009-eseth-weth-rebalance/eth";
 
     function run() external {
-        buildAndSimulate(vm.envUint("AMOUNT"));
+        uint256 amountEth = vm.envUint("AMOUNT");
+        SafeBatchDecodedLib.Tx[] memory txs = buildAndSimulate(amountEth);
+        _write(
+            OPERATION,
+            "esETH WETH -> ETH redeposit",
+            string.concat(
+                "Redeems ",
+                vm.toString(amountEth),
+                " ETH of WETH from esETH, unwraps to ETH, deposits the ETH back via wrapAndMint."
+            ),
+            txs
+        );
     }
 
     function buildAndSimulate(uint256 amountEth) internal returns (SafeBatchDecodedLib.Tx[] memory txs) {

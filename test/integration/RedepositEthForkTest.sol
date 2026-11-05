@@ -4,12 +4,17 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {esETH} from "../../src/esETH.sol";
+import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
 import {SafeBatchDecodedLib} from "../../script/deployments/1/lib/SafeBatchDecodedLib.sol";
 import {RedepositEth} from "../../script/deployments/1/009-eseth-weth-rebalance/RedepositEth.s.sol";
 
 contract RedepositEthHarness is RedepositEth {
     function exposed_buildAndSimulate(uint256 amountEth) external returns (SafeBatchDecodedLib.Tx[] memory) {
         return buildAndSimulate(amountEth);
+    }
+
+    function exposed_firstFreeIndex(string memory op) external view returns (uint256) {
+        return _firstFreeIndex(op);
     }
 }
 
@@ -76,5 +81,14 @@ contract RedepositEthForkTest is Test {
         deal(ESETH, SAFE, 0);
         vm.expectRevert(bytes("Rebalance: AMOUNT + 1 > esETH.balanceOf(Safe)"));
         harness.exposed_buildAndSimulate(1);
+    }
+
+    function test_firstFreeIndex_skipsExisting() public {
+        string memory op = "999-test-fixture-index";
+        assertEq(harness.exposed_firstFreeIndex(op), 1);
+        vm.createDir(string.concat("script/deployments/1/multisig/", op), true);
+        vm.writeFile(SafeBatchLib.path(SAFE, op, 1), "{}");
+        assertEq(harness.exposed_firstFreeIndex(op), 2);
+        vm.removeDir(string.concat("script/deployments/1/multisig/", op), true);
     }
 }

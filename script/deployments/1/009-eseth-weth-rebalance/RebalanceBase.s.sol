@@ -52,7 +52,7 @@ abstract contract RebalanceBase is Script {
     }
 
     /// @dev AMOUNT is whole ETH; a wei value passed by mistake trips the WETH balance cap in `_checkCommon`.
-    function _amountWei(uint256 amountEth) internal returns (uint256 amt) {
+    function _amountWei(uint256 amountEth) internal pure returns (uint256 amt) {
         require(amountEth > 0, "Rebalance: AMOUNT must be > 0");
         amt = amountEth * 1 ether;
         console2.log("AMOUNT (ETH)", amountEth);
@@ -108,5 +108,35 @@ abstract contract RebalanceBase is Script {
         returns (SafeBatchDecodedLib.Input memory)
     {
         return SafeBatchDecodedLib.Input(name, typ, typ, value);
+    }
+
+    function _firstFreeIndex(string memory operation) internal view returns (uint256 index) {
+        index = 1;
+        while (vm.exists(SafeBatchLib.path(safe(), operation, index))) index++;
+    }
+
+    /// @dev Decoded file first: its verify + string guard revert before any raw file exists.
+    function _write(
+        string memory operation,
+        string memory name,
+        string memory description,
+        SafeBatchDecodedLib.Tx[] memory txs
+    ) internal returns (string memory rawPath, string memory decodedPath) {
+        uint256 index = _firstFreeIndex(operation);
+        rawPath = SafeBatchLib.path(safe(), operation, index);
+        decodedPath = vm.replace(rawPath, ".json", ".tx-builder.json");
+        vm.createDir(string.concat("script/deployments/1/multisig/", operation), true);
+        SafeBatchDecodedLib.write(decodedPath, safe(), name, description, txs);
+
+        SafeBatchLib.Tx[] memory raw = new SafeBatchLib.Tx[](txs.length);
+        uint256[] memory values = new uint256[](txs.length);
+        for (uint256 i = 0; i < txs.length; i++) {
+            raw[i] = SafeBatchLib.Tx(txs[i].to, txs[i].data);
+            values[i] = txs[i].value;
+        }
+        SafeBatchLib.write(safe(), operation, index, name, description, raw, values);
+        console2.log("index", index);
+        console2.log("raw", rawPath);
+        console2.log("decoded", decodedPath);
     }
 }
