@@ -14,8 +14,7 @@ library SafeBatchDecodedLib {
 
     struct Input {
         string name;
-        string typ; // ABI "type", e.g. "address", "uint256"
-        string internalTyp; // ABI "internalType"
+        string typ; // ABI "type" and "internalType" (identical for address/uint256), e.g. "address"
         string value; // pre-stringified value
     }
 
@@ -45,9 +44,7 @@ library SafeBatchDecodedLib {
             bytes32 typHash = keccak256(bytes(t.inputs[i].typ));
             if (typHash == keccak256("address")) {
                 reencoded = bytes.concat(reencoded, abi.encode(vm.parseAddress(t.inputs[i].value)));
-            } else if (typHash == keccak256("bool")) {
-                reencoded = bytes.concat(reencoded, abi.encode(vm.parseBool(t.inputs[i].value)));
-            } else if (typHash == keccak256("uint256") || typHash == keccak256("uint8")) {
+            } else if (typHash == keccak256("uint256")) {
                 reencoded = bytes.concat(reencoded, abi.encode(vm.parseUint(t.inputs[i].value)));
             } else {
                 revert(string.concat("SafeBatchDecodedLib.verify: unhandled input type for tx ", vm.toString(index)));
@@ -79,7 +76,6 @@ library SafeBatchDecodedLib {
             for (uint256 j = 0; j < txs[i].inputs.length; j++) {
                 _assertSafe(txs[i].inputs[j].name);
                 _assertSafe(txs[i].inputs[j].typ);
-                _assertSafe(txs[i].inputs[j].internalTyp);
                 _assertSafe(txs[i].inputs[j].value);
             }
         }
@@ -141,7 +137,7 @@ library SafeBatchDecodedLib {
         for (uint256 i = 0; i < t.inputs.length; i++) {
             string memory entry = string.concat(
                 "{\"internalType\":\"",
-                t.inputs[i].internalTyp,
+                t.inputs[i].typ,
                 "\",\"name\":\"",
                 t.inputs[i].name,
                 "\",\"type\":\"",

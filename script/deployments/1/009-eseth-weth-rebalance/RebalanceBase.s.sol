@@ -116,7 +116,7 @@ abstract contract RebalanceBase is Script {
         pure
         returns (SafeBatchDecodedLib.Input memory)
     {
-        return SafeBatchDecodedLib.Input(name, typ, typ, value);
+        return SafeBatchDecodedLib.Input(name, typ, value);
     }
 
     function _firstFreeIndex(string memory operation) internal view returns (uint256 index) {

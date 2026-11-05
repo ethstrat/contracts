@@ -219,7 +219,7 @@ contract ScriptLibsTest is Test {
         SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](2);
         SafeBatchDecodedLib.Input[] memory none = new SafeBatchDecodedLib.Input[](0);
         SafeBatchDecodedLib.Input[] memory ref = new SafeBatchDecodedLib.Input[](1);
-        ref[0] = SafeBatchDecodedLib.Input("_referral", "address", "address", vm.toString(address(0)));
+        ref[0] = SafeBatchDecodedLib.Input("_referral", "address", vm.toString(address(0)));
         txs[0] = SafeBatchDecodedLib.Tx(address(0xA), 0, abi.encodeWithSignature("withdraw()"), "withdraw", none);
         txs[1] = SafeBatchDecodedLib.Tx(
             address(0xB), 5, abi.encodeWithSignature("submit(address)", address(0)), "submit", ref
@@ -256,7 +256,7 @@ contract ScriptLibsTest is Test {
         returns (SafeBatchDecodedLib.Tx[] memory txs)
     {
         SafeBatchDecodedLib.Input[] memory ins = new SafeBatchDecodedLib.Input[](1);
-        ins[0] = SafeBatchDecodedLib.Input("wad", "uint256", "uint256", declared);
+        ins[0] = SafeBatchDecodedLib.Input("wad", "uint256", declared);
         txs = new SafeBatchDecodedLib.Tx[](1);
         txs[0] = SafeBatchDecodedLib.Tx(
             address(0xA), 0, abi.encodeWithSignature("withdraw(uint256)", encoded), "withdraw", ins
@@ -276,7 +276,17 @@ contract ScriptLibsTest is Test {
         string memory json = vm.readFile(p);
         assertEq(vm.parseJsonString(json, ".transactions[0].contractInputsValues.wad"), "2");
         assertEq(vm.parseJsonString(json, ".transactions[0].contractMethod.inputs[0].type"), "uint256");
+        assertEq(vm.parseJsonString(json, ".transactions[0].contractMethod.inputs[0].internalType"), "uint256");
         vm.removeFile(p);
+    }
+
+    function test_SafeBatchDecodedLib_verify_unhandledTypeReverts() public {
+        SafeBatchDecodedLib.Input[] memory ins = new SafeBatchDecodedLib.Input[](1);
+        ins[0] = SafeBatchDecodedLib.Input("f", "bool", "true");
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](1);
+        txs[0] = SafeBatchDecodedLib.Tx(address(0xA), 0, abi.encodeWithSignature("set(bool)", true), "set", ins);
+        vm.expectRevert(bytes("SafeBatchDecodedLib.verify: unhandled input type for tx 0"));
+        this.writeDecodedExt("./tmp/decoded-bool.tx-builder.json", "n", txs);
     }
 
     function test_SafeBatchLib_write_valuesLengthReverts() public {
@@ -294,6 +304,11 @@ contract ScriptLibsTest is Test {
         assertFalse(vm.exists(p));
         vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
         this.writeDecodedExt(p, "n", _withdrawTx(1, "1\\"));
+        assertFalse(vm.exists(p));
+        SafeBatchDecodedLib.Tx[] memory txs = _withdrawTx(1, "1");
+        txs[0].inputs[0].typ = "uint256\\";
+        vm.expectRevert(bytes("SafeBatchDecodedLib: quote or backslash in string"));
+        this.writeDecodedExt(p, "n", txs);
         assertFalse(vm.exists(p));
     }
 
