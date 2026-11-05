@@ -6,6 +6,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ConfigLib} from "../../script/deployments/1/lib/ConfigLib.sol";
 import {HoldersLib} from "../../script/deployments/1/lib/HoldersLib.sol";
 import {SafeBatchLib} from "../../script/deployments/1/lib/SafeBatchLib.sol";
+import {SafeBatchDecodedLib} from "../../script/deployments/1/lib/SafeBatchDecodedLib.sol";
 
 contract ScriptLibsTest is Test {
     function test_ConfigLib_addr_confirmedAddresses() public view {
@@ -183,5 +184,29 @@ contract ScriptLibsTest is Test {
         );
         assertEq(vm.readFile(SafeBatchLib.path(safe, operation, 1)), expected);
         vm.removeDir(string.concat("script/deployments/1/multisig/", operation), true);
+    }
+
+    function test_SafeBatchDecodedLib_write_valueAndPayable() public {
+        SafeBatchDecodedLib.Tx[] memory txs = new SafeBatchDecodedLib.Tx[](2);
+        SafeBatchDecodedLib.Input[] memory none = new SafeBatchDecodedLib.Input[](0);
+        SafeBatchDecodedLib.Input[] memory ref = new SafeBatchDecodedLib.Input[](1);
+        ref[0] = SafeBatchDecodedLib.Input("_referral", "address", "address", vm.toString(address(0)));
+        txs[0] = SafeBatchDecodedLib.Tx(address(0xA), 0, abi.encodeWithSignature("withdraw()"), "withdraw", none);
+        txs[1] = SafeBatchDecodedLib.Tx(
+            address(0xB), 5, abi.encodeWithSignature("submit(address)", address(0)), "submit", ref
+        );
+        SafeBatchDecodedLib.verify(txs[0], 0);
+        SafeBatchDecodedLib.verify(txs[1], 1);
+
+        string memory path = "./tmp/decoded-test.tx-builder.json";
+        SafeBatchDecodedLib.write(path, address(0x1111111111111111111111111111111111111111), "n", "d", txs);
+        string memory json = vm.readFile(path);
+
+        assertEq(vm.parseJsonString(json, ".transactions[0].value"), "0");
+        assertEq(vm.parseJsonString(json, ".transactions[1].value"), "5");
+        assertFalse(vm.parseJsonBool(json, ".transactions[0].contractMethod.payable"));
+        assertTrue(vm.parseJsonBool(json, ".transactions[1].contractMethod.payable"));
+        assertEq(vm.parseJsonString(json, ".transactions[1].contractInputsValues._referral"), vm.toString(address(0)));
+        vm.removeFile(path);
     }
 }
